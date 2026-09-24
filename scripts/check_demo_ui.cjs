@@ -89,11 +89,50 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     assert.match(await page.getByLabel('Что произошло?',{exact:true}).inputValue(),/Абай 90/);
     await page.getByRole('button',{name:'Зарегистрировать обращение',exact:true}).click();
     await page.locator('#receipt').getByText('✓ Обращение зарегистрировано',{exact:true}).waitFor();
-    await page.locator('#receipt').getByRole('button',{name:'Открыть карточку'}).click();
+    await page.locator('.tracking-card').waitFor();
+    const citizenId=await page.locator('.tracking-card h3').innerText();
+    assert.match(await page.locator('#tracking-result').innerText(),/Ожидает решения оператора/);
+    assert.equal(await page.locator('#receipt [data-action="open"]').count(),0);
+    await page.reload();
+    await page.locator('#tracking-id').waitFor();
+    assert.equal(await page.locator('#tracking-id').inputValue(),citizenId);
+    await page.locator('#tracking-form').getByRole('button',{name:'Проверить статус',exact:true}).click();
+    await page.locator('.tracking-card h3').filter({hasText:citizenId}).waitFor();
+    await page.locator('[data-nav="queue"]').click();
+    await open(citizenId);
     await page.locator('.message').filter({hasText:'<img src=x'}).waitFor();
     assert.equal(await page.locator('.message img').count(),0);
     await close();
-    console.log('PASS UI 5: subscription, KK intake, receipt, language change preserves draft, HTML renders literally');
+    console.log('PASS UI 5: subscription, KK intake, persistent receipt, language change preserves draft, HTML renders literally');
+
+    await open('PULSE-2430');
+    await action('clarify').click();
+    await page.locator('#clarification-answer').waitFor();
+    await close();
+    await page.locator('[data-nav="citizen"]').click();
+    const track=async id=>{
+      await page.getByLabel('Номер обращения',{exact:true}).fill(id);
+      await page.locator('#tracking-form').getByRole('button',{name:'Проверить статус',exact:true}).click();
+      await page.locator('.tracking-card h3').filter({hasText:id.toUpperCase()}).waitFor();
+    };
+    await page.getByLabel('Что произошло?',{exact:true}).fill('Черновик нового обращения');
+    await track('pulse-2430');
+    assert.match(await page.locator('#tracking-result').innerText(),/Нужно уточнение[\s\S]*Вопрос оператора/);
+    await track(cid.toLowerCase());
+    assert.match(await page.locator('#tracking-result').innerText(),/Решение оператора подтверждено[\s\S]*INC-204[\s\S]*Ответ оператора · демо/);
+    assert.equal(await page.getByLabel('Что произошло?',{exact:true}).inputValue(),'Черновик нового обращения');
+    assert.equal(await page.locator('#tracking-result [data-action="confirm"]').count(),0);
+    for(const width of [1440,768,390,320]) {
+      await page.setViewportSize({width,height:1000});
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`Tracking fits at ${width}`);
+    }
+    if(process.argv[3]) {
+      await page.setViewportSize({width:1440,height:1100});
+      await page.locator('#toast').waitFor({state:'hidden',timeout:8000});
+      await page.evaluate(()=>scrollTo(0,0));
+      await page.screenshot({path:path.join(process.argv[3],'pulse109-tracking.png'),fullPage:true});
+    }
+    console.log('PASS UI 6: live citizen tracking shows clarification, confirmed service, incident and reply without losing the draft');
 
     await page.locator('[data-nav="queue"]').click();
     for(const width of [1440,1024,768,390,320]) {
@@ -106,7 +145,10 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('dialog').isVisible(),false);
     assert.deepEqual(errors,[]);
-    console.log('PASS UI 6: five breakpoints, mobile dialog, Escape, no console/runtime errors');
+    console.log('PASS UI 7: five breakpoints, mobile dialog, Escape, no console/runtime errors');
+  } catch(err) {
+    console.error('UI failure:',await page.locator('#tracking-result').allTextContents(),errors);
+    throw err;
   } finally {await browser.close();}
-  console.log('ALL 6 DEMO UI CHECKS PASSED');
+  console.log('ALL 7 DEMO UI CHECKS PASSED');
 })().catch(e=>{console.error(e);process.exitCode=1;});

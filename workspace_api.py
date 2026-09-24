@@ -132,6 +132,33 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         with get_connection() as conn:
             return {"items": incident_list(conn)}
 
+    @router.get("/tracking/{cid}")
+    def tracking(cid: str):
+        with get_connection() as conn:
+            cid = cid.strip()
+            c = complaint(conn, cid.upper() if cid.upper().startswith("PULSE-") else cid)
+            # ponytail: number-only lookup is synthetic-only; real records need owner authentication.
+            if c["data_origin"] != "synthetic":
+                raise HTTPException(404, "Обращение не найдено")
+            status = "resolved" if c["resolved_at"] else "under_review" if c["quarantined"] else c["decision_status"]
+            updates = []
+            for row in conn.execute("""SELECT event_type, occurred_at, payload FROM audit_events
+                    WHERE complaint_id = ? AND event_type IN ('reply_saved', 'clarification_requested', 'clarification_received')
+                    ORDER BY occurred_at, recorded_at, rowid""", (c["id"],)):
+                payload = json.loads(row["payload"])
+                updates.append({"type": row["event_type"], "at": row["occurred_at"],
+                                "text": payload.get("question") if row["event_type"] == "clarification_requested" else payload.get("text")})
+            if status == "needs_clarification" and updates:
+                clarification = [u for u in updates if u["type"].startswith("clarification_")]
+                if clarification and clarification[-1]["type"] == "clarification_received":
+                    status = "clarification_received"
+            incident = conn.execute("SELECT id, title, status, next_update FROM incidents WHERE id = ?", (c["incident_id"],)).fetchone()
+            service = SERVICE_NAMES.get(c["service_id"]) if c["decision_status"] == "confirmed" and c["region_id"] == "KZ-ALA" else None
+            return {"id": c["id"], "registered_at": c["received_at"] or c["ingested_at"], "status": status,
+                    "service_name": service, "incident": dict(incident) if incident else None, "updates": updates,
+                    "resolved_at": c["resolved_at"], "resolution_text": c["resolution_text"] if c["resolved_at"] else None,
+                    "data_origin": "synthetic", "delivery": "demo_only"}
+
     @router.post("/intake", status_code=201)
     def intake(req: Intake):
         if not req.text.strip() or req.region_id not in valid_regions:

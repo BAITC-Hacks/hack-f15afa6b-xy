@@ -279,7 +279,7 @@ progress{width:100%;height:6px;border:0;accent-color:#85ac91}
 progress::-webkit-progress-bar{background:#edf0ec;border-radius:6px}
 progress::-webkit-progress-value{background:#85ac91;border-radius:6px}
 .incident-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
-.citizen-layout{display:grid;grid-template-columns:minmax(300px,1.1fr) minmax(280px,.9fr);max-width:950px;gap:30px}
+.citizen-layout{display:grid;grid-template-columns:minmax(300px,1.1fr) minmax(280px,.9fr);max-width:950px;gap:30px;align-items:start}
 .citizen-layout form{padding:30px}
 .citizen-layout h2{margin-bottom:22px}
 .citizen-layout textarea,.citizen-layout select{font-size:12px}
@@ -290,6 +290,13 @@ progress::-webkit-progress-value{background:#85ac91;border-radius:6px}
 .receipt{margin-top:20px;background:#eaf5ef;padding:16px;border-radius:8px;font-size:12px}
 .receipt strong{display:block;color:var(--green)}
 .receipt p{margin:10px 0;font-size:11px}
+.tracking-panel{margin-top:24px;min-width:0}
+.tracking-panel #tracking-form{padding:0}
+.tracking-panel .button{margin:12px 0}
+.tracking-card{overflow-wrap:anywhere}
+.tracking-card>p{margin-top:12px;font-size:12px}
+.tracking-card .badge{white-space:normal}
+.tracking-card .timeline p{white-space:pre-wrap}
 
 @media(min-width:1550px){main{padding:40px 45px}
 .inbox-layout{grid-template-columns:minmax(0,1fr) 300px}
@@ -333,6 +340,7 @@ h1{font-size:25px}
 .case-footer{justify-content:flex-end}
 .incident-grid{grid-template-columns:repeat(2,1fr)}
 .dashboard-grid{grid-template-columns:1fr}
+.citizen-layout{grid-template-columns:1fr}
 .page-heading{align-items:flex-start}
 h1{font-size:23px}
 }

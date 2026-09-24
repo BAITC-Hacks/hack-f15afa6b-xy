@@ -1,9 +1,10 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView} from './views.js';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView} from './views.js';
 import {caseView} from './case.js';
 
-const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null};
+const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null};
+try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
-let loadVersion=0, caseVersion=0, toastTimer;
+let loadVersion=0, caseVersion=0, trackingVersion=0, toastTimer;
 const titles={queue:'Обращения',incidents:'Инциденты',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
 async function api(path, data) {
   const response=await fetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});
@@ -63,6 +64,21 @@ async function mutate(path, data, message) {
   if(dialog.open && version===caseVersion) await openCase(id);
   toast(message);
 }
+async function trackCase(id) {
+  const version=++trackingVersion, result=document.querySelector('#tracking-result');
+  state.tracking=null;
+  result.textContent='Проверяем статус…';
+  try {
+    const data=await api(`/api/workspace/tracking/${encodeURIComponent(id.trim())}`);
+    if(version!==trackingVersion || !result.isConnected) return;
+    state.tracking=data; state.trackingId=data.id;
+    try {localStorage.setItem('pulse109-last-receipt',data.id);} catch { /* The number remains visible in the receipt. */ }
+    document.querySelector('#tracking-id').value=data.id;
+    result.innerHTML=trackingView(data);
+  } catch(err) {
+    if(version===trackingVersion && result.isConnected) result.textContent=err.message;
+  }
+}
 async function handleAction(node) {
   const action=node.dataset.action, d=state.detail, c=d?.complaint;
   if(action==='close') {caseVersion++;dialog.close();return;}
@@ -86,6 +102,7 @@ async function handleAction(node) {
   }
   if(action==='subscribed') {toast('Подписка уже сохранена в демо');return;}
   if(action==='anyway') {document.querySelector('#citizen-text').focus();return;}
+  if(action==='track') {await trackCase(node.dataset.id);document.querySelector('#tracking-result')?.scrollIntoView({block:'nearest'});return;}
   if(action==='reload-case') {await openCase(c.id);return;}
   if(action==='category') {
     d.selectedTopic=node.dataset.topic;
@@ -145,17 +162,27 @@ document.addEventListener('change',e=>{
   if(e.target.id==='citizen-district') document.querySelector('#citizen-notice').hidden=e.target.value!=='Алмалинский';
 });
 document.addEventListener('submit',async e=>{
+  if(e.target.id==='tracking-form') {
+    e.preventDefault();
+    const id=new FormData(e.target).get('complaint_id').trim();
+    if(id) await trackCase(id); else toast('Введите номер обращения',true);
+    return;
+  }
   if(e.target.id!=='citizen-form') return;
   e.preventDefault(); const form=e.target, submit=form.querySelector('[type=submit]');submit.disabled=true;
   try {
     const data=new FormData(form), text=data.get('text').trim();
     if(!text) throw new Error('Опишите проблему');
     const result=await api('/api/workspace/intake',{text,district:data.get('district'),language:data.get('language'),region_id:'KZ-ALA',channel:'web'});
-    document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('open','Открыть карточку','ghost',`data-id="${esc(result.id)}"`)}</div>`;
+    state.trackingId=result.id;
+    try {localStorage.setItem('pulse109-last-receipt',result.id);} catch { /* The receipt is usable without storage. */ }
+    document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`)}</div>`;
+    document.querySelector('#tracking-id').value=result.id;
+    await trackCase(result.id);
     form.querySelector('textarea').value=''; await refresh(false);
   } catch(err) {toast(err.message,true);} finally {submit.disabled=false;}
 });
-window.addEventListener('hashchange',()=>{state.group='';state.search='';render();main.focus();});
+window.addEventListener('hashchange',()=>{trackingVersion++;state.tracking=null;state.group='';state.search='';render();main.focus();});
 dialog.addEventListener('cancel',()=>caseVersion++);
 document.querySelector('#today').textContent=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',timeZone:'Asia/Almaty'});
 async function start() {

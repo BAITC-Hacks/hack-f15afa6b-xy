@@ -45,6 +45,9 @@ def run():
             assert detail["routing"]["operator"]["current_load"] == 2
             assert detail["complaint"]["decision_status"] == "pending"
             assert detail["complaint"]["incident_id"] is None
+            tracked = call(f"/api/workspace/tracking/{cid.lower()}")
+            assert tracked["id"] == cid and tracked["status"] == "pending"
+            assert tracked["service_name"] is None and tracked["incident"] is None and tracked["updates"] == []
             print("PASS 2: RU intake → 94% demo confidence → 17 candidates → Aidana 2/5; no auto-decision")
 
             decision = {"topic": "water_supply", "priority": "normal", "operator_id": "op-aidana", "incident_id": "INC-204"}
@@ -73,7 +76,15 @@ def run():
             assert low_detail["triage"]["confidence_band"] == "low" and low_detail["triage"]["clarification_question"]
             call(f"/api/workspace/complaints/{low}/decide", {"topic": "water_supply", "priority": "normal"}, 409)
             call(f"/api/complaints/{low}/clarification", {"reason": "unclear_event", "question": "Что произошло?"})
+            tracked = call(f"/api/workspace/tracking/{low}")
+            assert tracked["status"] == "needs_clarification" and tracked["updates"][-1]["text"] == "Что произошло?"
             call(f"/api/complaints/{low}/clarification-response", {"text": "На Абая 44 нет холодной воды"})
+            assert call(f"/api/workspace/tracking/{low}")["status"] == "clarification_received"
+            call(f"/api/complaints/{low}/resume", {})
+            assert call(f"/api/workspace/tracking/{low}")["status"] == "pending"
+            call(f"/api/complaints/{low}/clarification", {"reason": "unknown_place", "question": "Какой подъезд?"})
+            assert call(f"/api/workspace/tracking/{low}")["status"] == "needs_clarification", "Old answers must not hide a new question"
+            call(f"/api/complaints/{low}/clarification-response", {"text": "Первый"})
             call(f"/api/complaints/{low}/resume", {})
             assert call(f"/api/workspace/complaints/{low}/triage", {})["triage"]["category"] == "water_supply"
             print("PASS 4: KK, medium alternatives, low-confidence clarification and reanalysis")
@@ -90,10 +101,12 @@ def run():
             assert spam["triage"]["category"] is None, "Substring 'ток' in 'заработок' is not electricity"
             assert "spam_suspected" in spam["flags"] and spam["risk"]["reasons"]
             call("/api/workspace/complaints/PULSE-2420/safety", {"quarantine": True})
+            assert call("/api/workspace/tracking/PULSE-2420")["status"] == "under_review"
             assert call("/api/workspace/metrics")["quarantined"] == 1
             assert call("/api/complaints/PULSE-2420")["complaint"]["text"] == spam["complaint"]["text"]
             call("/api/workspace/complaints/PULSE-2420/decide", {"topic": "roads", "priority": "normal"}, 409)
             call("/api/workspace/complaints/PULSE-2420/safety", {"quarantine": False})
+            assert call("/api/workspace/tracking/PULSE-2420")["status"] == "pending"
             assert "spam_suspected" not in call("/api/workspace/complaints/PULSE-2420/triage", {})["flags"]
             print("PASS 6: reversible human quarantine retains text, blocks assignment, supports dismissal")
 
@@ -123,9 +136,25 @@ def run():
             assert call(f"/api/complaints/{cid}")["complaint"]["incident_id"] == "INC-204"
             assert call("/api/workspace/metrics")["linked"] == 18
             print("PASS 9: decisions, relationships and analytics survive restart")
+
+            before = call(f"/api/complaints/{cid}")
+            tracked = call(f"/api/workspace/tracking/{cid}")
+            assert tracked["status"] == "confirmed" and tracked["service_name"] == "Алматинский Су"
+            assert tracked["incident"]["id"] == "INC-204" and "members" not in tracked["incident"]
+            assert tracked["updates"][-1]["text"] == "Ваше обращение зарегистрировано."
+            assert tracked["delivery"] == "demo_only" and tracked["data_origin"] == "synthetic"
+            assert not {"text", "sender_key", "assigned_operator", "risk", "triage"} & tracked.keys()
+            assert call(f"/api/complaints/{cid}") == before, "Tracking must not write proposals or audit events"
+            resolved = call("/api/workspace/tracking/syn-001")
+            assert resolved["status"] == "resolved" and resolved["resolution_text"] and resolved["resolved_at"]
+            call("/api/workspace/tracking/missing", expected=404)
+            with sqlite3.connect(db) as conn:
+                conn.execute("UPDATE complaints SET data_origin = 'organizer' WHERE id = ?", (kk,))
+            call(f"/api/workspace/tracking/{kk}", expected=404)
+            print("PASS 10: read-only citizen tracking, clarification cycles, saved replies, resolution and synthetic-only boundary")
         finally:
             stop_server(proc)
-    print("ALL 9 OPERATOR DEMO CHECKS PASSED")
+    print("ALL 10 OPERATOR DEMO CHECKS PASSED")
 
 
 if __name__ == "__main__":
