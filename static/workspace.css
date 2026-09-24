@@ -298,6 +298,19 @@ progress::-webkit-progress-value{background:#85ac91;border-radius:6px}
 .tracking-card .badge{white-space:normal}
 .tracking-card .timeline p{white-space:pre-wrap}
 
+#playbook-dialog{width:min(590px,calc(100vw - 24px))}
+#playbook-dialog .case-header h2{font-size:19px}
+#playbook-dialog .case-footer{justify-content:flex-end;flex-wrap:wrap}
+.playbook-body{padding:24px}
+.playbook-options details{margin-top:12px;font-size:11px}
+.playbook-options summary{cursor:pointer;color:var(--green)}
+.playbook-actions{list-style:none;margin:24px 0;padding:0}
+.playbook-actions li{display:flex;gap:14px;padding:15px 0;border-bottom:1px solid var(--line)}
+.playbook-actions li>span{color:var(--green);background:var(--green-light);border-radius:50%;width:24px;height:24px;display:grid;place-items:center;flex-shrink:0}
+.playbook-actions strong{font-size:12px}
+.playbook-actions p{font-size:12px;color:var(--muted);margin-top:5px;white-space:pre-wrap;overflow-wrap:anywhere}
+#playbook-error:not(:empty){padding:14px 0;font-size:12px}
+
 @media(min-width:1550px){main{padding:40px 45px}
 .inbox-layout{grid-template-columns:minmax(0,1fr) 300px}
 .row-title{font-size:13px}

@@ -20,11 +20,11 @@ export function incidentCard(i, compact=false) {
 }
 export function queueView(s) {
   const quarantine = s.page === 'quarantine';
-  const visible = s.items.filter(d => (!s.region || d.complaint.region_id === s.region) && (quarantine ? d.group === 'quarantine' : d.group !== 'quarantine' && d.group !== 'resolved'));
+  const visible = s.items.filter(d => (!s.region || d.complaint.region_id === s.region) && (quarantine ? d.group === 'quarantine' : d.group !== 'quarantine'));
   const counts = Object.fromEntries(Object.keys(groups).map(g => [g, visible.filter(d=>d.group===g).length]));
   const needle = s.search.toLocaleLowerCase();
-  const rows = visible.filter(d => (!s.group || d.group === s.group) && (!needle || [d.complaint.id,d.complaint.text,d.triage.extracted_address].join(' ').toLocaleLowerCase().includes(needle)));
-  const tabs = ['','urgent','attention','normal','awaiting_citizen','awaiting_service'];
+  const rows = visible.filter(d => (s.group ? d.group === s.group : d.group !== 'resolved') && (!needle || [d.complaint.id,d.complaint.text,d.triage.extracted_address].join(' ').toLocaleLowerCase().includes(needle)));
+  const tabs = ['','urgent','attention','normal','awaiting_citizen','awaiting_service','resolved'];
   let lastGroup = '';
   const ordered = [...rows].sort((a,b)=>Object.keys(groups).indexOf(a.group)-Object.keys(groups).indexOf(b.group) || b.priority_score-a.priority_score);
   const rowHTML = ordered.map(d => {
@@ -43,7 +43,7 @@ export function queueView(s) {
     `${button('refresh','↻ Обновить','ghost')}${button('demo','＋ Демо: нет воды','primary')}`) +
     `<div class="metrics-strip"><div><span>Ждут решения</span><strong>${visible.filter(d=>['urgent','attention','normal'].includes(d.group)).length}<small>обращений</small></strong></div><div><span>Срочные</span><strong class="danger-text">${counts.urgent||0}<small>проверить сейчас</small></strong></div><div><span>Связаны с инцидентами</span><strong>${s.metrics.linked}<small>оригиналы сохранены</small></strong></div><div><span>Нагрузка команды</span><strong>${s.metrics.operator_load}%<small>занято от ёмкости</small></strong></div></div>
     <div class="inbox-layout"><section class="inbox" aria-label="Очередь обращений"><div class="inbox-toolbar"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Найти по тексту, адресу или номеру" value="${esc(s.search)}" aria-label="Поиск обращений"></label><select id="queue-region" class="region-filter" aria-label="Регион очереди"><option value="KZ-ALA" ${s.region==='KZ-ALA'?'selected':''}>Алматы</option><option value="" ${s.region===''?'selected':''}>Все регионы</option></select><span class="sort-label">↓ По приоритету</span></div>
-    ${quarantine?'':`<div class="tabs" aria-label="Группы очереди">${tabs.map(g=>button('filter',`${g?groups[g]:'Все'} <span>${g?counts[g]:visible.length}</span>`,s.group===g?'selected':'',`data-group="${g}" aria-pressed="${s.group===g}"`)).join('')}</div>`}
+    ${quarantine?'':`<div class="tabs" aria-label="Группы очереди">${tabs.map(g=>button('filter',`${g?groups[g]:'Все'} <span>${g?counts[g]:visible.filter(d=>d.group!=='resolved').length}</span>`,s.group===g?'selected':'',`data-group="${g}" aria-pressed="${s.group===g}"`)).join('')}</div>`}
     <div id="queue-rows">${rowHTML||empty(quarantine?'Карантин пуст':'В этой группе нет обращений')}</div><div class="list-footer">${rows.length} обращений · Срочность + SLA + ожидание + инцидент</div></section>
     <aside class="insights"><div class="section-top"><h2>Пульс города</h2><span class="live"><i></i> Демо</span></div>${s.incidents.slice(0,1).map(i=>incidentCard(i,true)).join('')}
     <div class="how-card"><span class="eyebrow">ВАШ СЛЕДУЮЩИЙ ШАГ</span><h3>От сообщения<br>к решению за 3 шага</h3><ol><li><b>01</b><span>Откройте обращение<small>Срочные всегда сверху</small></span></li><li><b>02</b><span>Проверьте предложение AI<small>Категория, инцидент, оператор</small></span></li><li><b>03</b><span>Подтвердите решение<small>Очередь и аналитика обновятся</small></span></li></ol></div></aside></div>`;

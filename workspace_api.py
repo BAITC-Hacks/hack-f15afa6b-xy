@@ -8,8 +8,9 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from clarification import get_received_clarifications
+from clarification import VALID_CLARIFICATION_REASONS, get_received_clarifications
 from demo_data import seed_workspace
+from playbooks import attach_playbook_routes
 from triage import (analyze, address_in, operators_with_load, queue_state, related_cases,
                     risk_for, route, SERVICE_NAMES, moment)
 
@@ -48,13 +49,19 @@ class Subscription(BaseModel):
     subscriber_key: str = Field(min_length=8, max_length=100)
 
 
-def event(conn, cid, kind, payload, actor="operator_demo"):
+def event(conn, cid, kind, payload, actor="operator_demo", event_id=None):
     now = datetime.now(timezone.utc).isoformat()
     conn.execute("INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?)",
-                 ("evt-" + uuid.uuid4().hex, cid, kind, now, now, actor, json.dumps(payload, ensure_ascii=False)))
+                 (event_id or "evt-" + uuid.uuid4().hex, cid, kind, now, now, actor,
+                  json.dumps(payload, ensure_ascii=False)))
 
 
-def build_workspace_router(get_connection, classifier, topic_services, valid_regions):
+def suggested_response(c):
+    return ("Ваше обращение зарегистрировано. Оно связано с инцидентом " + c["incident_id"] + ". Ответственная служба уведомлена в демо-системе. Срок устранения пока не подтверждён."
+            if c["incident_id"] else "Ваше обращение зарегистрировано. Оператор проверит информацию и направит её в ответственную службу. Срок устранения пока не подтверждён.")
+
+
+def build_workspace_router(get_connection, classifier, topic_services, valid_regions, topic_names=None):
     router = APIRouter(prefix="/api/workspace")
 
     def complaint(conn, cid):
@@ -75,23 +82,29 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             result.append(item)
         return result
 
+    def analysis(conn, c):
+        """Demo triage for one complaint, including received clarifications."""
+        return analyze(c, classifier, topic_services, "\n".join(get_received_clarifications(conn, c["id"])))
+
+    def routing_for(c, ai, ops):
+        routing = route(c, ai, ops)
+        assigned = next((o for o in ops if o["id"] == c["assigned_operator"]), None)
+        if assigned:
+            routing = {"operator": assigned, "reason": "Назначение подтверждено оператором.", "level": None, "assigned": True}
+        return routing
+
     def detail(conn, c, rows=None, operators=None):
         rows = rows if rows is not None else [dict(r) for r in conn.execute("SELECT * FROM complaints")]
-        ai = analyze(c, classifier, topic_services, "\n".join(get_received_clarifications(conn, c["id"])))
+        ai = analysis(conn, c)
         similar = related_cases(c, ai, rows, classifier, topic_services)
         incidents = incident_list(conn)
         candidate_ids = [r["incident_id"] for r in similar if r["incident_id"]]
         candidate = next((i for i in incidents if i["id"] in candidate_ids and i["status"] != "Завершён"), None)
         risk = risk_for(c, rows)
         ops = operators if operators is not None else operators_with_load(conn)
-        routing = route(c, ai, ops)
-        assigned = next((o for o in ops if o["id"] == c["assigned_operator"]), None)
-        if assigned:
-            routing = {"operator": assigned, "reason": "Назначение подтверждено оператором.", "level": None, "assigned": True}
-        response = ("Ваше обращение зарегистрировано. Оно связано с инцидентом " + c["incident_id"] + ". Ответственная служба уведомлена в демо-системе. Срок устранения пока не подтверждён."
-                    if c["incident_id"] else "Ваше обращение зарегистрировано. Оператор проверит информацию и направит её в ответственную службу. Срок устранения пока не подтверждён.")
+        routing = routing_for(c, ai, ops)
         return {"complaint": c, "triage": ai, "similar": similar, "incident_candidate": candidate,
-                "routing": routing, "risk": risk, "suggested_response": response,
+                "routing": routing, "risk": risk, "suggested_response": suggested_response(c),
                 **queue_state(c, ai, risk, bool(similar) or bool(c["incident_id"]))}
 
     def writable(c):
@@ -302,4 +315,11 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                 "subscriptions": subscriptions, "time_saved_percent": None,
                 "note": "Счётчики синтетической SQLite. Экономия времени не измерялась."}
 
+    attach_playbook_routes(router, get_connection, {
+        "complaint": complaint, "detail": detail, "analysis": analysis, "routing": routing_for,
+        "operators": operators_with_load, "checked_incident": checked_incident, "writable": writable,
+        "services": topic_services, "clarification_reasons": VALID_CLARIFICATION_REASONS,
+        "topic_names": topic_names or {},
+        "suggested_response": suggested_response, "event": event, "actor": "operator_demo",
+    })
     return router

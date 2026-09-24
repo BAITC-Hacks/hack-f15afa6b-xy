@@ -21,6 +21,7 @@ from data_coverage import CoverageUnavailable, load_coverage
 from clarification import build_clarification_router, get_received_clarifications
 from queue_api import build_queue_router
 from demo_data import init_workspace
+from playbooks import faq_closed
 from workspace_api import build_workspace_router
 
 BANNER_TEXT = "SYNTHETIC DEMO — MODELS NOT TRAINED"
@@ -410,6 +411,8 @@ def confirm_complaint(complaint_id: str, req: ConfirmRequest):
             raise HTTPException(status_code=404, detail="Complaint not found")
         if row["decision_status"] == "needs_clarification" or row["quarantined"]:
             raise HTTPException(status_code=409, detail="Confirm is blocked while clarification is pending")
+        if row["resolved_at"] and faq_closed(conn, complaint_id):
+            raise HTTPException(status_code=409, detail="Типовой вопрос закрыт сценарием FAQ; сначала верните его в работу")
         if row["incident_id"]:
             incident = conn.execute("SELECT category FROM incidents WHERE id = ?", (row["incident_id"],)).fetchone()
             if incident and incident[0] != req.topic:
@@ -478,7 +481,8 @@ def get_reports(format: str = Query("pdf")):
 
 
 static_dir = Path(__file__).resolve().parent / "static"
-app.include_router(build_workspace_router(get_connection, mock_classify, TOPIC_SERVICE_MAP, VALID_REGION_IDS))
+app.include_router(build_workspace_router(get_connection, mock_classify, TOPIC_SERVICE_MAP, VALID_REGION_IDS,
+                                          {t["id"]: t["name_ru"] for t in TOPICS}))
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

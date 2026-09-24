@@ -15,6 +15,8 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from playbooks import faq_closed
+
 VALID_CLARIFICATION_REASONS = {
     "unknown_place",
     "unclear_event",
@@ -79,6 +81,10 @@ def build_clarification_router(get_connection: Callable[[], Any], banner_text: s
             if row["decision_status"] != "pending":
                 raise HTTPException(
                     status_code=409, detail=f"Cannot request clarification from status: {row['decision_status']}"
+                )
+            if row["resolved_at"] and faq_closed(conn, complaint_id):
+                raise HTTPException(
+                    status_code=409, detail="Типовой вопрос закрыт сценарием FAQ; сначала верните его в работу"
                 )
             conn.execute("UPDATE complaints SET decision_status = 'needs_clarification' WHERE id = ?", (complaint_id,))
             conn.execute(

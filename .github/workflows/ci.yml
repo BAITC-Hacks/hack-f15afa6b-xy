@@ -28,6 +28,8 @@ jobs:
         run: python scripts/check_queue_api.py
       - name: Verify operator demo and incident decisions
         run: python scripts/check_demo.py
+      - name: Verify atomic playbooks and preview conflicts
+        run: python scripts/check_playbooks.py
       - name: Verify coverage evidence boundaries
         run: python scripts/check_coverage.py
       - name: Verify local audit with synthetic inputs
@@ -62,3 +64,11 @@ jobs:
             sleep 1
           done
           node scripts/check_demo_ui.cjs http://127.0.0.1:8766
+          DATABASE_PATH="$RUNNER_TEMP/p109-playbooks-ui.db" python -m uvicorn app:app --host 127.0.0.1 --port 8767 &
+          playbooks_pid=$!
+          trap 'kill "$server_pid" "$demo_pid" "$playbooks_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8767/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check_playbooks_ui.cjs http://127.0.0.1:8767

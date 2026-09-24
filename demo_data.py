@@ -32,6 +32,11 @@ def init_workspace(conn):
             incident_id TEXT NOT NULL, subscriber_key TEXT NOT NULL, created_at TEXT NOT NULL,
             PRIMARY KEY (incident_id, subscriber_key)
         );
+        CREATE TABLE IF NOT EXISTS playbook_previews (
+            token TEXT PRIMARY KEY, complaint_id TEXT NOT NULL, playbook_id TEXT NOT NULL,
+            request TEXT NOT NULL, fingerprint TEXT NOT NULL, created_at TEXT NOT NULL,
+            executed_at TEXT, result TEXT
+        );
     """)
 
 

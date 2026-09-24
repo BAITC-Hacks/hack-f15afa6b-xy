@@ -4,11 +4,14 @@ import {caseView} from './case.js';
 const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null};
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
-let loadVersion=0, caseVersion=0, trackingVersion=0, toastTimer;
+const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent=document.querySelector('#playbook-content');
+let loadVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer;
 const titles={queue:'Обращения',incidents:'Инциденты',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
 async function api(path, data) {
-  const response=await fetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});
-  const result=await response.json();
+  let response;
+  try {response=await fetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});}
+  catch {throw new Error('Сервер недоступен. Проверьте подключение и повторите действие.');}
+  const result=await response.json().catch(()=>({detail:'Не удалось получить ответ сервера. Обновите карточку и повторите действие.'}));
   if(!response.ok) throw new Error(typeof result.detail==='string'?result.detail:'Не удалось выполнить действие. Проверьте поля и повторите.');
   return result;
 }
@@ -40,14 +43,22 @@ async function refresh(renderPage=true) {
 }
 async function openCase(id) {
   const version=++caseVersion;
-  const [detail,history]=await Promise.all([api(`/api/workspace/complaints/${encodeURIComponent(id)}/triage`,{}),api(`/api/complaints/${encodeURIComponent(id)}`)]);
+  const [analysis,history,playbooks]=await Promise.all([api(`/api/workspace/complaints/${encodeURIComponent(id)}/triage`,{}).catch(error=>({error})),api(`/api/complaints/${encodeURIComponent(id)}`),api(`/api/workspace/complaints/${encodeURIComponent(id)}/playbooks`).catch(error=>({items:[],error:error.message}))]);
   if(version!==caseVersion) return;
+  const detail=analysis.error?manualDetail(history.complaint,analysis.error.message):analysis;
   detail.events=history.events;
+  detail.playbooks=playbooks.items;
+  detail.playbookError=playbooks.error;
   detail.selectedTopic=detail.complaint.topic||(detail.triage.confidence_band==='high'?detail.triage.category:null);
   detail.selectedPriority=detail.complaint.priority||detail.triage.urgency;
   state.detail=detail;
   content.innerHTML=caseView(detail,state.topics);
   if(!dialog.open) dialog.showModal();
+}
+function manualDetail(c, message) {
+  return {complaint:c,triage:{unavailable:true,category:null,urgency:null,confidence_band:'low',alternatives:[],extracted_address:c.address,scope:'Не уточнён',onset:'Не уточнено',summary:c.text,reasoning_short:message,service_name:'Выберите категорию вручную',clarification_question:'Уточните адрес и что произошло.'},
+    similar:[],incident_candidate:null,routing:{operator:null,reason:'Выберите категорию для проверки маршрута.'},risk:{reasons:[]},flags:[],group:c.resolved_at?'resolved':c.quarantined?'quarantine':c.decision_status==='confirmed'?'awaiting_service':c.decision_status==='needs_clarification'?'awaiting_citizen':'attention',
+    sla_remaining:null,priority_score:0,priority_factors:{urgency:0,sla_risk:0,waiting:0,incident:0,review:0},suggested_response:'Ваше обращение зарегистрировано. Оператор проверит информацию.'};
 }
 function rerenderCase() {
   const draft=document.querySelector('#reply-text')?.value;
@@ -79,8 +90,39 @@ async function trackCase(id) {
     if(version===trackingVersion && result.isConnected) result.textContent=err.message;
   }
 }
+async function showPlaybook(kind, extra={}) {
+  const d=state.detail, cid=d.complaint.id, version=++previewVersion;
+  const request={topic:d.selectedTopic,priority:d.selectedPriority,manual:!!d.manual,...extra};
+  preview={cid,kind,request};
+  playbookContent.innerHTML=`<div class="case-header"><h2 id="playbook-title">Проверяем действия…</h2>${button('cancel-playbook','×','icon-button','aria-label="Отменить сценарий"')}</div><div class="playbook-body"><p role="status">Проверяем состояние обращения и доступность назначения.</p><p id="playbook-error" role="alert"></p>${button('refresh-playbook','Повторить загрузку','ghost')}</div>`;
+  if(!playbookDialog.open) playbookDialog.showModal();
+  try {
+    const data=await api(`/api/workspace/complaints/${encodeURIComponent(cid)}/playbooks/${kind}/preview`,request);
+    if(version!==previewVersion || !playbookDialog.open) return;
+    preview={cid,kind,request,...data};
+    playbookContent.innerHTML=`<div class="case-header"><div><span class="eyebrow">СЦЕНАРИЙ · ${esc(cid)}</span><h2 id="playbook-title">${esc(data.title)}</h2></div>${button('cancel-playbook','×','icon-button','aria-label="Отменить сценарий"')}</div><div class="playbook-body"><p class="micro">Проверьте изменения. Они будут сохранены вместе только после вашего подтверждения.</p><ol class="playbook-actions">${data.actions.map(a=>`<li><span aria-hidden="true">✓</span><div><strong>${esc(a.label)}</strong><p>${esc(a.value)}</p></div></li>`).join('')}</ol><p id="playbook-error" class="danger-text" role="alert">${esc(data.blocked_reason||'')}</p><p class="micro">Синтетическое демо · сообщения сохраняются в истории, внешняя отправка не подключена.</p></div><div class="case-footer">${button('cancel-playbook','Отмена','ghost')}${button('refresh-playbook','Обновить preview','ghost')}${button('execute-playbook',`Подтвердить ${data.actions.length} действий`,'primary',data.can_execute?'':'disabled')}</div>`;
+  } catch(err) {
+    if(version===previewVersion && playbookDialog.open) document.querySelector('#playbook-error').textContent=err.message;
+  }
+}
 async function handleAction(node) {
   const action=node.dataset.action, d=state.detail, c=d?.complaint;
+  if(action==='cancel-playbook') {previewVersion++;playbookDialog.close();return;}
+  if(action==='refresh-playbook') {await showPlaybook(preview.kind,preview.request);return;}
+  if(action==='playbook') {await showPlaybook(node.dataset.kind);return;}
+  if(action==='execute-playbook') {
+    const p=preview, version=caseVersion;
+    try {
+      await api(`/api/workspace/complaints/${encodeURIComponent(p.cid)}/playbooks/${p.kind}/execute`,{preview_token:p.preview_token});
+    } catch(err) {
+      document.querySelector('#playbook-error').textContent=err.message;
+      node.dataset.action='blocked-playbook'; node.setAttribute('aria-disabled','true');
+      return;
+    }
+    previewVersion++;playbookDialog.close();
+    await refresh();if(dialog.open && version===caseVersion) await openCase(p.cid);
+    toast('Сценарий применён. Изменения и аудит сохранены.');return;
+  }
   if(action==='close') {caseVersion++;dialog.close();return;}
   if(action==='refresh') {await refresh();toast('Данные обновлены');return;}
   if(action==='open') {await openCase(node.dataset.id);return;}
@@ -106,23 +148,21 @@ async function handleAction(node) {
   if(action==='reload-case') {await openCase(c.id);return;}
   if(action==='category') {
     d.selectedTopic=node.dataset.topic;
-    const routing=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/routing?topic=${encodeURIComponent(d.selectedTopic)}`);
+    const topic=d.selectedTopic, version=caseVersion;
+    const routing=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/routing?topic=${encodeURIComponent(topic)}`);
+    if(version!==caseVersion || d.selectedTopic!==topic || !dialog.open) return;
     d.routing=routing.routing; d.triage.service_name=routing.service_name; rerenderCase();return;
   }
   if(action==='priority') {d.selectedPriority=node.dataset.priority;rerenderCase();return;}
-  if(action==='link') {await mutate('link',{incident_id:node.dataset.id},'Связь подтверждена. Оригинал обращения сохранён.');return;}
-  if(action==='separate') {await mutate('link',{separate:true},'Отмечено как отдельная проблема');return;}
-  if(action==='quarantine'||action==='restore') {await mutate('safety',{quarantine:action==='quarantine'},action==='quarantine'?'Обращение перемещено в карантин':'Обращение возвращено в обычную очередь');return;}
+  if(action==='link') {await showPlaybook('link_mass_incident',{incident_id:node.dataset.id});return;}
+  if(action==='separate') {await showPlaybook('unlink_incident');return;}
+  if(action==='quarantine'||action==='restore') {await showPlaybook(action);return;}
   if(action==='confirm') {
-    const version=caseVersion;
     const include=document.querySelector('#include-incident')?.checked;
-    await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/decide`,{topic:d.selectedTopic,priority:d.selectedPriority,operator_id:d.routing.operator?.id||null,incident_id:include?d.incident_candidate?.id:null});
-    await refresh(); if(dialog.open && version===caseVersion) await openCase(c.id);toast(`✓ ${c.id}: решение подтверждено, очередь и аналитика обновлены`);return;
+    await showPlaybook(include?'link_mass_incident':'route_service',include?{incident_id:d.incident_candidate.id}:{});return;
   }
   if(action==='clarify') {
-    const version=caseVersion;
-    await api(`/api/complaints/${encodeURIComponent(c.id)}/clarification`,{reason:'insufficient_detail',question:d.triage.clarification_question});
-    await refresh();if(dialog.open && version===caseVersion) await openCase(c.id);toast('Вопрос сохранён. Ожидаем гражданина.');return;
+    await showPlaybook('request_clarification',{question:d.triage.clarification_question});return;
   }
   if(action==='resume') {
     const version=caseVersion;
@@ -148,7 +188,7 @@ async function handleAction(node) {
 document.addEventListener('click',async e=>{
   const node=e.target.closest('[data-action]'); if(!node||node.disabled) return;
   node.disabled=true;
-  try {await handleAction(node);} catch(err) {toast(err.message,true);} finally {if(node.isConnected) node.disabled=false;}
+  try {await handleAction(node);} catch(err) {toast(err.message,true);} finally {if(node.isConnected && node.getAttribute('aria-disabled')!=='true') node.disabled=false;}
 });
 document.addEventListener('input',e=>{
   if(e.target.id!=='search') return;
@@ -157,9 +197,14 @@ document.addEventListener('input',e=>{
   render(); const input=document.querySelector('#search');input.focus();
   input.setSelectionRange(position,position);
 });
-document.addEventListener('change',e=>{
+document.addEventListener('change',async e=>{
   if(e.target.id==='queue-region') {state.region=e.target.value;render();}
   if(e.target.id==='citizen-district') document.querySelector('#citizen-notice').hidden=e.target.value!=='Алмалинский';
+  if(e.target.id==='manual-category' && e.target.value) {
+    state.detail.manual=true;
+    if(!state.detail.selectedPriority) state.detail.selectedPriority='normal';
+    try {await handleAction({dataset:{action:'category',topic:e.target.value}});} catch(err) {toast(err.message,true);}
+  }
 });
 document.addEventListener('submit',async e=>{
   if(e.target.id==='tracking-form') {
@@ -184,6 +229,7 @@ document.addEventListener('submit',async e=>{
 });
 window.addEventListener('hashchange',()=>{trackingVersion++;state.tracking=null;state.group='';state.search='';render();main.focus();});
 dialog.addEventListener('cancel',()=>caseVersion++);
+playbookDialog.addEventListener('cancel',()=>previewVersion++);
 document.querySelector('#today').textContent=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',timeZone:'Asia/Almaty'});
 async function start() {
   try {await api('/api/workspace/seed',{});state.topics=(await api('/api/topics')).topics;await refresh();}
