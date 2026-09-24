@@ -22,7 +22,7 @@ const screenshot = process.argv[3];
     const original = await (await page.request.get(baseURL + '/api/data-coverage')).json();
     let loadingRoute;
     await page.route(apiPattern, route => { loadingRoute = route; });
-    await page.goto(baseURL);
+    await page.goto(baseURL + '/legacy');
     await page.locator('#coverage-panel[aria-busy="true"]').waitFor();
     assert.equal(await page.locator('#coverage-supplied').textContent(), '—');
     while (!loadingRoute) await page.waitForTimeout(20);

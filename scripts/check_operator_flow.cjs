@@ -36,7 +36,7 @@ async function complaint(page, id) {
     catch (error) { failures.push(name); console.error(`FAIL FLOW: ${name}: ${error.message}`); }
   };
   try {
-    await page.goto(baseURL);
+    await page.goto(baseURL + '/legacy');
     await page.waitForFunction(() => document.querySelectorAll('#queue-list .queue-item').length > 0);
     const before = await stats(page);
 

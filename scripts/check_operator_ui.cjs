@@ -87,7 +87,7 @@ async function main() {
       return route.fulfill({json});
     });
     try {
-      await page.goto(baseURL);
+      await page.goto(baseURL + '/legacy');
       const waitForItems = options.waitForItems === undefined ? 3 : options.waitForItems;
       if (waitForItems) {
         await page.waitForFunction(count => document.querySelectorAll('#queue-list .queue-item').length === count, waitForItems);

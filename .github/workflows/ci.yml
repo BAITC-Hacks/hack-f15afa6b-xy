@@ -26,6 +26,8 @@ jobs:
         run: python scripts/check_clarification.py
       - name: Run operator queue listing checks
         run: python scripts/check_queue_api.py
+      - name: Verify operator demo and incident decisions
+        run: python scripts/check_demo.py
       - name: Verify coverage evidence boundaries
         run: python scripts/check_coverage.py
       - name: Verify local audit with synthetic inputs
@@ -52,3 +54,11 @@ jobs:
           node scripts/check_operator_ui.cjs http://127.0.0.1:8765
           node scripts/check_coverage_ui.cjs http://127.0.0.1:8765
           P109_BROWSER=chromium node scripts/check_operator_flow.cjs http://127.0.0.1:8765
+          DATABASE_PATH="$RUNNER_TEMP/p109-demo-ui.db" python -m uvicorn app:app --host 127.0.0.1 --port 8766 &
+          demo_pid=$!
+          trap 'kill "$server_pid" "$demo_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8766/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check_demo_ui.cjs http://127.0.0.1:8766
