@@ -275,7 +275,8 @@ def run():
             linked = execute(link_case, "link_mass_incident", link_preview["preview_token"])
             assert linked["complaint"]["incident_id"] == "INC-204" and linked["complaint"]["related_to"]
             operators = {o["id"]: o for o in call("/api/workspace/operators")["items"]}
-            assert operators["op-aidana"]["current_load"] == operators["op-aidana"]["capacity"]
+            assert operators["op-aidana"]["current_load"] < operators["op-aidana"]["capacity"]
+            assert operators["op-aidana"]["workload"] + 15 > operators["op-aidana"]["workload_capacity"]
             assert linked["complaint"]["assigned_operator"] == "op-timur", linked["complaint"]["assigned_operator"]
             assert "Тимур" in fields["Оператор"], fields["Оператор"]
             kinds = [e["event_type"] for e in events(link_case)]

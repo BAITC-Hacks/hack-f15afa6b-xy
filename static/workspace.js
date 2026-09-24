@@ -1,12 +1,17 @@
 import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView} from './views.js';
+import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js';
 import {caseView} from './case.js';
+import {radarView,signalView,incidentView,stamp} from './incidents.js';
 
 const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null};
+Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
 const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent=document.querySelector('#playbook-content');
 let loadVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer;
-const titles={queue:'Обращения',incidents:'Инциденты',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
+const commandDialog=document.querySelector('#command-dialog');
+Object.assign(state,{routingHealth:null,healthRegion:'',regions:[]});
+const titles={routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
 async function api(path, data) {
   let response;
   try {response=await fetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});}
@@ -30,19 +35,21 @@ function render() {
   document.querySelector('#nav-count').textContent=state.metrics.pending;
   document.querySelector('#incident-count').textContent=state.metrics.active_incidents;
   document.querySelector('#quarantine-count').textContent=state.metrics.quarantined;
-  const views={queue:queueView,quarantine:queueView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
+  document.querySelector('#radar-count').textContent=state.radar.items.filter(i=>!i.ignored&&!i.incident_id).length;
+  const views={routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
   main.innerHTML=views[state.page](state);
 }
 async function refresh(renderPage=true) {
   const version=++loadVersion;
-  const [queue,incidents,operators,metrics]=await Promise.all([
-    api('/api/workspace/queue'),api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics')]);
+  const [queue,incidents,operators,metrics,radar]=await Promise.all([
+    api('/api/workspace/queue'),api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar')]);
   if(version!==loadVersion) return;
-  Object.assign(state,{items:queue.items,incidents:incidents.items,operators:operators.items,metrics});
+  Object.assign(state,{items:queue.items,incidents:incidents.items,operators:operators.items,metrics,radar});
   if(renderPage) render();
 }
 async function openCase(id) {
   const version=++caseVersion;
+  stopPresence();state.incident=null;state.signal=null;
   const [analysis,history,playbooks]=await Promise.all([api(`/api/workspace/complaints/${encodeURIComponent(id)}/triage`,{}).catch(error=>({error})),api(`/api/complaints/${encodeURIComponent(id)}`),api(`/api/workspace/complaints/${encodeURIComponent(id)}/playbooks`).catch(error=>({items:[],error:error.message}))]);
   if(version!==caseVersion) return;
   const detail=analysis.error?manualDetail(history.complaint,analysis.error.message):analysis;
@@ -53,6 +60,7 @@ async function openCase(id) {
   detail.selectedPriority=detail.complaint.priority||detail.triage.urgency;
   state.detail=detail;
   content.innerHTML=caseView(detail,state.topics);
+  watchPresence(id,state.operators,api);
   if(!dialog.open) dialog.showModal();
 }
 function manualDetail(c, message) {
@@ -63,7 +71,9 @@ function manualDetail(c, message) {
 function rerenderCase() {
   const draft=document.querySelector('#reply-text')?.value;
   const check=document.querySelector('#include-incident')?.checked;
+  const presence=document.querySelector('#presence');
   content.innerHTML=caseView(state.detail,state.topics);
+  if(presence) document.querySelector('#presence').replaceWith(presence);
   if(draft && document.querySelector('#reply-text')) document.querySelector('#reply-text').value=draft;
   if(check!==undefined && document.querySelector('#include-incident')) document.querySelector('#include-incident').checked=check;
 }
@@ -100,30 +110,87 @@ async function showPlaybook(kind, extra={}) {
     const data=await api(`/api/workspace/complaints/${encodeURIComponent(cid)}/playbooks/${kind}/preview`,request);
     if(version!==previewVersion || !playbookDialog.open) return;
     preview={cid,kind,request,...data};
-    playbookContent.innerHTML=`<div class="case-header"><div><span class="eyebrow">СЦЕНАРИЙ · ${esc(cid)}</span><h2 id="playbook-title">${esc(data.title)}</h2></div>${button('cancel-playbook','×','icon-button','aria-label="Отменить сценарий"')}</div><div class="playbook-body"><p class="micro">Проверьте изменения. Они будут сохранены вместе только после вашего подтверждения.</p><ol class="playbook-actions">${data.actions.map(a=>`<li><span aria-hidden="true">✓</span><div><strong>${esc(a.label)}</strong><p>${esc(a.value)}</p></div></li>`).join('')}</ol><p id="playbook-error" class="danger-text" role="alert">${esc(data.blocked_reason||'')}</p><p class="micro">Синтетическое демо · сообщения сохраняются в истории, внешняя отправка не подключена.</p></div><div class="case-footer">${button('cancel-playbook','Отмена','ghost')}${button('refresh-playbook','Обновить preview','ghost')}${button('execute-playbook',`Подтвердить ${data.actions.length} действий`,'primary',data.can_execute?'':'disabled')}</div>`;
+    renderPreview(data,cid);
   } catch(err) {
     if(version===previewVersion && playbookDialog.open) document.querySelector('#playbook-error').textContent=err.message;
   }
 }
+function renderPreview(data,subject) {
+  playbookContent.innerHTML=`<div class="case-header"><div><span class="eyebrow">ПРОВЕРКА ИЗМЕНЕНИЙ · ${esc(subject)}</span><h2 id="playbook-title">${esc(data.title)}</h2></div>${button('cancel-playbook','×','icon-button','aria-label="Отменить сценарий"')}</div><div class="playbook-body"><p class="micro">Проверьте изменения. Они будут сохранены вместе только после вашего подтверждения.</p><ol class="playbook-actions">${data.actions.map(a=>`<li><span aria-hidden="true">✓</span><div><strong>${esc(a.label)}</strong><p>${esc(a.value)}</p></div></li>`).join('')}</ol><p id="playbook-error" class="danger-text" role="alert">${esc(data.blocked_reason||'')}</p><p class="micro">Синтетическое демо · внешняя отправка сообщений не подключена.</p></div><div class="case-footer">${button('cancel-playbook','Отмена','ghost')}${button('refresh-playbook','Обновить preview','ghost')}${button('execute-playbook',`Подтвердить ${data.actions.length} действий`,'primary',data.can_execute?'':'disabled')}</div>`;
+}
+async function openIncident(id) {
+  const version=++caseVersion;
+  stopPresence();state.detail=null;state.signal=null;
+  const incident=await api(`/api/workspace/incidents/${encodeURIComponent(id)}`);
+  if(version!==caseVersion) return;
+  state.incident=incident;
+  content.innerHTML=incidentView(incident,state.operators);
+  if(!dialog.open) dialog.showModal();
+}
+function showSignal(signal) {
+  stopPresence();caseVersion++;state.signal=signal;state.detail=null;state.incident=null;
+  content.innerHTML=signalView(signal,state.topics);
+  if(!dialog.open) dialog.showModal();
+}
+function previewIncident(incident,request) {
+  previewVersion++;
+  const name=id=>state.operators.find(o=>o.id===id)?.name||'Не назначен';
+  preview={cid:incident.id,kind:'incident_update',path:`/api/workspace/incidents/${encodeURIComponent(incident.id)}/update`,request:{...request,expected_revision:incident.revision}};
+  renderPreview({title:'Обновить инцидент',can_execute:true,actions:[
+    {label:'Статус',value:`${incident.status} → ${request.status}`},
+    {label:'Ответственный',value:`${name(incident.incident_owner_id)} → ${name(request.incident_owner_id)}`},
+    {label:'Важность',value:`${incident.severity} → ${request.severity} · демо-шкала`},
+    {label:'Следующее обновление',value:request.next_update?stamp(request.next_update):'Не назначено — инцидент завершён'},
+    {label:'Подтверждённая информация',value:request.note},
+    {label:'Связанные обращения',value:`${incident.count} обращений сохранят свои решения и статусы.`},
+  ]},incident.id);
+  if(!playbookDialog.open) playbookDialog.showModal();
+}
+async function loadHealth() {
+  const region=state.healthRegion;
+  const data=await api('/api/workspace/routing-health'+(region?'?region_id='+encodeURIComponent(region):''));
+  if(region!==state.healthRegion) return;
+  state.routingHealth=data;if(state.page==='routing') render();
+}
+function openCommands() {
+  if(!dialog.open || !state.detail || playbookDialog.open) return;
+  document.querySelector('#command-search').value='';
+  document.querySelector('#command-options').innerHTML=commandList(caseCommands(state.detail));
+  commandDialog.showModal();document.querySelector('#command-search').focus();
+}
 async function handleAction(node) {
   const action=node.dataset.action, d=state.detail, c=d?.complaint;
+  if(action==='commands') {openCommands();return;}
+  if(action==='close-commands') {commandDialog.close();return;}
+  if(action==='run-command') {
+    commandDialog.close();
+    await showPlaybook(node.dataset.kind==='priority'?'route_service':node.dataset.command,node.dataset.kind==='priority'?{priority:node.dataset.command}:{});return;
+  }
+  if(action==='load-health') {await loadHealth();return;}
   if(action==='cancel-playbook') {previewVersion++;playbookDialog.close();return;}
-  if(action==='refresh-playbook') {await showPlaybook(preview.kind,preview.request);return;}
+  if(action==='refresh-playbook') {
+    if(preview.kind==='incident_update') {
+      const p=preview, version=++previewVersion, latest=await api(`/api/workspace/incidents/${encodeURIComponent(p.cid)}`);
+      if(version===previewVersion && playbookDialog.open) previewIncident(latest,p.request);
+    }
+    else await showPlaybook(preview.kind,preview.request);
+    return;
+  }
   if(action==='playbook') {await showPlaybook(node.dataset.kind);return;}
   if(action==='execute-playbook') {
     const p=preview, version=caseVersion;
     try {
-      await api(`/api/workspace/complaints/${encodeURIComponent(p.cid)}/playbooks/${p.kind}/execute`,{preview_token:p.preview_token});
+      await api(p.path||`/api/workspace/complaints/${encodeURIComponent(p.cid)}/playbooks/${p.kind}/execute`,p.path?p.request:{preview_token:p.preview_token});
     } catch(err) {
       document.querySelector('#playbook-error').textContent=err.message;
       node.dataset.action='blocked-playbook'; node.setAttribute('aria-disabled','true');
       return;
     }
     previewVersion++;playbookDialog.close();
-    await refresh();if(dialog.open && version===caseVersion) await openCase(p.cid);
+    await refresh();if(dialog.open && version===caseVersion) await (p.path?openIncident(p.cid):openCase(p.cid));
     toast('Сценарий применён. Изменения и аудит сохранены.');return;
   }
-  if(action==='close') {caseVersion++;dialog.close();return;}
+  if(action==='close') {stopPresence();caseVersion++;dialog.close();return;}
   if(action==='refresh') {await refresh();toast('Данные обновлены');return;}
   if(action==='open') {await openCase(node.dataset.id);return;}
   if(action==='filter') {state.group=node.dataset.group;render();return;}
@@ -131,10 +198,22 @@ async function handleAction(node) {
     const data=await api('/api/workspace/intake',{text:'Добрый день, на Абая 44 с утра нет воды, весь дом без воды, когда включат?',region_id:'KZ-ALA',district:'Алмалинский',language:'ru',channel:'web'});
     location.hash='queue'; await refresh(); await openCase(data.id); toast('Новое обращение поступило · анализ готов');return;
   }
-  if(action==='incident') {
-    const i=state.incidents.find(x=>x.id===node.dataset.id);
-    content.innerHTML=`<div class="case-header"><div><span class="eyebrow">ИНЦИДЕНТ ${esc(i.id)}</span><h2 id="case-title">${esc(i.title)}</h2></div>${button('close','×','icon-button','aria-label="Закрыть инцидент"')}</div><div class="incident-detail">${badge(i.status,'green')}<p>${i.count} обращений · ${i.streets} улицы · ${esc(i.service_name)}</p><p>Первое обращение ${i.minutes} мин назад · Следующее обновление демо-статуса ${time(i.next_update)}</p><h3>Связанные обращения</h3><div class="incident-members">${i.members.map(m=>button('open',`<strong>${esc(m.id)}</strong><span>${esc(m.text)}</span> →`,'member',`data-id="${esc(m.id)}"`)).join('')}</div></div>`;
-    if(!dialog.open) dialog.showModal();return;
+  if(action==='incident') {await openIncident(node.dataset.id);return;}
+  if(action==='radar-demo') {const result=await api('/api/workspace/radar/demo',{});await refresh();toast(`Добавлено ${result.count} синтетических обращений. Проверьте новый сигнал.`);return;}
+  if(action==='radar-preview') {showSignal(state.radar.items.find(i=>i.id===node.dataset.id));return;}
+  if(action==='radar-confirm'||action==='radar-ignore') {
+    const signal=state.signal, version=caseVersion;
+    try {
+      const path=`/api/workspace/radar/${encodeURIComponent(signal.id)}`;
+      if(action==='radar-confirm') {
+        const result=await api(path+'/confirm',{case_ids:signal.case_ids,incident_id:signal.incident_id});
+        await refresh();if(version===caseVersion && dialog.open) await openIncident(result.incident.id);toast('Инцидент подтверждён. Оригиналы обращений сохранены.');
+      } else {
+        await api(path+'/ignore',{case_ids:signal.case_ids,ignored:!signal.ignored});
+        if(version===caseVersion) {dialog.close();caseVersion++;}await refresh();toast(signal.ignored?'Сигнал восстановлен':'Сигнал отклонён. Обращения сохранены.');
+      }
+    } catch(err) {const field=document.querySelector('#signal-error');if(field) field.textContent=err.message;else toast(err.message,true);}
+    return;
   }
   if(action==='subscribe') {
     let subscriber=sessionStorage.getItem('pulse-demo-subscriber');
@@ -145,15 +224,15 @@ async function handleAction(node) {
   if(action==='subscribed') {toast('Подписка уже сохранена в демо');return;}
   if(action==='anyway') {document.querySelector('#citizen-text').focus();return;}
   if(action==='track') {await trackCase(node.dataset.id);document.querySelector('#tracking-result')?.scrollIntoView({block:'nearest'});return;}
-  if(action==='reload-case') {await openCase(c.id);return;}
+  if(action==='reload-case') {const draft=document.querySelector('#reply-text')?.value;await openCase(c.id);if(draft && document.querySelector('#reply-text')) document.querySelector('#reply-text').value=draft;return;}
   if(action==='category') {
     d.selectedTopic=node.dataset.topic;
     const topic=d.selectedTopic, version=caseVersion;
-    const routing=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/routing?topic=${encodeURIComponent(topic)}`);
+    const routing=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/routing?topic=${encodeURIComponent(topic)}${d.selectedPriority?'&priority='+encodeURIComponent(d.selectedPriority):''}`);
     if(version!==caseVersion || d.selectedTopic!==topic || !dialog.open) return;
     d.routing=routing.routing; d.triage.service_name=routing.service_name; rerenderCase();return;
   }
-  if(action==='priority') {d.selectedPriority=node.dataset.priority;rerenderCase();return;}
+  if(action==='priority') {d.selectedPriority=node.dataset.priority;if(d.selectedTopic) await handleAction({dataset:{action:'category',topic:d.selectedTopic}});else rerenderCase();return;}
   if(action==='link') {await showPlaybook('link_mass_incident',{incident_id:node.dataset.id});return;}
   if(action==='separate') {await showPlaybook('unlink_incident');return;}
   if(action==='quarantine'||action==='restore') {await showPlaybook(action);return;}
@@ -191,6 +270,7 @@ document.addEventListener('click',async e=>{
   try {await handleAction(node);} catch(err) {toast(err.message,true);} finally {if(node.isConnected && node.getAttribute('aria-disabled')!=='true') node.disabled=false;}
 });
 document.addEventListener('input',e=>{
+  if(e.target.id==='command-search') {document.querySelector('#command-options').innerHTML=commandList(caseCommands(state.detail),e.target.value);return;}
   if(e.target.id!=='search') return;
   state.search=e.target.value;
   const position=e.target.selectionStart;
@@ -198,6 +278,9 @@ document.addEventListener('input',e=>{
   input.setSelectionRange(position,position);
 });
 document.addEventListener('change',async e=>{
+  if(e.target.id==='health-region') {state.healthRegion=e.target.value;try {await loadHealth();} catch(err) {toast(err.message,true);}}
+  if(e.target.id==='show-ignored') {state.showIgnored=e.target.checked;render();}
+  if(e.target.id==='incident-status') document.querySelector('#incident-next').required=e.target.value!=='Завершён';
   if(e.target.id==='queue-region') {state.region=e.target.value;render();}
   if(e.target.id==='citizen-district') document.querySelector('#citizen-notice').hidden=e.target.value!=='Алмалинский';
   if(e.target.id==='manual-category' && e.target.value) {
@@ -207,6 +290,13 @@ document.addEventListener('change',async e=>{
   }
 });
 document.addEventListener('submit',async e=>{
+  if(e.target.id==='incident-update-form') {
+    e.preventDefault();
+    const data=new FormData(e.target), note=data.get('note').trim(), status=data.get('status');
+    if(!note) {toast('Укажите подтверждённую информацию',true);return;}
+    previewIncident(state.incident,{status,note,incident_owner_id:data.get('incident_owner_id')||null,severity:Number(data.get('severity')),next_update:status==='Завершён'?null:new Date(data.get('next_update')).toISOString()});
+    return;
+  }
   if(e.target.id==='tracking-form') {
     e.preventDefault();
     const id=new FormData(e.target).get('complaint_id').trim();
@@ -227,12 +317,17 @@ document.addEventListener('submit',async e=>{
     form.querySelector('textarea').value=''; await refresh(false);
   } catch(err) {toast(err.message,true);} finally {submit.disabled=false;}
 });
-window.addEventListener('hashchange',()=>{trackingVersion++;state.tracking=null;state.group='';state.search='';render();main.focus();});
+window.addEventListener('hashchange',()=>{trackingVersion++;state.tracking=null;state.group='';state.search='';render();main.focus();if(state.page==='routing') loadHealth().catch(err=>toast(err.message,true));});
 dialog.addEventListener('cancel',()=>caseVersion++);
+dialog.addEventListener('close',stopPresence);
+document.addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k') {if(state.detail&&dialog.open) {e.preventDefault();openCommands();}}
+  if(commandDialog.open && e.key==='ArrowDown') {e.preventDefault();const options=[...commandDialog.querySelectorAll('.command-option')];options[(options.indexOf(document.activeElement)+1)%options.length]?.focus();}
+});
 playbookDialog.addEventListener('cancel',()=>previewVersion++);
 document.querySelector('#today').textContent=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',timeZone:'Asia/Almaty'});
 async function start() {
-  try {await api('/api/workspace/seed',{});state.topics=(await api('/api/topics')).topics;await refresh();}
+  try {await api('/api/workspace/seed',{});state.topics=(await api('/api/topics')).topics;state.regions=(await api('/api/regions')).regions;await refresh();if(state.page==='routing') await loadHealth();}
   catch(err) {main.innerHTML=`<div class="empty" role="alert"><h1>Не удалось загрузить очередь</h1><p>${esc(err.message)}</p>${button('retry','Повторить','primary')}</div>`;}
 }
 document.addEventListener('click',e=>{if(e.target.closest('[data-action="retry"]')) start();});

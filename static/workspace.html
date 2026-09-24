@@ -5,6 +5,7 @@
   <meta name="theme-color" content="#172925"><link rel="icon" href="data:,">
   <title>Pulse 109 — Рабочее место оператора</title>
   <link rel="stylesheet" href="/static/workspace.css">
+  <link rel="stylesheet" href="/static/operations.css">
 </head>
 <body>
   <a class="skip" href="#main">К содержимому</a>
@@ -14,9 +15,11 @@
     <p class="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</p>
     <nav aria-label="Главное меню">
       <a href="#queue" data-nav="queue"><span aria-hidden="true">▤</span> Обращения <b id="nav-count">—</b></a>
+      <a href="#radar" data-nav="radar"><span aria-hidden="true">◉</span> Радар <b id="radar-count">—</b></a>
       <a href="#incidents" data-nav="incidents"><span aria-hidden="true">◎</span> Инциденты <b id="incident-count">—</b></a>
       <a href="#dashboard" data-nav="dashboard"><span aria-hidden="true">▥</span> Аналитика</a>
       <a href="#operators" data-nav="operators"><span aria-hidden="true">♧</span> Команда</a>
+      <a href="#routing" data-nav="routing"><span aria-hidden="true">⇄</span> Маршрутизация</a>
       <a href="#quarantine" data-nav="quarantine"><span aria-hidden="true">◇</span> Карантин <b id="quarantine-count">0</b></a>
     </nav>
     <p class="nav-label">ДЕМО И ДАННЫЕ</p>
@@ -35,6 +38,7 @@
   </div>
   <dialog id="case-dialog" aria-labelledby="case-title"><div id="case-content"></div></dialog>
   <dialog id="playbook-dialog" aria-labelledby="playbook-title"><div id="playbook-content"></div></dialog>
+  <dialog id="command-dialog" aria-labelledby="command-title"><div class="case-header"><h2 id="command-title">Команды карточки</h2><button class="button icon-button" data-action="close-commands" aria-label="Закрыть команды">×</button></div><div class="command-body"><label for="command-search">Найти действие</label><input id="command-search" type="search" autocomplete="off" placeholder="Например: уточнение"><p class="micro">Команда открывает preview. Для выполнения потребуется подтверждение.</p><div id="command-options"></div></div></dialog>
   <div id="toast" role="status" aria-live="polite" hidden></div>
   <script type="module" src="/static/workspace.js"></script>
 </body>

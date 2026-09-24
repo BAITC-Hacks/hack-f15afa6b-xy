@@ -23,6 +23,9 @@ from queue_api import build_queue_router
 from demo_data import init_workspace
 from playbooks import faq_closed
 from workspace_api import build_workspace_router
+from incidents import init_incidents
+from radar import build_incident_router
+from support_api import init_support, build_support_router
 
 BANNER_TEXT = "SYNTHETIC DEMO — MODELS NOT TRAINED"
 
@@ -73,7 +76,6 @@ TOPIC_SERVICE_MAP = {t["id"]: t["default_service"] for t in TOPICS}
 # Human-confirmed decision values only; urgency detection is a proposal, never mixed with review.
 VALID_PRIORITIES = {"normal", "urgent"}
 
-
 def get_db_path() -> Path:
     env_path = os.environ.get("DATABASE_PATH")
     if env_path:
@@ -82,12 +84,10 @@ def get_db_path() -> Path:
     default_path.parent.mkdir(parents=True, exist_ok=True)
     return default_path
 
-
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     return conn
-
 
 def init_db() -> None:
     get_db_path().parent.mkdir(parents=True, exist_ok=True)
@@ -132,33 +132,30 @@ def init_db() -> None:
                     c,
                 )
 
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     with get_connection() as conn:
         init_workspace(conn)
+        init_incidents(conn)
+        init_support(conn)
     yield
-
 
 app = FastAPI(title="Pulse 109 Synthetic Skeleton", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(build_clarification_router(get_connection, BANNER_TEXT))
 app.include_router(build_queue_router(get_connection, BANNER_TEXT, VALID_REGION_IDS))
 
-
 class IntakeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
     region_id: str
     language: Optional[str] = None
-
 
 class ConfirmRequest(BaseModel):
     topic: str
     service_id: str
     priority: str
     actor: str = "operator_demo"
-
 
 # ponytail: Mock keyword classifier used before multilingual E5 fine-tuning.
 def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -183,7 +180,6 @@ def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str
             return topic_id, TOPIC_SERVICE_MAP[topic_id], urgency
     return None, None, urgency
 
-
 @app.get("/api/health")
 def health_check():
     return {
@@ -194,7 +190,6 @@ def health_check():
         "checkpoint_id": None,
         "banner": BANNER_TEXT,
     }
-
 
 @app.get("/api/regions")
 def get_regions():
@@ -482,7 +477,8 @@ def get_reports(format: str = Query("pdf")):
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.include_router(build_workspace_router(get_connection, mock_classify, TOPIC_SERVICE_MAP, VALID_REGION_IDS,
-                                          {t["id"]: t["name_ru"] for t in TOPICS}))
+                                         {t["id"]: t["name_ru"] for t in TOPICS}))
+app.include_router(build_incident_router(get_connection, mock_classify, TOPIC_SERVICE_MAP))
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
@@ -497,3 +493,5 @@ def index():
 def legacy():
     idx = static_dir / "index.html"
     return FileResponse(idx) if idx.exists() else {"message": "Pulse 109 API running"}
+
+app.include_router(build_support_router(get_connection, TOPIC_SERVICE_MAP, VALID_REGION_IDS))

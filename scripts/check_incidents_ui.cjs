@@ -1,0 +1,86 @@
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+const path=require('node:path');
+const base=process.argv[2]||'http://127.0.0.1:8769';
+(async()=>{
+  const browser=await chromium.launch({headless:true,channel:process.env.P109_BROWSER||'chrome'});
+  const page=await browser.newPage({viewport:{width:1440,height:1100}});
+  page.setDefaultTimeout(10000);
+  const errors=[],failed=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  page.on('response',r=>{if(r.status()>=400) failed.push(r.status());});
+  const action=name=>page.locator(`[data-action="${name}"]`);
+  const call=async(url,data)=>{const r=data===undefined?await page.request.get(base+url):await page.request.post(base+url,{data});assert.ok(r.ok(),await r.text());return r.json();};
+  const signal=()=>page.locator('.signal-card').filter({hasText:'Бостандыкский'});
+  const review=async()=>{await signal().locator('[data-action="radar-preview"]').click();await page.locator('#signal-error').waitFor({state:'attached'});};
+  try {
+    await page.goto(base+'/#radar');
+    await action('radar-demo').click();
+    await signal().waitFor();
+    await review();
+    assert.equal(await page.locator('.incident-members .member').count(),6);
+    const ids=await page.locator('.incident-members .member').evaluateAll(nodes=>nodes.map(n=>n.dataset.id));
+    const before=await Promise.all(ids.map(id=>call('/api/complaints/'+id)));
+    assert.ok(before.every(d=>d.complaint.incident_id===null));
+    await action('radar-ignore').click();
+    await page.locator('#case-dialog').waitFor({state:'hidden'});
+    await signal().waitFor({state:'hidden'});
+    await page.locator('#show-ignored').check();await review();
+    await action('radar-ignore').click();
+    await page.locator('#case-dialog').waitFor({state:'hidden'});
+    await signal().getByText('Проверить',{exact:true}).waitFor();
+    await review();
+    console.log('PASS INCIDENT UI 1: six-case preview; ignore/restore leaves originals untouched');
+    await action('radar-confirm').click();
+    await page.locator('.control-panel').waitFor();
+    const incident=(await call('/api/workspace/incidents')).items.find(i=>i.district==='Бостандыкский');
+    assert.ok(incident);
+    for(let n=0;n<ids.length;n++) {
+      const c=(await call('/api/complaints/'+ids[n])).complaint;
+      assert.equal(c.incident_id,incident.id);assert.equal(c.text,before[n].complaint.text);
+      assert.equal(c.decision_status,'pending');assert.equal(c.priority,null);
+    }
+    console.log('PASS INCIDENT UI 2: explicit confirmation creates incident and links without deciding cases');
+    await page.locator('.control-panel summary').click();
+    await page.locator('#incident-status').selectOption('Работы ведутся');
+    await page.locator('#incident-owner').selectOption('op-aidana');
+    const next=new Date(Date.now()+3600000), local=new Date(next-next.getTimezoneOffset()*60000).toISOString().slice(0,16);
+    await page.locator('#incident-next').fill(local);
+    await page.locator('#incident-note').fill('Демо: диспетчер подтвердил выезд бригады.');
+    await page.locator('#incident-update-form [type="submit"]').click();
+    await action('execute-playbook').waitFor();
+    let saved=await call('/api/workspace/incidents/'+incident.id);
+    assert.equal(saved.status,'Проверяется');
+    await call(`/api/workspace/incidents/${incident.id}/update`,{expected_revision:saved.revision,status:'Передано службе',incident_owner_id:'op-senior',severity:2,next_update:next.toISOString(),note:'Параллельное изменение диспетчера.'});
+    await action('execute-playbook').click();
+    await page.locator('#playbook-error').filter({hasText:/измен|устар|обнов/i}).waitFor();
+    await action('refresh-playbook').click();
+    await action('execute-playbook').click();
+    await page.locator('#playbook-dialog').waitFor({state:'hidden'});
+    await page.locator('.control-panel h3').filter({hasText:'Айдана'}).waitFor();
+    saved=await call('/api/workspace/incidents/'+incident.id);
+    assert.equal(saved.status,'Работы ведутся');assert.equal(saved.incident_owner_id,'op-aidana');
+    assert.ok(saved.timeline.some(t=>t.text.includes('выезд бригады')));
+    if(process.argv[3]) await page.screenshot({path:path.join(process.argv[3],'pulse109-incident-center.png')});
+    console.log('PASS INCIDENT UI 3: update preview, parallel conflict, fresh retry, owner and timeline');
+    await page.locator('.control-panel summary').click();
+    await page.locator('#incident-status').selectOption('Завершён');
+    await page.locator('#incident-note').fill('Демо: восстановление подтверждено службой.');
+    await page.locator('#incident-update-form [type="submit"]').click();
+    await action('execute-playbook').click();
+    await page.locator('#playbook-dialog').waitFor({state:'hidden'});
+    await page.getByText('Инцидент завершён',{exact:true}).waitFor();
+    assert.equal((await call('/api/complaints/'+ids[0])).complaint.resolved_at,null);
+    await action('close').click();await page.reload();
+    await page.locator('[data-nav="incidents"]').click();
+    await page.locator(`[data-action="incident"][data-id="${incident.id}"]`).click();
+    await page.getByText('Инцидент завершён',{exact:true}).waitFor();
+    for(const width of [768,390,320]) {
+      await page.setViewportSize({width,height:1000});
+      assert.ok(await page.locator('#case-dialog').evaluate(d=>d.scrollWidth<=d.clientWidth+1),`overflow at ${width}: `+JSON.stringify(await page.locator('#case-dialog').evaluate(d=>[...d.querySelectorAll('*')].filter(e=>e.getBoundingClientRect().right>d.getBoundingClientRect().right+1).map(e=>({tag:e.tagName,cls:e.className,w:e.scrollWidth})).slice(0,12))));
+    }
+    assert.deepEqual(errors,[]);assert.deepEqual(failed,[409]);
+    console.log('PASS INCIDENT UI 4: completion preserves case state; reload and mobile layout work');
+    console.log('ALL 4 INCIDENT UI CHECKS PASSED');
+  } finally {await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -139,7 +139,7 @@ def _fingerprint(c, ai, routing, extra) -> str:
         "category": ai.get("category"),
         "band": ai.get("confidence_band"),
         "urgency": ai.get("urgency"),
-        "operator": [operator.get("id"), operator.get("current_load"), operator.get("capacity")],
+        "operator": [operator.get("id"), operator.get("current_load"), operator.get("capacity"), operator.get("workload"), operator.get("workload_capacity")],
         "extra": extra,
     }
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
@@ -176,15 +176,6 @@ def _decision(ctx, conn, c, req, link: bool):
     linked = conn.execute("SELECT category FROM incidents WHERE id = ?", (c["incident_id"],)).fetchone() if c["incident_id"] else None
     if linked and linked[0] != topic:
         return [], "Сначала снимите связь с инцидентом другой категории", None, None
-    routing = _routing(ctx, conn, c, topic)
-    operators = ctx["operators"](conn)
-    recommended = routing.get("operator")
-    if req.operator_id:
-        chosen = next((o for o in operators if o["id"] == req.operator_id), None)
-        if not chosen or not recommended or chosen["id"] != recommended["id"]:
-            return [], "Рекомендация изменилась или оператор занят. Обновите карточку", None, None
-    else:
-        chosen = recommended
     incident_id, related = c["incident_id"], c["related_to"]
     if link:
         incident_id = req.incident_id or (ctx["detail"](conn, c)["incident_candidate"] or {}).get("id")
@@ -193,9 +184,18 @@ def _decision(ctx, conn, c, req, link: bool):
         if incident_id != c["incident_id"]:
             try:
                 related = ctx["checked_incident"](
-                    conn, c, incident_id, {**ai, "category": topic, "suggested_service": services[topic]})
+                    conn, c, incident_id, {**(ai or {}), "category": topic, "suggested_service": services[topic]})
             except HTTPException as exc:
                 return [], str(exc.detail), None, None
+    routing = _routing(ctx, conn, {**c, "topic": topic, "priority": priority, "incident_id": incident_id}, topic)
+    operators = ctx["operators"](conn)
+    recommended = routing.get("operator")
+    if req.operator_id:
+        chosen = next((o for o in operators if o["id"] == req.operator_id), None)
+        if not chosen or not recommended or chosen["id"] != recommended["id"]:
+            return [], "Рекомендация изменилась или оператор занят. Обновите карточку", None, None
+    else:
+        chosen = recommended
     service_name = SERVICE_NAMES.get(services[topic], services[topic])
     topic_label = names.get(topic, topic)
     actions = [

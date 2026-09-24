@@ -51,7 +51,7 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     assert.equal((await get(id)).complaint.assigned_operator,null);
     await page.getByRole('button',{name:'Отмена',exact:true}).click();
     await call(`/api/workspace/complaints/${id}/safety`,{quarantine:false});
-    await action('reload-case').click();
+    await page.locator('#case-dialog .case-footer [data-action="reload-case"]').click();
     await action('confirm').click();
     await apply();
     await page.getByRole('button',{name:'Решение подтверждено',exact:true}).waitFor();

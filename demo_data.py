@@ -53,7 +53,9 @@ def seed_workspace(conn, topic_services):
     for op in operators:
         conn.execute("INSERT OR IGNORE INTO operators VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                      (*op[:2], json.dumps(op[2]), json.dumps(op[3]), *op[4:]))
-    conn.execute("INSERT OR IGNORE INTO incidents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synthetic')", (
+    conn.execute("""INSERT OR IGNORE INTO incidents
+        (id, title, category, region_id, district, service_id, status, started_at, next_update, severity, data_origin)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synthetic')""", (
         "INC-204", "Отключение воды — Алмалинский район", "water_supply", "KZ-ALA", DEMO_DISTRICT,
         "srv_vodokanal", "Работы ведутся", (now - timedelta(minutes=38)).isoformat(),
         (now + timedelta(minutes=45)).isoformat(), 2,

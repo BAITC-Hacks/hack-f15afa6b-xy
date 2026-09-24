@@ -216,7 +216,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                 selected_ai = {**d["triage"], "category": req.topic, "suggested_service": topic_services[req.topic]}
                 ops = operators_with_load(conn)
                 op = next((o for o in ops if o["id"] == req.operator_id), None)
-                recommended = route(c, selected_ai, ops)["operator"]
+                recommended = route({**c, "topic": req.topic, "priority": req.priority, "incident_id": req.incident_id or c["incident_id"]}, selected_ai, ops)["operator"]
                 if not op or not recommended or op["id"] != recommended["id"]:
                     raise HTTPException(409, "Рекомендация изменилась или оператор занят. Обновите карточку")
             related = c["related_to"]
@@ -235,13 +235,13 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             return {"complaint": complaint(conn, cid)}
 
     @router.get("/complaints/{cid}/routing")
-    def recommend(cid: str, topic: str):
+    def recommend(cid: str, topic: str, priority: Literal["normal", "urgent"] | None = None):
         if topic not in topic_services:
             raise HTTPException(422, "Неизвестная категория")
         with get_connection() as conn:
             c = complaint(conn, cid)
             ai = {"category": topic, "suggested_service": topic_services[topic]}
-            return {"routing": route(c, ai, operators_with_load(conn)),
+            return {"routing": route({**c, "topic": topic, "priority": priority or c["priority"]}, ai, operators_with_load(conn)),
                     "service_name": SERVICE_NAMES[topic_services[topic]] if c["region_id"] == "KZ-ALA" else "Региональная очередь — служба требует проверки"}
 
     @router.post("/complaints/{cid}/link")

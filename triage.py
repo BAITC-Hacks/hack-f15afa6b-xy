@@ -17,6 +17,17 @@ SERVICE_NAMES = {
     "srv_transit": "Общественный транспорт", "srv_parks": "Благоустройство",
 }
 
+# Synthetic DEMO effort weights. Not calibrated labour estimates; tune only here.
+# Case weight precedence, first match wins:
+#   linked duplicate 15 (already covered by an open incident) -> phone 100 -> telegram/whatsapp 50
+#   -> urgent or complex topic 40 -> anything else 30. A live channel costs more than urgency,
+#   so an urgent phone case weighs 100, not 140.
+DEMO_WORKLOAD_WEIGHTS = {
+    "baseline": 30, "phone": 100, "telegram_whatsapp": 50,
+    "urgent_complex": 40, "normal": 30, "linked_duplicate": 15,
+}
+COMPLEX_TOPICS = {"heating", "water_supply", "sewerage", "electricity"}
+
 
 def moment(value):
     return datetime.fromisoformat(value) if value else datetime.now(timezone.utc)
@@ -82,31 +93,157 @@ def analyze(c, classifier, topic_services, extra_text=""):
     }
 
 
+def case_weight(case):
+    """Synthetic workload weight for one active case, by the documented precedence."""
+    if case.get("incident_id"):
+        return DEMO_WORKLOAD_WEIGHTS["linked_duplicate"]
+    channel = (case.get("channel") or "web").lower()
+    if channel == "phone":
+        return DEMO_WORKLOAD_WEIGHTS["phone"]
+    if channel in {"telegram", "whatsapp"}:
+        return DEMO_WORKLOAD_WEIGHTS["telegram_whatsapp"]
+    if case.get("priority") == "urgent" or case.get("topic") in COMPLEX_TOPICS:
+        return DEMO_WORKLOAD_WEIGHTS["urgent_complex"]
+    return DEMO_WORKLOAD_WEIGHTS["normal"]
+
+
 def operators_with_load(conn):
     rows = []
     for r in conn.execute("SELECT * FROM operators ORDER BY id"):
         op = dict(r)
         for key in ["skills", "languages"]:
             op[key] = json.loads(op[key])
-        active = conn.execute("SELECT COUNT(*) FROM complaints WHERE assigned_operator = ? AND resolved_at IS NULL AND quarantined = 0", (op["id"],)).fetchone()[0]
-        op["current_load"] = op["base_load"] + active
+        op["active_count"] = 0
+        op["workload"] = op["base_load"] * DEMO_WORKLOAD_WEIGHTS["baseline"]
+        op["workload_capacity"] = op["capacity"] * DEMO_WORKLOAD_WEIGHTS["baseline"]
         rows.append(op)
+    by_id = {op["id"]: op for op in rows}
+    # One pass over active cases instead of a COUNT query per operator.
+    for row in conn.execute("""SELECT assigned_operator, channel, priority, topic, incident_id FROM complaints
+            WHERE assigned_operator IS NOT NULL AND resolved_at IS NULL AND quarantined = 0"""):
+        case = dict(row)
+        op = by_id.get(case["assigned_operator"])
+        if op is None:
+            continue
+        op["active_count"] += 1
+        op["workload"] += case_weight(case)
+    for op in rows:
+        op["current_load"] = op["base_load"] + op["active_count"]
+        op["workload_ratio"] = round(op["workload"] / op["workload_capacity"], 4) if op["workload_capacity"] else 1.0
     return rows
 
 
+def _workload(o):
+    base = o.get("base_load", o.get("current_load", 0))
+    workload = o.get("workload", base * DEMO_WORKLOAD_WEIGHTS["baseline"])
+    capacity = o.get("workload_capacity", max(1, o.get("capacity", 1)) * DEMO_WORKLOAD_WEIGHTS["baseline"])
+    return workload, capacity
+
+
+def incoming_weight(c, ai):
+    """Cost of the case being routed. Confirmed complaint values win over the demo proposal;
+    `ai` may carry the human-selected `priority` / `incident_id` so a manual confirmation is
+    costed with what the operator actually chose."""
+    return case_weight({"incident_id": c.get("incident_id") or ai.get("incident_id"),
+                        "channel": c.get("channel"),
+                        "priority": c.get("priority") or ai.get("priority") or ai.get("urgency"),
+                        "topic": c.get("topic") or ai.get("category")})
+
+
+def unavailable_reason(o, incoming=0):
+    """None when the operator can take this case; otherwise the demo reason to show.
+
+    Slots stay strict (current_load < capacity). Workload is projected forward: the operator
+    must still fit the incoming case, so workload + incoming must not exceed capacity*30.
+    """
+    if o.get("status") != "online":
+        return "Статус: " + str(o.get("status"))
+    if o.get("current_load", 0) >= o.get("capacity", 0):
+        return f"Слоты заняты: {o.get('current_load')}/{o.get('capacity')}"
+    workload, capacity = _workload(o)
+    if workload + incoming > capacity:
+        return f"Нагрузка: {workload + incoming}/{capacity}"
+    return None
+
+
+def _match_reasons(o, c, ai, service_match):
+    reasons = []
+    if service_match(o):
+        reasons.append(f"Служба {ai.get('suggested_service')} · навык {ai.get('category')}")
+    if c.get("language") in o.get("languages", []):
+        reasons.append(f"Язык {c['language']}")
+    if c.get("district") and o.get("district") == c["district"]:
+        reasons.append(f"Район {c['district']}")
+    if o.get("department") == "general":
+        reasons.append("Общая очередь · старший оператор")
+    return reasons
+
+
 def route(c, ai, operators):
-    available = [o for o in operators if o["status"] == "online" and o["current_load"] < o["capacity"]]
-    dept = [o for o in available if o["department"] == ai["suggested_service"] and ai["category"] in o["skills"]] if c["region_id"] == "KZ-ALA" else []
-    lang = [o for o in dept if c["language"] in o["languages"]]
-    stages = [([o for o in lang if c.get("district") and o["district"] == c["district"]], "Подходит по службе, району и языку."),
-              (lang, "Подходит по службе и языку; другой район."),
-              (dept, "Подходит по службе; язык и район требуют проверки."),
-              ([o for o in available if o["department"] == "general"], "Старший оператор: профильная служба недоступна или не определена.")]
-    for level, (choices, reason) in enumerate(stages, 1):
+    """Same four-level demo fallback, now workload-aware.
+
+    Levels: служба+район+язык -> язык -> служба -> общая очередь. An operator is only offered
+    while both slots (current_load < capacity) and assigned workload (workload < capacity*30)
+    have room; inside one level the lowest projected ratio ((workload + incoming case cost) /
+    capacity*30) wins. `candidates` explains every operator, including rejected alternatives.
+    """
+    incoming = incoming_weight(c, ai)
+
+    def service_match(o):
+        return (c.get("region_id") == "KZ-ALA" and o.get("department") == ai.get("suggested_service")
+                and ai.get("category") in o.get("skills", []))
+
+    def language_match(o):
+        return service_match(o) and c.get("language") in o.get("languages", [])
+
+    def district_match(o):
+        return language_match(o) and bool(c.get("district")) and o.get("district") == c["district"]
+
+    stages = [([o for o in operators if district_match(o)], "Подходит по службе, району и языку."),
+              ([o for o in operators if language_match(o)], "Подходит по службе и языку; другой район."),
+              ([o for o in operators if service_match(o)], "Подходит по службе; язык и район требуют проверки."),
+              ([o for o in operators if o.get("department") == "general"],
+               "Старший оператор: профильная служба недоступна или не определена.")]
+    matched_stage = {}
+    for index, (group, _) in enumerate(stages, 1):
+        for o in group:
+            matched_stage.setdefault(o["id"], index)
+    rejected = {o["id"]: unavailable_reason(o, incoming) for o in operators}
+    chosen, chosen_level, chosen_reason = None, None, None
+    for level, (group, reason) in enumerate(stages, 1):
+        choices = [o for o in group if not rejected[o["id"]]]
         if choices:
-            op = min(choices, key=lambda o: (o["current_load"] / o["capacity"], o["id"]))
-            return {"operator": op, "reason": reason, "level": level}
-    return {"operator": None, "reason": "Все подходящие операторы заняты. Оставить в общей очереди.", "level": 4}
+            chosen = min(choices, key=lambda o: ((_workload(o)[0] + incoming) / _workload(o)[1], o["id"]))
+            chosen_level, chosen_reason = level, reason
+            break
+    candidates = []
+    for o in operators:
+        workload, capacity = _workload(o)
+        stage = matched_stage.get(o["id"])
+        entry = {"id": o["id"], "name": o["name"], "load": o["current_load"],
+                 "current_load": o["current_load"], "capacity": o["capacity"],
+                 "workload": workload, "workload_capacity": capacity, "stage": stage,
+                 "eligible": not rejected[o["id"]], "match_reasons": _match_reasons(o, c, ai, service_match)}
+        if rejected[o["id"]]:
+            entry["reason"] = rejected[o["id"]]
+        elif chosen is not None and o["id"] == chosen["id"]:
+            entry["reason"] = "Выбран: " + chosen_reason
+        elif stage is None:
+            entry["reason"] = "Профиль службы, язык или район не совпали"
+        elif chosen is None:
+            entry["reason"] = "Этап недоступен или перегружен"
+        elif stage == chosen_level:
+            entry["reason"] = "Тот же этап, но выше нагрузка"
+        else:
+            entry["reason"] = f"Этап {stage} ниже приоритета этапа {chosen_level}"
+        candidates.append(entry)
+    if chosen is None:
+        return {"operator": None, "reason": "Все подходящие операторы заняты. Оставить в общей очереди.",
+                "level": 4, "route_type": "queue", "queue": True, "incoming_weight": incoming,
+                "candidates": candidates}
+    return {"operator": chosen, "reason": chosen_reason, "level": chosen_level,
+            "route_type": "primary" if chosen_level < 4 else "fallback", "queue": False,
+            "incoming_weight": incoming, "candidates": candidates}
 
 
 def tokens(text):
