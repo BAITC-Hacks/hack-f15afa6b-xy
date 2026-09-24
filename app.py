@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
@@ -19,6 +20,8 @@ from pydantic import BaseModel, Field
 from data_coverage import CoverageUnavailable, load_coverage
 from clarification import build_clarification_router, get_received_clarifications
 from queue_api import build_queue_router
+from demo_data import init_workspace
+from workspace_api import build_workspace_router
 
 BANNER_TEXT = "SYNTHETIC DEMO — MODELS NOT TRAINED"
 
@@ -132,6 +135,8 @@ def init_db() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    with get_connection() as conn:
+        init_workspace(conn)
     yield
 
 
@@ -173,7 +178,7 @@ def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str
         ("sewerage", ["канализац", "кәріз", "нөсер", "ливнев"]),
     ]
     for topic_id, keywords in patterns:
-        if any(kw in lowered for kw in keywords):
+        if any((re.search(r"\bток\b", lowered) if kw == "ток" else kw in lowered) for kw in keywords):
             return topic_id, TOPIC_SERVICE_MAP[topic_id], urgency
     return None, None, urgency
 
@@ -403,7 +408,7 @@ def confirm_complaint(complaint_id: str, req: ConfirmRequest):
         row = conn.execute("SELECT * FROM complaints WHERE id = ?", (complaint_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Complaint not found")
-        if row["decision_status"] == "needs_clarification":
+        if row["decision_status"] == "needs_clarification" or row["quarantined"]:
             raise HTTPException(status_code=409, detail="Confirm is blocked while clarification is pending")
         conn.execute(
             "UPDATE complaints SET topic = ?, service_id = ?, priority = ?, decision_status = 'confirmed' WHERE id = ?",
@@ -469,11 +474,18 @@ def get_reports(format: str = Query("pdf")):
 
 
 static_dir = Path(__file__).resolve().parent / "static"
+app.include_router(build_workspace_router(get_connection, mock_classify, TOPIC_SERVICE_MAP, VALID_REGION_IDS))
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 @app.get("/")
 def index():
+    idx = static_dir / "workspace.html"
+    return FileResponse(idx) if idx.exists() else legacy()
+
+
+@app.get("/legacy")
+def legacy():
     idx = static_dir / "index.html"
     return FileResponse(idx) if idx.exists() else {"message": "Pulse 109 API running"}
