@@ -410,6 +410,10 @@ def confirm_complaint(complaint_id: str, req: ConfirmRequest):
             raise HTTPException(status_code=404, detail="Complaint not found")
         if row["decision_status"] == "needs_clarification" or row["quarantined"]:
             raise HTTPException(status_code=409, detail="Confirm is blocked while clarification is pending")
+        if row["incident_id"]:
+            incident = conn.execute("SELECT category FROM incidents WHERE id = ?", (row["incident_id"],)).fetchone()
+            if incident and incident[0] != req.topic:
+                raise HTTPException(status_code=409, detail="Unlink the incident before changing its category")
         conn.execute(
             "UPDATE complaints SET topic = ?, service_id = ?, priority = ?, decision_status = 'confirmed' WHERE id = ?",
             (req.topic, req.service_id, req.priority, complaint_id),

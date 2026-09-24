@@ -83,7 +83,11 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         candidate_ids = [r["incident_id"] for r in similar if r["incident_id"]]
         candidate = next((i for i in incidents if i["id"] in candidate_ids and i["status"] != "Завершён"), None)
         risk = risk_for(c, rows)
-        routing = route(c, ai, operators if operators is not None else operators_with_load(conn))
+        ops = operators if operators is not None else operators_with_load(conn)
+        routing = route(c, ai, ops)
+        assigned = next((o for o in ops if o["id"] == c["assigned_operator"]), None)
+        if assigned:
+            routing = {"operator": assigned, "reason": "Назначение подтверждено оператором.", "level": None, "assigned": True}
         response = ("Ваше обращение зарегистрировано. Оно связано с инцидентом " + c["incident_id"] + ". Ответственная служба уведомлена в демо-системе. Срок устранения пока не подтверждён."
                     if c["incident_id"] else "Ваше обращение зарегистрировано. Оператор проверит информацию и направит её в ответственную службу. Срок устранения пока не подтверждён.")
         return {"complaint": c, "triage": ai, "similar": similar, "incident_candidate": candidate,

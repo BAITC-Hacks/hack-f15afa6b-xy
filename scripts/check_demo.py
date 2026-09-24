@@ -59,6 +59,7 @@ def run():
             metrics = call("/api/workspace/metrics")
             assert metrics["linked"] == 18 and metrics["total"] == 51
             assert next(x for x in call("/api/workspace/operators")["items"] if x["id"] == "op-aidana")["current_load"] == 3
+            call(f"/api/complaints/{cid}/confirm", {"topic": "roads", "service_id": "srv_roads", "priority": "normal"}, 409)
             print("PASS 3: atomic confirm + link + assign; counters/load update, double-submit rejected")
 
             kk = intake("Абай 46 үйде су жоқ, бүкіл үй сусыз қалды", language="kk")
@@ -98,6 +99,8 @@ def run():
 
             with sqlite3.connect(db) as conn:
                 conn.execute("UPDATE operators SET base_load = capacity WHERE id = 'op-aidana'")
+            assigned = call(f"/api/workspace/complaints/{cid}/triage", {})["routing"]
+            assert assigned["assigned"] and assigned["operator"]["id"] == "op-aidana"
             fallback = call(f"/api/workspace/complaints/{kk}/triage", {})["routing"]
             assert fallback["operator"] is None or fallback["operator"]["id"] != "op-aidana"
             call(f"/api/workspace/complaints/{kk}/decide", decision, 409)
