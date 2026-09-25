@@ -86,3 +86,44 @@ These are small synthetic demo measurements, not production quality evidence. Th
 is too low for unattended classification even when an individual response reports high confidence.
 The default provider therefore remains `mock`; Laya needs approved, group-aware RU/KK evaluation and
 threshold calibration before production activation.
+
+## NVIDIA fine-tuning and calibration
+
+The repeatable GPU job fine-tunes the full Laya encoder and decision head, fits temperature scaling
+on a separate calibration split, evaluates once on the untouched test split, and repeats the run for
+three seeds. Start it only from a clean committed checkout on an NVIDIA host with Python 3.11:
+
+```sh
+nvidia-smi
+python -m pip install "laya==0.3.20"
+python scripts/run_laya_gpu_experiments.py \
+  --output artifacts/laya-gpu-20260926 \
+  --gpus 2 \
+  --seeds 17,29,43
+```
+
+Omit `--gpus` to use every visible GPU. The job pins the base checkpoint revision, builds deterministic
+RU/KK simulations, launches one DDP training job per seed, and stops on the first failed run. Use
+`--approved-jsonl /private/path/approved.jsonl` only for an anonymized, approved file following the
+generated record schema. The input is hashed but never copied into Git.
+
+Each seed produces the trained checkpoint, training history, baseline and post-training metrics,
+held-out temperatures, CUDA/NVIDIA inventory, hashes, Git commit and a full log. The experiment
+manifest reports mean and population standard deviation across seeds. Verify a copied evidence bundle
+without training again:
+
+```sh
+python scripts/run_laya_gpu_experiments.py \
+  --output artifacts/laya-gpu-20260926 \
+  --verify-only
+```
+
+Verification rejects split leakage, changed data, logs or checkpoint files, identical seed outputs,
+missing CUDA evidence, uncommitted training code, unsafe temperatures and unchanged base weights.
+`trained_checkpoint_calibrated` measures the calibration saved into `rl_agent_config.json` and used by
+standard Laya serving. `trained_pulse_calibrated` is a finer RU/KK decision-level analysis kept in the
+evidence bundle; it is not silently applied by the stock server.
+
+The checked simulation corpus is evidence that the training and calibration pipeline executed. It is
+not evidence of production accuracy. Promotion still requires approved citizen-text labels, a frozen
+group-aware test set, human error review and thresholds chosen on validation/calibration data only.

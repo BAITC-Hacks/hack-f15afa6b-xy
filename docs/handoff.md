@@ -1,5 +1,17 @@
 # Pulse 109 — текущая передача работы
 
+## 2026-09-26: воспроизводимый Laya GPU pipeline
+
+Ветка `feat/laya-gpu-training` добавляет детерминированные RU/KK симуляции, полное fine-tuning
+encoder+head, отдельные validation/calibration/test splits, три независимых seed и проверяемый пакет
+доказательств: логи, CUDA/NVIDIA inventory, история, температуры, метрики и SHA-256 исходных/обученных
+весов. CI проверяет разбиение, PII-фильтр, детерминизм и обнаружение подмены артефактов.
+
+Сам NVIDIA-прогон ещё не выполнен: прежний Brev L4 удалён, а новая платная GPU-сессия не создавалась.
+До появления успешно проверенного `experiment_manifest.json` приложение остаётся в mock-режиме и не
+заявляет обученную модель или production accuracy. Команды и границы доказательств находятся в
+[Laya integration](laya-integration.md#nvidia-fine-tuning-and-calibration).
+
 ## 2026-09-24: операции, Radar и координация
 
 Актуальная ветка: `feat/operator-demo`, основана на GitHub main `ba5d8fd`.

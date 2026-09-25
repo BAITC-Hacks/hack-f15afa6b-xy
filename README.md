@@ -30,7 +30,8 @@ Laya подключается как изолированный decision layer �
 `mock`, `existing_classifier`, `laya` и `hybrid` выбираются через `P109_DECISION_PROVIDER`;
 локальный и удалённый сервер используют один HTTP-контракт. Ошибка Laya не останавливает Pulse,
 а сомнительные решения остаются за оператором. Конфигурация, запуск, fallback, проверки и честные
-ограничения описаны в [docs/laya-integration.md](docs/laya-integration.md); пример ENV — `.env.example`.
+ограничения описаны в [docs/laya-integration.md](docs/laya-integration.md); там же приведён
+воспроизводимый NVIDIA fine-tuning и формат проверяемых evidence-артефактов. Пример ENV — `.env.example`.
 
 Проверки новых серверных функций запускают свои временные БД:
 ```sh

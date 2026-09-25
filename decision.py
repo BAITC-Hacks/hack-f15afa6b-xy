@@ -18,6 +18,19 @@ DecisionMode = Literal[
     "AUTO_PRESELECT", "VERIFY", "CLARIFY_OR_HUMAN_REVIEW", "MODEL_DISAGREEMENT"
 ]
 
+CATEGORY_GUIDANCE = {
+    "heating": "Нет отопления, холодные батареи / жылу жоқ, батарея суық",
+    "water_supply": "Нет или слабая подача питьевой воды / ауыз су жоқ немесе қысымы төмен",
+    "electricity": "Нет электричества, авария электросети / электр қуаты жоқ, желі апаты",
+    "roads": "Ямы и повреждения проезжей части / жолдағы шұңқырлар мен зақым",
+    "street_lighting": "Не работают уличные фонари / көше шамдары жанбайды",
+    "waste_management": "Переполненные баки, не вывезен мусор / қоқыс жәшігі толы, қоқыс шығарылмаған",
+    "public_transport": "Автобус, маршрут, остановка, интервал / автобус, бағыт, аялдама, аралық",
+    "housing_maintenance": "Подъезд, крыша, лифт, общедомовое имущество / кіреберіс, шатыр, лифт, үй мүлкі",
+    "landscaping": "Парк, деревья, газон, площадка / саябақ, ағаш, көгал, алаң",
+    "sewerage": "Ливневая канализация, стоки, затопление / нөсер кәрізі, ағын су, су басу",
+}
+
 
 class Alternative(BaseModel):
     value: str
@@ -125,13 +138,35 @@ def _sanitized_text(text: str) -> str:
     return re.sub(r"(?<!\d)(?:\+?7|8)[\s()-]*\d(?:[\s()-]*\d){9}(?!\d)", "[телефон удалён]", text)
 
 
+def laya_triage_questions(criteria: dict[str, str]) -> dict[str, dict[str, Any]]:
+    return {
+        "category": {
+            "type": "choice",
+            "instructions": "Выбери одну основную категорию обращения гражданина.",
+            "criteria": criteria,
+        },
+        "needs_clarification": {
+            "type": "noul",
+            "instructions": "Нужно ли запросить у гражданина уточнение, чтобы определить категорию?",
+        },
+        "spam_suspected": {
+            "type": "noul",
+            "instructions": "Похоже ли сообщение на спам, рекламу или злоупотребление?",
+        },
+        "urgency": {
+            "type": "choice",
+            "instructions": "Какой операционный приоритет рекомендуется?",
+            "criteria": {"normal": "обычная обработка", "urgent": "возможна непосредственная опасность"},
+        },
+    }
+
+
 class LayaDecisionProvider(DecisionProvider):
     def __init__(self, client: LayaClient, topics: list[dict[str, str]], gate: DecisionGate):
         self.client = client
         self.gate = gate
-        self.criteria = {
-            topic["id"]: f"{topic['name_ru']} / {topic['name_kk']}" for topic in topics
-        }
+        self.criteria = {topic["id"]: CATEGORY_GUIDANCE.get(
+            topic["id"], f"{topic['name_ru']} / {topic['name_kk']}") for topic in topics}
         self.allowed = set(self.criteria)
 
     @staticmethod
@@ -140,26 +175,7 @@ class LayaDecisionProvider(DecisionProvider):
         return {"text": _sanitized_text(text), "language": complaint.get("language") or "unknown"}
 
     def classify(self, complaint, extra_text="", baseline=None) -> TriageContract:
-        questions = {
-            "category": {
-                "type": "choice",
-                "instructions": "Выбери одну основную категорию обращения гражданина.",
-                "criteria": self.criteria,
-            },
-            "needs_clarification": {
-                "type": "noul",
-                "instructions": "Нужно ли запросить у гражданина уточнение, чтобы определить категорию?",
-            },
-            "spam_suspected": {
-                "type": "noul",
-                "instructions": "Похоже ли сообщение на спам, рекламу или злоупотребление?",
-            },
-            "urgency": {
-                "type": "choice",
-                "instructions": "Какой операционный приоритет рекомендуется?",
-                "criteria": {"normal": "обычная обработка", "urgent": "возможна непосредственная опасность"},
-            },
-        }
+        questions = laya_triage_questions(self.criteria)
         result = self.client.predict(self._state(complaint, extra_text), questions)
         category_answer = result.answers["category"]
         category = category_answer.get("choice")
