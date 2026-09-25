@@ -26,6 +26,7 @@ from workspace_api import build_workspace_router
 from incidents import init_incidents
 from radar import build_incident_router
 from support_api import init_support, build_support_router
+from decision import DecisionService
 
 BANNER_TEXT = "SYNTHETIC DEMO — MODELS NOT TRAINED"
 
@@ -75,7 +76,6 @@ VALID_TOPIC_IDS = {t["id"] for t in TOPICS}
 TOPIC_SERVICE_MAP = {t["id"]: t["default_service"] for t in TOPICS}
 # Human-confirmed decision values only; urgency detection is a proposal, never mixed with review.
 VALID_PRIORITIES = {"normal", "urgent"}
-
 def get_db_path() -> Path:
     env_path = os.environ.get("DATABASE_PATH")
     if env_path:
@@ -83,12 +83,10 @@ def get_db_path() -> Path:
     default_path = Path(__file__).resolve().parent / "data" / "pulse109.db"
     default_path.parent.mkdir(parents=True, exist_ok=True)
     return default_path
-
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     return conn
-
 def init_db() -> None:
     get_db_path().parent.mkdir(parents=True, exist_ok=True)
     with get_connection() as conn:
@@ -180,22 +178,23 @@ def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str
             return topic_id, TOPIC_SERVICE_MAP[topic_id], urgency
     return None, None, urgency
 
+
+decision_service = DecisionService(mock_classify, TOPIC_SERVICE_MAP, TOPICS)
 @app.get("/api/health")
 def health_check():
     return {
         "status": "ok",
         "app": "Pulse 109",
-        "mode": "mock",
+        "mode": decision_service.mode,
         "training_status": "not_trained",
         "checkpoint_id": None,
+        "laya": decision_service.health(),
         "banner": BANNER_TEXT,
     }
 
 @app.get("/api/regions")
 def get_regions():
     return {"regions": REGIONS}
-
-
 @app.get("/api/topics")
 def get_topics():
     return {"topics": TOPICS}
@@ -212,8 +211,6 @@ def get_data_coverage(region_id: Optional[str] = None):
     if region_id is not None:
         data["regions"] = [r for r in data["regions"] if r["region_id"] == region_id]
     return data
-
-
 @app.get("/api/stats")
 def get_stats(region_id: Optional[str] = None):
     if region_id and region_id not in VALID_REGION_IDS:
@@ -308,8 +305,11 @@ def classify_complaint(complaint_id: str):
         if not row:
             raise HTTPException(status_code=404, detail="Complaint not found")
         clarifications = get_received_clarifications(conn, complaint_id)
-        input_text = row["text"] if not clarifications else row["text"] + "\n\n" + "\n".join(clarifications)
-        topic, service_id, prio = mock_classify(input_text)
+        extra_text = "\n".join(clarifications)
+        ai = decision_service.classify(dict(row), extra_text)
+        topic, service_id, prio = ai["category"], ai["suggested_service"], ai["urgency"]
+        if ai["provider"] not in {"laya", "hybrid"}:
+            topic, service_id, prio = mock_classify(row["text"] + (("\n" + extra_text) if extra_text else ""))
         now_iso = datetime.now(timezone.utc).isoformat()
         conn.execute(
             "UPDATE complaints SET proposed_topic = ?, proposed_service_id = ?, proposed_priority = ? WHERE id = ?",
@@ -317,29 +317,27 @@ def classify_complaint(complaint_id: str):
         )
         conn.execute(
             "INSERT INTO audit_events (id, complaint_id, event_type, occurred_at, recorded_at, actor, payload) "
-            "VALUES (?, ?, 'classification_proposed', ?, ?, 'model_mock', ?)",
+            "VALUES (?, ?, 'classification_proposed', ?, ?, ?, ?)",
             (
                 f"evt-{uuid.uuid4().hex[:8]}",
                 complaint_id,
                 now_iso,
                 now_iso,
-                json.dumps(
-                    {
-                        "topic": topic,
-                        "service_id": service_id,
-                        "priority": prio,
-                        "clarification_count": len(clarifications),
-                    },
-                    ensure_ascii=False,
-                ),
+                ai["provider"],
+                json.dumps({**decision_service.audit_payload(ai), "topic": topic,
+                            "service_id": service_id, "priority": prio,
+                            "clarification_count": len(clarifications), "created_at": now_iso},
+                           ensure_ascii=False),
             ),
         )
         conn.commit()
     return {
-        "mode": "mock",
-        "checkpoint_id": None,
-        "training_status": "not_trained",
-        "confidence": None,
+        "mode": ai["provider"],
+        "checkpoint_id": ai["checkpoint_id"],
+        "training_status": ai["training_status"],
+        "confidence": ai["category_confidence"] if ai["provider"] in {"laya", "hybrid"} else None,
+        "decision": ai["decision_mode"],
+        "triage": ai,
         "proposal": {"topic": topic, "service_id": service_id, "priority": prio},
     }
 
@@ -425,9 +423,12 @@ def confirm_complaint(complaint_id: str, req: ConfirmRequest):
                 now_iso,
                 now_iso,
                 req.actor,
-                json.dumps(
-                    {"topic": req.topic, "service_id": req.service_id, "priority": req.priority}, ensure_ascii=False
-                ),
+                json.dumps({
+                    "topic": req.topic, "service_id": req.service_id, "priority": req.priority,
+                    "suggested_value": row["proposed_topic"], "confirmed_value": req.topic,
+                    "operator_override": bool(row["proposed_topic"] and row["proposed_topic"] != req.topic),
+                    "language": row["language"],
+                }, ensure_ascii=False),
             ),
         )
         conn.commit()
@@ -477,7 +478,7 @@ def get_reports(format: str = Query("pdf")):
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.include_router(build_workspace_router(get_connection, mock_classify, TOPIC_SERVICE_MAP, VALID_REGION_IDS,
-                                         {t["id"]: t["name_ru"] for t in TOPICS}))
+                                         {t["id"]: t["name_ru"] for t in TOPICS}, decision_service))
 app.include_router(build_incident_router(get_connection, mock_classify, TOPIC_SERVICE_MAP))
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")

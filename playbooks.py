@@ -7,7 +7,6 @@ Executed tokens are stored, so replaying one returns the recorded result.
 Guards, routing and incident checks arrive as `ctx` callables from
 workspace_api: playbooks reuse the same functions as the legacy endpoints.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -21,7 +20,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from triage import SERVICE_NAMES
-
 DEMO_DELIVERY = "demo_only"
 PREVIEW_TTL_MINUTES = 30
 
@@ -157,9 +155,8 @@ def _decision(ctx, conn, c, req, link: bool):
         return [], blocked, None, None
     if c["decision_status"] == "confirmed":
         return [], "Решение уже подтверждено", None, None
-    # An explicit operator choice with manual=true must not depend on a usable demo analysis.
     manual = bool(req.manual) and req.topic in services and req.priority in {"urgent", "normal"}
-    ai = None if manual else ctx["analysis"](conn, c)
+    ai = ctx["analysis"](conn, c)
     topic = req.topic or c["topic"] or (ai["category"] if ai and ai["confidence_band"] != "low" else None)
     priority = req.priority or c["priority"] or (ai["urgency"] if ai else None)
     if topic is None:
@@ -219,6 +216,7 @@ def _decision(ctx, conn, c, req, link: bool):
     state = (c, fingerprint_ai, routing, {"link": incident_id if link else None, "manual": manual,
                                          "priority": priority})
 
+    suggested = ai["category"] if ai else c["proposed_topic"]
     def apply(conn, actor, token):
         now = datetime.now(timezone.utc).isoformat()
         _record(conn, ctx, c["id"], pid, actions, token, actor, manual=manual)
@@ -240,7 +238,10 @@ def _decision(ctx, conn, c, req, link: bool):
         ctx["event"](conn, c["id"], "operator_confirmed",
                      {"topic": topic, "service_id": services[topic], "priority": priority,
                       "operator_id": chosen["id"] if chosen else None, "manual_override": manual,
-                      "playbook": pid, "proposed_topic": ai["category"] if ai else c["proposed_topic"],
+                      "playbook": pid, "proposed_topic": suggested, "suggested_value": suggested,
+                      "confirmed_value": topic, "provider": (ai or {}).get("provider", "manual"),
+                      "provider_version": (ai or {}).get("provider_version"), "operator_override": bool(suggested and suggested != topic),
+                      "language": c["language"],
                       "incident_id": incident_id if link else c["incident_id"]},
                      actor, audit_id(token, "operator_confirmed"))
         updated = ctx["complaint"](conn, c["id"])

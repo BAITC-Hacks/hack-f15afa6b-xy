@@ -90,6 +90,9 @@ def run():
             assert complaint["assigned_operator"] == "op-aidana" and complaint["incident_id"] is None
             kinds = [e["event_type"] for e in events(cid)]
             assert kinds.count("playbook_executed") == 1 and kinds.count("operator_confirmed") == 1
+            confirmed = json.loads(next(e for e in events(cid) if e["event_type"] == "operator_confirmed")["payload"])
+            assert confirmed["suggested_value"] == confirmed["confirmed_value"] == "water_supply"
+            assert confirmed["provider"] == "mock" and confirmed["operator_override"] is False and confirmed["language"] == "ru"
             saved = next(e for e in events(cid) if e["event_type"] == "reply_saved")
             assert json.loads(saved["payload"])["delivery"] == "demo_only"
             assert json.loads(saved["payload"])["playbook"] == "route_service"
@@ -181,7 +184,8 @@ def run():
             assert applied["complaint"]["service_id"] == "srv_roads"
             assert applied["complaint"]["assigned_operator"] == "op-nurlan"
             confirmed = next(e for e in events(manual_case) if e["event_type"] == "operator_confirmed")
-            assert json.loads(confirmed["payload"])["manual_override"] is True
+            manual_payload = json.loads(confirmed["payload"])
+            assert manual_payload["manual_override"] is True and manual_payload["provider"] == "mock"
 
             reselected = intake("На Абая 80 нет воды, весь дом без воды")
             call(f"/api/workspace/complaints/{reselected}/triage", {})
@@ -192,8 +196,10 @@ def run():
             chosen_result = execute(reselected, "route_service", chosen["preview_token"])
             assert chosen_result["complaint"]["topic"] == "sewerage"
             assert chosen_result["complaint"]["assigned_operator"] == "op-senior"
-            assert json.loads(next(e for e in events(reselected)
-                                   if e["event_type"] == "operator_confirmed")["payload"])["manual_override"] is False
+            correction = json.loads(next(e for e in events(reselected)
+                                    if e["event_type"] == "operator_confirmed")["payload"])
+            assert correction["manual_override"] is False and correction["operator_override"] is True
+            assert correction["suggested_value"] == "water_supply" and correction["confirmed_value"] == "sewerage"
             print("PASS 8: routing follows the confirmed category, manual override is audited")
 
             faq = intake("Как проверить статус обращения?")

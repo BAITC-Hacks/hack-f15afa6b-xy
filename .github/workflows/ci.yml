@@ -34,6 +34,8 @@ jobs:
         run: python scripts/check_incidents.py
       - name: Verify routing and presence
         run: python scripts/check_routing.py
+      - name: Verify Laya decision integration and fallback
+        run: python scripts/check_laya.py
       - name: Verify coverage evidence boundaries
         run: python scripts/check_coverage.py
       - name: Verify local audit with synthetic inputs
@@ -78,3 +80,25 @@ jobs:
           node scripts/check_playbooks_ui.cjs http://127.0.0.1:8767
           node scripts/check_incidents_ui.cjs http://127.0.0.1:8767
           node scripts/check_support_ui.cjs http://127.0.0.1:8767
+          python scripts/fake_laya_server.py --port 8790 &
+          laya_pid=$!
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8790/health > /dev/null; then break; fi
+            sleep 1
+          done
+          P109_DECISION_PROVIDER=laya P109_LAYA_BASE_URL=http://127.0.0.1:8790 P109_LAYA_TIMEOUT=.2 P109_LAYA_DEMO_FALLBACK=1 DATABASE_PATH="$RUNNER_TEMP/p109-laya-ui.db" python -m uvicorn app:app --host 127.0.0.1 --port 8791 &
+          laya_app_pid=$!
+          trap 'kill "$server_pid" "$demo_pid" "$playbooks_pid" "$laya_pid" "$laya_app_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8791/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check_laya_ui.cjs http://127.0.0.1:8791 laya
+          P109_DECISION_PROVIDER=hybrid P109_LAYA_BASE_URL=http://127.0.0.1:8790 P109_LAYA_TIMEOUT=.2 DATABASE_PATH="$RUNNER_TEMP/p109-hybrid-ui.db" python -m uvicorn app:app --host 127.0.0.1 --port 8792 &
+          hybrid_app_pid=$!
+          trap 'kill "$server_pid" "$demo_pid" "$playbooks_pid" "$laya_pid" "$laya_app_pid" "$hybrid_app_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8792/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check_laya_ui.cjs http://127.0.0.1:8792 hybrid

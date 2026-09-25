@@ -61,7 +61,8 @@ def suggested_response(c):
             if c["incident_id"] else "Ваше обращение зарегистрировано. Оператор проверит информацию и направит её в ответственную службу. Срок устранения пока не подтверждён.")
 
 
-def build_workspace_router(get_connection, classifier, topic_services, valid_regions, topic_names=None):
+def build_workspace_router(get_connection, classifier, topic_services, valid_regions, topic_names=None,
+                           decision_service=None):
     router = APIRouter(prefix="/api/workspace")
 
     def complaint(conn, cid):
@@ -83,10 +84,26 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         return result
 
     def analysis(conn, c):
-        """Demo triage for one complaint, including received clarifications."""
-        return analyze(c, classifier, topic_services, "\n".join(get_received_clarifications(conn, c["id"])))
+        """Read the latest stored triage; never call an external model while listing the queue."""
+        extra = "\n".join(get_received_clarifications(conn, c["id"]))
+        if decision_service:
+            row = conn.execute("""SELECT payload FROM audit_events
+                WHERE complaint_id = ? AND event_type = 'classification_proposed'
+                ORDER BY rowid DESC LIMIT 1""", (c["id"],)).fetchone()
+            if row:
+                try:
+                    contract = json.loads(row["payload"]).get("triage_contract")
+                    if contract:
+                        return decision_service.view_from_contract(c, extra, contract)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
+            return decision_service.existing_view(c, extra)
+        return analyze(c, classifier, topic_services, extra)
 
     def routing_for(c, ai, ops):
+        if ai.get("decision_mode") == "MODEL_DISAGREEMENT":
+            return {"operator": None, "reason": "Сначала подтвердите категорию при расхождении моделей.",
+                    "level": None, "route_type": "review", "queue": True, "candidates": []}
         routing = route(c, ai, ops)
         assigned = next((o for o in ops if o["id"] == c["assigned_operator"]), None)
         if assigned:
@@ -101,6 +118,11 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         candidate_ids = [r["incident_id"] for r in similar if r["incident_id"]]
         candidate = next((i for i in incidents if i["id"] in candidate_ids and i["status"] != "Завершён"), None)
         risk = risk_for(c, rows)
+        spam = ai.get("spam_suspected") or {}
+        if spam.get("value") and not c.get("safety_reviewed"):
+            risk["reasons"].append(f"Laya: подозрение на спам {round(100 * spam['probability_true'])}%")
+            risk["score"] = max(risk["score"], spam["probability_true"])
+            risk["kind"] = "deterministic_plus_laya_signal"
         ops = operators if operators is not None else operators_with_load(conn)
         routing = routing_for(c, ai, ops)
         return {"complaint": c, "triage": ai, "similar": similar, "incident_candidate": candidate,
@@ -192,12 +214,16 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
     def triage(cid: str):
         with get_connection() as conn:
             c = complaint(conn, cid)
-            result = detail(conn, c)
-            ai = result["triage"]
+            extra = "\n".join(get_received_clarifications(conn, cid))
+            ai = decision_service.classify(c, extra) if decision_service else analyze(c, classifier, topic_services, extra)
             conn.execute("UPDATE complaints SET proposed_topic = ?, proposed_service_id = ?, proposed_priority = ? WHERE id = ?",
                          (ai["category"], ai["suggested_service"], ai["urgency"], cid))
-            event(conn, cid, "classification_proposed", {"topic": ai["category"], "confidence_kind": "synthetic_demo", "category_confidence": ai["category_confidence"]}, "rules_demo")
-            return result
+            payload = (decision_service.audit_payload(ai) if decision_service else
+                       {"topic": ai["category"], "confidence_kind": "synthetic_demo",
+                        "category_confidence": ai["category_confidence"]})
+            payload["created_at"] = datetime.now(timezone.utc).isoformat()
+            event(conn, cid, "classification_proposed", payload, ai.get("provider", "rules_demo"))
+            return detail(conn, complaint(conn, cid))
 
     @router.post("/complaints/{cid}/decide")
     def decide(cid: str, req: Decision):
@@ -231,7 +257,14 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             conn.execute("""UPDATE complaints SET topic = ?, service_id = ?, priority = ?, decision_status = 'confirmed',
                 assigned_operator = ?, incident_id = ?, related_to = ?, first_response_at = COALESCE(first_response_at, ?) WHERE id = ?""",
                 (req.topic, topic_services[req.topic], req.priority, req.operator_id, req.incident_id or c["incident_id"], related, now, cid))
-            event(conn, cid, "operator_confirmed", {**req.model_dump(), "proposed_topic": d["triage"]["category"]})
+            suggested = d["triage"]["category"]
+            event(conn, cid, "operator_confirmed", {
+                **req.model_dump(), "proposed_topic": suggested, "suggested_value": suggested,
+                "confirmed_value": req.topic, "provider": d["triage"].get("provider", "mock"),
+                "provider_version": d["triage"].get("provider_version"),
+                "operator_override": bool(suggested and suggested != req.topic),
+                "language": c["language"],
+            })
             return {"complaint": complaint(conn, cid)}
 
     @router.get("/complaints/{cid}/routing")
@@ -301,6 +334,26 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             ops = [o for o in operators_with_load(conn) if o["status"] == "online"]
             incs = incident_list(conn)
             subscriptions = conn.execute("SELECT COUNT(*) FROM incident_subscriptions").fetchone()[0]
+            decisions = []
+            for row in conn.execute("""SELECT a.payload, c.language FROM audit_events a
+                    JOIN complaints c ON c.id = a.complaint_id
+                    WHERE a.event_type = 'operator_confirmed'"""):
+                try:
+                    payload = json.loads(row["payload"])
+                except json.JSONDecodeError:
+                    continue
+                suggested = payload.get("suggested_value") or payload.get("proposed_topic")
+                confirmed = payload.get("confirmed_value") or payload.get("topic")
+                if suggested and confirmed:
+                    decisions.append((suggested, confirmed, row["language"]))
+        confirmed_same = sum(suggested == confirmed for suggested, confirmed, _ in decisions)
+        overrides = len(decisions) - confirmed_same
+        language_agreement = {}
+        for language in ("ru", "kk"):
+            rows = [(a, b) for a, b, lang in decisions if lang == language]
+            language_agreement[language] = (round(100 * sum(a == b for a, b in rows) / len(rows))
+                                                if rows else None)
+        corrected = Counter(suggested for suggested, confirmed, _ in decisions if suggested != confirmed)
         linked = sum(bool(x["complaint"]["incident_id"]) for x in data)
         consolidated = sum(max(0, i["count"] - 1) for i in incs)
         return {"data_origin": "synthetic", "total": len(data), "today": len(today_items),
@@ -313,6 +366,11 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                 "high_confidence_percent": round(100 * sum(x["triage"]["confidence_band"] == "high" for x in data) / max(1, len(data))),
                 "categories": dict(Counter(x["triage"]["category"] or "unknown" for x in data)),
                 "subscriptions": subscriptions, "time_saved_percent": None,
+                "laya_quality": {"label": "Synthetic / demo metrics", "decisions": len(decisions),
+                                 "confirmed_without_changes_percent": round(100 * confirmed_same / len(decisions)) if decisions else None,
+                                 "operator_override_percent": round(100 * overrides / len(decisions)) if decisions else None,
+                                 "language_agreement_percent": language_agreement,
+                                 "most_corrected": corrected.most_common(1)[0][0] if corrected else None},
                 "note": "Счётчики синтетической SQLite. Экономия времени не измерялась."}
 
     attach_playbook_routes(router, get_connection, {
