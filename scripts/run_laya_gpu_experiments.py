@@ -198,11 +198,12 @@ def verify_experiment(output):
                 "Experiment data status does not match dataset manifest")
     verify_claim_boundary(experiment.get("data_status", dataset["data_status"]),
                           experiment.get("claim_boundary", ""))
-    rlcd_weights = {run["hyperparameters"].get("rlcd_weight") for run in checked
-                    if "rlcd_weight" in run["hyperparameters"]}
-    if rlcd_weights:
-        require(len(rlcd_weights) == 1 and experiment.get("rlcd_weight") in rlcd_weights,
-                "Experiment and run RLCD weights do not match")
+    for name in ("rlcd_weight", "encoder_lr", "head_lr"):
+        values = {run["hyperparameters"].get(name) for run in checked
+                  if name in run["hyperparameters"]}
+        if values:
+            require(len(values) == 1 and experiment.get(name) in values,
+                    f"Experiment and run {name} values do not match")
     return {"status": "verified", "runs": len(checked), "seeds": [run["seed"] for run in checked],
             "dataset": dataset, "claim_boundary": experiment["claim_boundary"]}
 
@@ -261,6 +262,8 @@ def run_experiment(args):
     require(len(args.seeds) >= 2 and len(set(args.seeds)) == len(args.seeds),
             "Use at least two unique seeds")
     require(args.rlcd_weight >= 0, "--rlcd-weight cannot be negative")
+    require(args.encoder_lr > 0 and args.head_lr > 0,
+            "--encoder-lr and --head-lr must be positive")
     require(0 <= args.max_slice_recall_drop <= 1,
             "--max-slice-recall-drop must be between 0 and 1")
     available = gpu_count()
@@ -284,7 +287,8 @@ def run_experiment(args):
                    "--data-dir", str(data_dir), "--output", str(run_dir), "--seed", str(seed),
                    "--epochs", str(args.epochs), "--micro-batch", str(args.micro_batch),
                    "--grad-accum", str(args.grad_accum), "--rlcd-weight", str(args.rlcd_weight),
-                   "--max-slice-recall-drop", str(args.max_slice_recall_drop)]
+                   "--max-slice-recall-drop", str(args.max_slice_recall_drop),
+                   "--encoder-lr", str(args.encoder_lr), "--head-lr", str(args.head_lr)]
         if args.model:
             command += ["--model", args.model]
         if args.model_revision:
@@ -302,6 +306,7 @@ def run_experiment(args):
         "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
         "gpu_workers": workers, "seeds": args.seeds, "runs": entries,
         "rlcd_weight": args.rlcd_weight, "max_slice_recall_drop": args.max_slice_recall_drop,
+        "encoder_lr": args.encoder_lr, "head_lr": args.head_lr,
         "aggregate_test_metrics": metric_summary(results),
         "data_status": dataset["data_status"],
         "claim_boundary": ("Synthetic-only repeated runs prove training and calibration execution, not production accuracy."
@@ -429,6 +434,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--micro-batch", type=int, default=8)
     parser.add_argument("--grad-accum", type=int, default=4)
+    parser.add_argument("--encoder-lr", type=float, default=2.5e-5)
+    parser.add_argument("--head-lr", type=float, default=1e-4)
     parser.add_argument("--rlcd-weight", type=float, default=1.0,
                         help="0 runs CE-only; positive values mix RLCD with CE")
     parser.add_argument("--max-slice-recall-drop", type=float, default=.25)
