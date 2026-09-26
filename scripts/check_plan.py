@@ -71,7 +71,10 @@ def main():
     assert len(definitions) == len(set(definitions)), "Duplicate source definition"
     assert references == set(definitions), "Missing or unused source note"
     for path in root.rglob("*"):
-        if path.is_file() and ".git" not in path.parts and ".venv" not in path.parts and path.suffix in {".md", ".json", ".yml", ".py"}:
+        generated_evidence = (path.is_relative_to(root / "training/evidence")
+                              or path.is_relative_to(root / "artifacts"))
+        if (path.is_file() and ".git" not in path.parts and ".venv" not in path.parts
+                and not generated_evidence and path.suffix in {".md", ".json", ".yml", ".py"}):
             assert len(path.read_text().splitlines()) < 500, f"File too long: {path}"
     print(f"PASS: {len(issues)} tasks, {len(backlog['milestones'])} stages, {len(covered)} requirements; dependency DAG valid")
     print(f"Hours: {sum(hours.values())}; by owner: {dict(hours)}")

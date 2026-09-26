@@ -194,6 +194,18 @@ def approved_record(row, questions):
     return canonical_approved(candidate, questions, set(CATEGORY_GUIDANCE))
 
 
+def approved_coverage(rows):
+    return {
+        "approved_groups": len({row["group_id"] for row in rows}),
+        "approved_language_counts": dict(sorted(Counter(row["language"] for row in rows).items())),
+        "approved_category_language_counts": dict(sorted(Counter(
+            f"{row['gold']['category']['label']}|{row['language']}" for row in rows
+            if "category" in row["gold"]).items())),
+        "approved_urgency_counts": dict(sorted(Counter(
+            row["gold"]["urgency"]["label"] for row in rows if "urgency" in row["gold"]).items())),
+    }
+
+
 def export_approved(input_path, output_path, manifest_path=None):
     output_path = Path(output_path)
     manifest_path = Path(manifest_path) if manifest_path else output_path.with_suffix(
@@ -221,16 +233,9 @@ def export_approved(input_path, output_path, manifest_path=None):
         "approved_output_sha256": sha256(output_path),
         "records": len(reviews),
         "groups": len({row["group_id"] for row in reviews}),
-        "approved_groups": len({row["group_id"] for row in approved_rows}),
+        **approved_coverage(approved),
         "status_counts": dict(sorted(status_counts.items())),
-        "approved_language_counts": dict(sorted(Counter(row["language"] for row in approved_rows).items())),
         "approved_source_counts": dict(sorted(Counter(row["source_kind"] for row in approved_rows).items())),
-        "approved_category_language_counts": dict(sorted(Counter(
-            f"{row['labels']['category']}|{row['language']}" for row in approved_rows
-            if row["labels"]["category"] is not None).items())),
-        "approved_urgency_counts": dict(sorted(Counter(
-            row["labels"]["urgency"] for row in approved_rows
-            if row["labels"]["urgency"] is not None).items())),
         "reviewer_count": len({row["reviewer"] for row in reviews if row["reviewer"]}),
         "claim_boundary": "Reviewer declarations and hashes prove the recorded workflow, not label correctness or production accuracy.",
     }
@@ -250,6 +255,9 @@ def verify_export(approved_path, manifest_path):
         raise ValueError("Approved export count does not match its review manifest")
     if manifest.get("status_counts", {}).get("pending", 0):
         raise ValueError("Review manifest still contains pending rows")
+    coverage = approved_coverage(rows)
+    if any(manifest.get(key) != value for key, value in coverage.items()):
+        raise ValueError("Approved export coverage does not match its review manifest")
     return manifest
 
 
@@ -298,7 +306,19 @@ def self_check():
         else:
             raise AssertionError("Manifest could overwrite the approved export")
         manifest = export_approved(review, approved)
-        verify_export(approved, approved.with_suffix(".jsonl.manifest.json"))
+        manifest_path = approved.with_suffix(".jsonl.manifest.json")
+        verify_export(approved, manifest_path)
+        original_manifest = manifest_path.read_bytes()
+        changed_manifest = json.loads(original_manifest)
+        changed_manifest["approved_groups"] = 999
+        manifest_path.write_text(json.dumps(changed_manifest))
+        try:
+            verify_export(approved, manifest_path)
+        except ValueError as error:
+            assert "coverage does not match" in str(error)
+        else:
+            raise AssertionError("Forged approved coverage passed verification")
+        manifest_path.write_bytes(original_manifest)
         original_approved = approved.read_bytes()
         approved.write_bytes(original_approved + b"\n")
         try:

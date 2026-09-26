@@ -1,7 +1,5 @@
 """Run repeated Laya GPU fine-tuning and verify the resulting evidence bundle."""
-
 from __future__ import annotations
-
 import argparse
 import hashlib
 import json
@@ -14,10 +12,8 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-
 ROOT = Path(__file__).resolve().parents[1]
 SPLITS = ("train", "validation", "calibration", "test")
-
 
 def sha256(path):
     digest = hashlib.sha256()
@@ -25,16 +21,11 @@ def sha256(path):
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
 def load_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
 def require(condition, message):
     if not condition:
         raise ValueError(message)
-
 
 def verify_claim_boundary(data_status, claim):
     text = claim.lower()
@@ -47,7 +38,6 @@ def verify_claim_boundary(data_status, claim):
                 "Mixed approved-data claim boundary is missing")
     else:
         raise ValueError(f"Unsupported training data status: {data_status}")
-
 
 def verify_dataset(data_dir):
     manifest_path = data_dir / "dataset_manifest.json"
@@ -82,7 +72,6 @@ def verify_dataset(data_dir):
             "data_status": manifest["data_status"],
             "approved_input_sha256": manifest.get("approved_input_sha256")}
 
-
 def verify_review_binding(dataset, manifest_path):
     require(Path(manifest_path).is_file(), "Approved-data review manifest is missing")
     manifest = load_json(manifest_path)
@@ -94,8 +83,6 @@ def verify_review_binding(dataset, manifest_path):
     require(dataset.get("approved_input_sha256") == approved_hash,
             "Training dataset is not bound to the reviewed approved export")
     return sha256(manifest_path)
-
-
 def numeric_values(value):
     if isinstance(value, dict):
         for nested in value.values():
@@ -105,7 +92,6 @@ def numeric_values(value):
             yield from numeric_values(nested)
     elif isinstance(value, (int, float)) and not isinstance(value, bool):
         yield float(value)
-
 
 def verify_run(run_dir, data_manifest_hash, expected_seed=None):
     manifest_path = run_dir / "run_manifest.json"
@@ -129,14 +115,12 @@ def verify_run(run_dir, data_manifest_hash, expected_seed=None):
     require(manifest.get("weight_change_proof") is True, "Run did not record weight change proof")
     require(manifest.get("git_commit") and not manifest.get("git_dirty"),
             "Training must run from a committed, clean checkout")
-
     modern = "rlcd_weight" in manifest.get("hyperparameters", {})
     if modern:
         for name in ("environment.json", "calibration.json", "metrics.json", "training_history.json"):
             path = run_dir / name
             require(path.is_file() and sha256(path) == hashes.get(name),
                     f"{name} hash mismatch")
-
     environment = load_json(run_dir / "environment.json")
     require(environment.get("gpus") and environment.get("cuda_runtime"), "NVIDIA CUDA evidence is missing")
     calibration = load_json(run_dir / "calibration.json")
@@ -185,7 +169,6 @@ def verify_run(run_dir, data_manifest_hash, expected_seed=None):
             "hyperparameters": manifest.get("hyperparameters", {}),
             "data_status": manifest.get("data_status")}
 
-
 def verify_experiment(output):
     dataset = verify_dataset(output / "data")
     experiment = load_json(output / "experiment_manifest.json")
@@ -226,7 +209,6 @@ def verify_experiment(output):
     return {"status": "verified", "runs": len(checked), "seeds": [run["seed"] for run in checked],
             "dataset": dataset, "claim_boundary": experiment["claim_boundary"]}
 
-
 def metric_summary(results):
     fields = {
         "baseline_overall_accuracy": ("baseline_raw", "accuracy"),
@@ -250,15 +232,12 @@ def metric_summary(results):
         summary[name] = {"mean": round(statistics.mean(values), 6),
                          "population_std": round(statistics.pstdev(values), 6), "values": values}
     return summary
-
-
 def gpu_count():
     require(shutil.which("nvidia-smi"), "nvidia-smi is not installed or not on PATH")
     result = subprocess.run(["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
                             text=True, capture_output=True)
     require(result.returncode == 0, "nvidia-smi failed: " + result.stderr.strip())
     return len([line for line in result.stdout.splitlines() if line.strip()])
-
 
 def run_logged(command, log_path):
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,7 +249,6 @@ def run_logged(command, log_path):
             print(line, end="")
             log.write(line)
         return process.wait()
-
 
 def run_experiment(args):
     status = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
@@ -354,7 +332,6 @@ def run_experiment(args):
     verified = verify_experiment(args.output)
     print(json.dumps(verified, ensure_ascii=False, indent=2))
 
-
 def write_self_check_run(root, data_hash, seed, data_status="synthetic_only"):
     run_dir = root / "runs" / f"seed-{seed}"
     checkpoint = run_dir / "checkpoint"
@@ -402,7 +379,6 @@ def write_self_check_run(root, data_hash, seed, data_status="synthetic_only"):
     return {"seed": seed, "directory": str(run_dir.relative_to(root)),
             "log": str(log.relative_to(root)), "log_sha256": sha256(log),
             "manifest_sha256": sha256(path)}
-
 
 def self_check():
     sys.path.insert(0, str(ROOT / "scripts"))
@@ -488,7 +464,6 @@ def self_check():
             raise AssertionError("Evidence verifier accepted a modified review manifest")
     print("PASS: deterministic data, split isolation, PII gate and evidence tamper detection")
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path)
@@ -520,7 +495,5 @@ def main():
     else:
         require(args.output, "--output is required")
         run_experiment(args)
-
-
 if __name__ == "__main__":
     main()

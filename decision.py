@@ -162,9 +162,11 @@ def laya_triage_questions(criteria: dict[str, str]) -> dict[str, dict[str, Any]]
 
 
 class LayaDecisionProvider(DecisionProvider):
-    def __init__(self, client: LayaClient, topics: list[dict[str, str]], gate: DecisionGate):
+    def __init__(self, client: LayaClient, topics: list[dict[str, str]], gate: DecisionGate,
+                 checkpoint_id: str | None = None):
         self.client = client
         self.gate = gate
+        self.checkpoint_id = checkpoint_id
         self.criteria = {topic["id"]: CATEGORY_GUIDANCE.get(
             topic["id"], f"{topic['name_ru']} / {topic['name_kk']}") for topic in topics}
         self.allowed = set(self.criteria)
@@ -198,7 +200,9 @@ class LayaDecisionProvider(DecisionProvider):
             raise LayaResponseError("Laya returned an unknown urgency")
         urgency_confidence = _probability(urgency_probs.get(urgency), "urgency")
         needs = needs_probability >= 0.5
-        version = str(result.routing.get("repo") or result.routing.get("model") or result.model)
+        version = self.checkpoint_id or str(
+            result.routing.get("repo") or result.routing.get("model") or result.model
+        )
         return TriageContract(
             category=ChoiceDecision(value=category, confidence=confidence, alternatives=alternatives),
             needs_clarification=BooleanDecision(value=needs, confidence=max(needs_probability, 1 - needs_probability),
@@ -230,12 +234,14 @@ class LayaDecisionProvider(DecisionProvider):
 
 
 class DecisionService:
-    MODES = {"mock", "existing_classifier", "laya", "hybrid"}
+    MODES = {"mock", "existing_classifier", "shadow", "laya", "hybrid"}
 
     def __init__(self, classifier, topic_services: dict[str, str], topics: list[dict[str, str]]):
         self.mode = os.environ.get("P109_DECISION_PROVIDER", "mock").strip().lower()
         if self.mode not in self.MODES:
-            raise ValueError("P109_DECISION_PROVIDER must be mock, existing_classifier, laya, or hybrid")
+            raise ValueError(
+                "P109_DECISION_PROVIDER must be mock, existing_classifier, shadow, laya, or hybrid"
+            )
         self.enable_hybrid = os.environ.get("P109_ENABLE_HYBRID", "1").lower() in {"1", "true", "yes", "on"}
         if self.mode == "hybrid" and not self.enable_hybrid:
             raise ValueError("P109_ENABLE_HYBRID must be enabled when P109_DECISION_PROVIDER=hybrid")
@@ -251,7 +257,7 @@ class DecisionService:
             float(os.environ.get("P109_LAYA_TIMEOUT", "8")),
             os.environ.get("P109_LAYA_MODEL", "multilingual"),
             os.environ.get("P109_LAYA_API_KEY"),
-        ), topics, self.gate)
+        ), topics, self.gate, os.environ.get("P109_LAYA_CHECKPOINT_ID") or None)
         self.enable_verification = os.environ.get("P109_ENABLE_VERIFICATION", "1").lower() in {"1", "true", "yes", "on"}
         self.demo_fallback = os.environ.get("P109_LAYA_DEMO_FALLBACK", "0").lower() in {"1", "true", "yes", "on"}
 
@@ -267,7 +273,37 @@ class DecisionService:
         else:
             try:
                 laya = self.laya.classify(complaint, extra_text)
-                if self.mode == "hybrid":
+                if self.mode == "shadow":
+                    sources = {
+                        "existing_classifier": {
+                            "category": existing.category.value,
+                            "confidence": existing.category.confidence,
+                            "urgency": existing.urgency.value,
+                            "urgency_confidence": existing.urgency.confidence,
+                            "decision": existing.decision,
+                        },
+                        "laya": {
+                            "category": laya.category.value,
+                            "confidence": laya.category.confidence,
+                            "urgency": laya.urgency.value,
+                            "urgency_confidence": laya.urgency.confidence,
+                            "decision": laya.decision,
+                            "checkpoint_id": laya.provider_version,
+                        },
+                        "comparison": {
+                            "status": "completed",
+                            "category_agreement": existing.category.value == laya.category.value,
+                            "urgency_agreement": existing.urgency.value == laya.urgency.value,
+                            "decision_agreement": existing.decision == laya.decision,
+                        },
+                    }
+                    selected = existing.model_copy(update={
+                        "provider": "shadow",
+                        "provider_version": laya.provider_version,
+                        "latency_ms": laya.latency_ms,
+                        "source_decisions": sources,
+                    })
+                elif self.mode == "hybrid":
                     sources = {
                         "existing_classifier": {"category": existing.category.value,
                                                 "confidence": existing.category.confidence},
@@ -280,7 +316,7 @@ class DecisionService:
                         selected = laya.model_copy(update={"provider": "hybrid", "source_decisions": sources})
                 else:
                     selected = laya
-                if selected.decision == "VERIFY" and self.enable_verification:
+                if self.mode != "shadow" and selected.decision == "VERIFY" and self.enable_verification:
                     try:
                         verification = self.laya.verify(complaint, selected.category.value, extra_text)
                         if verification["value"] and verification["probability_true"] >= self.gate.high:
@@ -294,8 +330,27 @@ class DecisionService:
                         selected = selected.model_copy(update={"verification": {"available": False,
                                                                                 "reason": str(error)}})
             except LayaError as error:
-                provider = "demo_fallback" if self.demo_fallback else "existing_classifier"
-                selected = existing.model_copy(update={"provider": provider, "fallback_reason": str(error)})
+                if self.mode == "shadow":
+                    checkpoint_id = self.laya.checkpoint_id or "unavailable"
+                    selected = existing.model_copy(update={
+                        "provider": "shadow",
+                        "provider_version": checkpoint_id,
+                        "fallback_reason": str(error),
+                        "source_decisions": {
+                            "existing_classifier": {
+                                "category": existing.category.value,
+                                "confidence": existing.category.confidence,
+                                "urgency": existing.urgency.value,
+                                "urgency_confidence": existing.urgency.confidence,
+                                "decision": existing.decision,
+                            },
+                            "laya": {"status": "failed", "checkpoint_id": checkpoint_id},
+                            "comparison": {"status": "failed"},
+                        },
+                    })
+                else:
+                    provider = "demo_fallback" if self.demo_fallback else "existing_classifier"
+                    selected = existing.model_copy(update={"provider": provider, "fallback_reason": str(error)})
         view = self.view_from_contract(complaint, extra_text, selected.model_dump(mode="json"), baseline)
         view["triage_total_latency_ms"] = round((time.perf_counter() - started) * 1000)
         return view
@@ -323,10 +378,10 @@ class DecisionService:
         band = ("high" if contract.decision == "AUTO_PRESELECT" else
                 "medium" if contract.decision in {"VERIFY", "MODEL_DISAGREEMENT"} else "low")
         service = self.topic_services.get(category)
+        model_metadata = self.model_metadata(contract.provider)
         view.update({
-            "mode": contract.provider, "training_status": "generic_base_not_pulse_evaluated"
-            if contract.provider in {"laya", "hybrid"} else "not_trained",
-            "checkpoint_id": contract.provider_version if contract.provider in {"laya", "hybrid"} else None,
+            "mode": contract.provider, "training_status": model_metadata["training_status"],
+            "checkpoint_id": model_metadata["checkpoint_id"],
             "confidence_kind": "laya_probability" if contract.provider in {"laya", "hybrid"} else "synthetic_demo",
             "category": category, "category_confidence": contract.category.confidence,
             "urgency": contract.urgency.value, "urgency_confidence": contract.urgency.confidence,
@@ -343,7 +398,7 @@ class DecisionService:
             "spam_suspected": contract.spam_suspected.model_dump(),
             "verification": contract.verification, "fallback_reason": contract.fallback_reason,
             "source_decisions": contract.source_decisions,
-            "laya_latency_ms": contract.latency_ms if contract.provider in {"laya", "hybrid"} else None,
+            "laya_latency_ms": contract.latency_ms if contract.provider in {"shadow", "laya", "hybrid"} else None,
             "triage_total_latency_ms": contract.triage_total_latency_ms,
             "verification_latency_ms": (contract.verification or {}).get("latency_ms"),
         })
@@ -384,6 +439,16 @@ class DecisionService:
         }
 
     def health(self) -> dict[str, Any]:
-        if self.mode not in {"laya", "hybrid"}:
+        if self.mode not in {"shadow", "laya", "hybrid"}:
             return {"status": "disabled"}
         return self.laya.health()
+
+    def model_metadata(self, provider: str | None = None) -> dict[str, Any]:
+        provider = provider or self.mode
+        if provider not in {"shadow", "laya", "hybrid"}:
+            return {"training_status": "not_trained", "checkpoint_id": None}
+        checkpoint_id = self.laya.checkpoint_id
+        if not checkpoint_id:
+            return {"training_status": "generic_base_not_pulse_evaluated", "checkpoint_id": None}
+        status = "shadow_evaluation" if provider == "shadow" else "candidate_checkpoint_configured"
+        return {"training_status": status, "checkpoint_id": checkpoint_id}

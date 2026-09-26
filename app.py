@@ -182,12 +182,12 @@ def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str
 decision_service = DecisionService(mock_classify, TOPIC_SERVICE_MAP, TOPICS)
 @app.get("/api/health")
 def health_check():
+    model = decision_service.model_metadata()
     return {
         "status": "ok",
         "app": "Pulse 109",
         "mode": decision_service.mode,
-        "training_status": "not_trained",
-        "checkpoint_id": None,
+        **model,
         "laya": decision_service.health(),
         "banner": BANNER_TEXT,
     }

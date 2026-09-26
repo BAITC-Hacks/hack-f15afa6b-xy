@@ -38,8 +38,11 @@ jobs:
         run: python scripts/check_laya.py
       - name: Verify Laya training data and evidence checks
         run: |
+          python scripts/build_laya_training_data.py --self-check
           python scripts/prepare_laya_review_batch.py self-check
           python scripts/run_laya_gpu_experiments.py --self-check
+          python scripts/promote_laya_checkpoint.py --self-check
+          python scripts/serve_pulse_laya.py --self-check
       - name: Verify coverage evidence boundaries
         run: python scripts/check_coverage.py
       - name: Verify local audit with synthetic inputs

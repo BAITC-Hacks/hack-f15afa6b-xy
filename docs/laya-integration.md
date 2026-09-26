@@ -41,9 +41,11 @@ P109_LAYA_BASE_URL=http://127.0.0.1:8000 \
 python -m uvicorn app:app --host 127.0.0.1 --port 8769
 ```
 
-Use `P109_DECISION_PROVIDER=hybrid` to compare Laya with the existing classifier. Disagreement is
-shown to the operator and never confirms a category automatically. A remote Laya endpoint uses the
-same application code; set `P109_LAYA_BASE_URL` and, when required, `P109_LAYA_API_KEY`.
+Use `P109_DECISION_PROVIDER=shadow` for the first rollout. Pulse calls Laya and records agreement,
+latency and failures in the existing audit event, while category, urgency and decision mode still
+come from the existing classifier. `hybrid` exposes disagreements to the operator, and `laya` uses
+the Laya proposal. None of these modes confirms a category automatically. A remote endpoint uses
+the same application code; set `P109_LAYA_BASE_URL` and, when required, `P109_LAYA_API_KEY`.
 
 ## Fallback and thresholds
 
@@ -86,6 +88,37 @@ These are small synthetic demo measurements, not production quality evidence. Th
 is too low for unattended classification even when an individual response reports high confidence.
 The default provider therefore remains `mock`; Laya needs approved, group-aware RU/KK evaluation and
 threshold calibration before production activation.
+
+## Promote and serve a trained checkpoint
+
+Only a completed experiment whose checkpoints passed validation guardrails can be promoted. Shadow
+promotion may use a synthetic experiment for technical testing; canary and production promotion
+also require a review-manifest-bound approved dataset. Canary requires at least 40 reviewed semantic
+groups, two examples in every category/language cell and four examples of every binary label.
+Production raises those limits to 200, ten and twenty respectively.
+
+```sh
+python scripts/promote_laya_checkpoint.py \
+  --experiment artifacts/laya-gpu-ce \
+  --destination /srv/pulse109/laya \
+  --stage shadow
+
+python scripts/serve_pulse_laya.py \
+  --checkpoint /srv/pulse109/laya/<version-sha256> \
+  --device cuda \
+  --host 127.0.0.1 \
+  --port 8000
+
+P109_DECISION_PROVIDER=shadow \
+P109_LAYA_BASE_URL=http://127.0.0.1:8000 \
+P109_LAYA_CHECKPOINT_ID=<version-sha256> \
+python -m uvicorn app:app --host 127.0.0.1 --port 8769
+```
+
+The promotion command copies immutable, hash-verified weights and updates a stage pointer atomically.
+Its output includes `previous_version`; rollback means restarting the Laya service with that version
+directory and restoring `P109_LAYA_CHECKPOINT_ID`. Keep Laya on a private network and set
+`LAYA_API_KEY`/`P109_LAYA_API_KEY` when it is reachable beyond localhost.
 
 ## NVIDIA fine-tuning and calibration
 

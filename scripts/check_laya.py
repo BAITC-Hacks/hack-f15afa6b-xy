@@ -19,6 +19,9 @@ from laya_client import LayaClient, LayaResponseError, LayaUnavailable
 from smoke import find_free_port, http_request, wait_for_server
 
 
+CHECKPOINT_ID = "pulse109-laya-test-sha"
+
+
 class FakeLaya(BaseHTTPRequestHandler):
     states: list[dict] = []
 
@@ -111,6 +114,7 @@ def start_pulse(root: Path, db: Path, laya_url: str, mode="laya"):
         "PYTHONPATH": str(root), "DATABASE_PATH": str(db),
         "P109_DECISION_PROVIDER": mode, "P109_LAYA_BASE_URL": laya_url,
         "P109_LAYA_MODEL": "multilingual", "P109_LAYA_TIMEOUT": ".08",
+        "P109_LAYA_CHECKPOINT_ID": CHECKPOINT_ID,
         "P109_ENABLE_VERIFICATION": "1", "P109_LAYA_DEMO_FALLBACK": "1",
     })
     proc = subprocess.Popen(
@@ -179,12 +183,15 @@ def run():
                 call("/api/workspace/seed", {})
                 health = call("/api/health")
                 assert health["status"] == "ok" and health["laya"]["status"] == "healthy"
+                assert health["training_status"] == "candidate_checkpoint_configured"
+                assert health["checkpoint_id"] == CHECKPOINT_ID
 
                 high = intake("На Абая 44 с утра нет холодной воды во всём доме, телефон +7 777 123 45 67, ИИН 123456789012")
                 detail = call(f"/api/workspace/complaints/{high}/triage", {})
                 ai = detail["triage"]
                 assert ai["provider"] == "laya" and ai["category"] == "water_supply"
                 assert ai["decision_mode"] == "AUTO_PRESELECT" and ai["category_confidence"] == .94
+                assert ai["checkpoint_id"] == CHECKPOINT_ID and "convaiinnovations" not in json.dumps(ai)
                 assert detail["routing"]["operator"]["id"] == "op-aidana"
                 sent = FakeLaya.states[-1]["text"]
                 assert "+7 777" not in sent and "123456789012" not in sent
@@ -241,12 +248,72 @@ def run():
             finally:
                 stop(proc)
 
+            shadow_db = Path(tmp) / "shadow.db"
+            proc, url = start_pulse(root, shadow_db, laya_url, "shadow")
+            try:
+                shadow_health = http_request(url + "/api/health")[1]
+                assert shadow_health["training_status"] == "shadow_evaluation"
+                assert shadow_health["checkpoint_id"] == CHECKPOINT_ID
+
+                def shadow_triage(text):
+                    code, created = http_request(url + "/api/workspace/intake", "POST", {
+                        "text": text, "region_id": "KZ-ALA", "language": "ru",
+                        "district": "Алмалинский", "channel": "web",
+                    })
+                    assert code == 201
+                    return created["id"], http_request(
+                        url + f"/api/workspace/complaints/{created['id']}/triage", "POST", {}
+                    )[1]
+
+                agreeing_id, agreeing = shadow_triage("На Абая 44 нет холодной воды")
+                triage = agreeing["triage"]
+                sources = triage["source_decisions"]
+                assert triage["provider"] == "shadow" and triage["checkpoint_id"] == CHECKPOINT_ID
+                assert triage["category"] == sources["existing_classifier"]["category"] == "water_supply"
+                assert triage["urgency"] == sources["existing_classifier"]["urgency"]
+                assert triage["decision_mode"] == sources["existing_classifier"]["decision"]
+                assert sources["comparison"] == {
+                    "status": "completed", "category_agreement": True,
+                    "urgency_agreement": True, "decision_agreement": True,
+                }
+                assert "convaiinnovations" not in json.dumps(triage)
+
+                _, disagreement = shadow_triage("disagreement: нет холодной воды")
+                triage = disagreement["triage"]
+                sources = triage["source_decisions"]
+                assert triage["category"] == sources["existing_classifier"]["category"] == "water_supply"
+                assert sources["laya"]["category"] == "sewerage"
+                assert sources["comparison"]["category_agreement"] is False
+                assert triage["decision_mode"] != "MODEL_DISAGREEMENT"
+
+                _, failed = shadow_triage("laya-unavailable, но нет холодной воды")
+                triage = failed["triage"]
+                sources = triage["source_decisions"]
+                assert triage["category"] == sources["existing_classifier"]["category"] == "water_supply"
+                assert triage["urgency"] == sources["existing_classifier"]["urgency"]
+                assert triage["decision_mode"] == sources["existing_classifier"]["decision"]
+                assert triage["fallback_reason"] and sources["laya"]["status"] == "failed"
+                assert sources["comparison"] == {"status": "failed"}
+
+                audit = http_request(url + f"/api/complaints/{agreeing_id}")[1]["events"][-1]
+                payload = json.loads(audit["payload"])
+                assert payload["provider"] == "shadow"
+                assert payload["triage_contract"]["source_decisions"]["comparison"]["status"] == "completed"
+                code, _ = http_request(
+                    url + f"/api/workspace/complaints/{agreeing_id}/decide", "POST",
+                    {"topic": "water_supply", "priority": "normal"},
+                )
+                assert code == 200
+                print("PASS 9: shadow keeps existing decisions; agreement, disagreement, failure and audit stay visible")
+            finally:
+                stop(proc)
+
             proc, url = start_pulse(root, db, laya_url)
             try:
                 queue = http_request(url + "/api/workspace/queue")[1]
                 stored = next(item for item in queue["items"] if item["complaint"]["id"] == high)
                 assert stored["triage"]["provider"] == "laya"
-                print("PASS 9: stored Laya decision survives restart without reclassification")
+                print("PASS 10: stored Laya decision survives restart without reclassification")
             finally:
                 stop(proc)
 
@@ -276,13 +343,13 @@ def run():
                 })[1]["id"]
                 degraded = http_request(url + f"/api/workspace/complaints/{unavailable}/triage", "POST", {})[1]
                 assert degraded["triage"]["provider"] == "demo_fallback" and degraded["triage"]["fallback_reason"]
-                print("PASS 10: hybrid agreement, disagreement and one-provider fallback")
+                print("PASS 11: hybrid agreement, disagreement and one-provider fallback")
             finally:
                 stop(proc)
     finally:
         laya_server.shutdown()
         laya_server.server_close()
-    print("ALL 10 LAYA INTEGRATION CHECKS PASSED")
+    print("ALL 11 LAYA INTEGRATION CHECKS PASSED")
 
 
 if __name__ == "__main__":
