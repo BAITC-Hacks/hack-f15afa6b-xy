@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -44,10 +45,15 @@ def create_service():
     from laya import Router
     from laya.serve import create_app
 
-    agent = laya.load(str(checkpoint), device=device)
+    working_directory = tempfile.TemporaryDirectory(prefix="pulse109-laya-")
+    working_checkpoint = Path(working_directory.name) / "checkpoint"
+    shutil.copytree(checkpoint, working_checkpoint)
+    agent = laya.load(str(working_checkpoint), device=device)
     router = Router(device=device, default="multilingual", max_loaded=1)
     router.attach("multilingual", agent)
-    return create_app(router)
+    app = create_app(router)
+    app.state.checkpoint_working_directory = working_directory
+    return app
 
 
 def self_check():
@@ -73,6 +79,11 @@ def self_check():
                 "checkpoint": {"directory": "checkpoint", "files": files},
             }) + "\n")
         validate_promotion(actual_dir)
+        with tempfile.TemporaryDirectory() as working_directory:
+            working_checkpoint = Path(working_directory) / "checkpoint"
+            shutil.copytree(actual_dir / "checkpoint", working_checkpoint)
+            (working_checkpoint / "tokenizer/tokenizer_config.json").write_text("{}\n")
+            validate_promotion(actual_dir)
         (actual_dir / "checkpoint/rl_agent_config.json").write_text('{"tampered":true}\n')
         try:
             validate_promotion(actual_dir)
