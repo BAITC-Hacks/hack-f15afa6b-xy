@@ -109,6 +109,13 @@ python scripts/run_laya_gpu_experiments.py \
   --rlcd-weight 1
 ```
 
+The 2026-09-26 Phase 0 run rejected every candidate checkpoint. CE preserved urgency far better than
+the earlier imbalanced run, reaching 0.7411 validation urgency macro F1, but regressed supported
+`electricity` recall. RLCD degraded calibration and signal recalls; reducing both learning rates fivefold
+did not remove the category regression. The compact evidence is tracked at
+`training/evidence/laya-gpu-phase0-rejected-20260926.json`. Add new reviewed semantic groups before
+spending GPU time on another multi-seed run.
+
 Omit `--gpus` to use every visible GPU. The two commands form a controlled CE-only versus CE+RLCD
 comparison: data, seed and optimization settings stay equal. The job pins the base checkpoint revision,
 builds deterministic group-stratified RU/KK simulations, balances task/language/class influence, launches

@@ -1,0 +1,616 @@
+{
+  "schema_version": "pulse109-laya-phase0-rejected-v1",
+  "generated_at": "2026-09-26T17:09:28.548053+00:00",
+  "result": "No trained checkpoint passed validation regression guardrails.",
+  "deployment_eligible": false,
+  "machine": {
+    "type": "n1-standard-4:nvidia-tesla-t4:2",
+    "price_per_hour_usd": 1.067999
+  },
+  "dataset_manifest_sha256": "6cf8920e1c1fd4e02d9232ba52957643992e0fafa8ef74da56bab9ce542a34d9",
+  "hardware_sha256": "dfa11a10fe9fa7dc47e95a50651c6f9c5a3a4a51ffa0b300efe9ba1755cd037f",
+  "runs": [
+    {
+      "name": "ce-default-v1",
+      "commit": "a7f7f80",
+      "seed": 17,
+      "rlcd_weight": 0,
+      "encoder_lr": 2.5e-05,
+      "head_lr": 0.0001,
+      "status": "rejected",
+      "epochs": [
+        {
+          "epoch": 1,
+          "mean_loss": 0.305581,
+          "accuracy": 0.888393,
+          "category_accuracy": 0.81875,
+          "category_macro_f1": 0.803011,
+          "urgency_accuracy": 0.7375,
+          "urgency_macro_f1": 0.716025,
+          "ece": 0.084038,
+          "nll": 0.720049,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 1.0,
+          "guardrail_failures": {
+            "category:kk:housing_maintenance": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "category:ru:electricity": {
+              "recall": 0.0,
+              "baseline_recall": 1.0
+            },
+            "category:ru:sewerage": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.541667,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 2,
+          "mean_loss": 0.00634,
+          "accuracy": 0.880952,
+          "category_accuracy": 0.85,
+          "category_macro_f1": 0.846667,
+          "urgency_accuracy": 0.71875,
+          "urgency_macro_f1": 0.69219,
+          "ece": 0.097187,
+          "nll": 0.928965,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 1.0,
+          "guardrail_failures": {
+            "category:kk:housing_maintenance": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "category:ru:electricity": {
+              "recall": 0.0,
+              "baseline_recall": 1.0
+            },
+            "category:ru:sewerage": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "needs_clarification:ru:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.5,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 3,
+          "mean_loss": 3.1e-05,
+          "accuracy": 0.891369,
+          "category_accuracy": 0.85,
+          "category_macro_f1": 0.845008,
+          "urgency_accuracy": 0.7625,
+          "urgency_macro_f1": 0.7411,
+          "ece": 0.091981,
+          "nll": 0.863251,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 1.0,
+          "guardrail_failures": {
+            "category:kk:housing_maintenance": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "category:ru:electricity": {
+              "recall": 0.0,
+              "baseline_recall": 1.0
+            },
+            "category:ru:sewerage": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "needs_clarification:ru:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 4,
+          "mean_loss": 5e-06,
+          "accuracy": 0.889881,
+          "category_accuracy": 0.85,
+          "category_macro_f1": 0.845008,
+          "urgency_accuracy": 0.75625,
+          "urgency_macro_f1": 0.728684,
+          "ece": 0.09219,
+          "nll": 0.861261,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 1.0,
+          "guardrail_failures": {
+            "category:kk:housing_maintenance": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "category:ru:electricity": {
+              "recall": 0.0,
+              "baseline_recall": 1.0
+            },
+            "category:ru:sewerage": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "needs_clarification:ru:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            }
+          },
+          "inherited_low_recall": {}
+        }
+      ],
+      "log_sha256": "afb7831e2770a3a000ce2f0a9d1cb1a93095eebb23e9c0de18e8f077784b6b2e"
+    },
+    {
+      "name": "rlcd-default-v1",
+      "commit": "a7f7f80",
+      "seed": 17,
+      "rlcd_weight": 1,
+      "encoder_lr": 2.5e-05,
+      "head_lr": 0.0001,
+      "status": "rejected",
+      "epochs": [
+        {
+          "epoch": 1,
+          "mean_loss": 0.435676,
+          "accuracy": 0.842262,
+          "category_accuracy": 0.8,
+          "category_macro_f1": 0.773019,
+          "urgency_accuracy": 0.75,
+          "urgency_macro_f1": 0.729547,
+          "ece": 0.112899,
+          "nll": 1.027621,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 1.0,
+          "guardrail_failures": {
+            "category:kk:housing_maintenance": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "category:ru:electricity": {
+              "recall": 0.0,
+              "baseline_recall": 1.0
+            },
+            "category:ru:sewerage": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.583333,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 2,
+          "mean_loss": 0.067805,
+          "accuracy": 0.860119,
+          "category_accuracy": 0.8375,
+          "category_macro_f1": 0.826025,
+          "urgency_accuracy": 0.66875,
+          "urgency_macro_f1": 0.640297,
+          "ece": 0.136732,
+          "nll": 2.788771,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 1.0,
+          "guardrail_failures": {
+            "category:kk:housing_maintenance": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "category:ru:electricity": {
+              "recall": 0.0,
+              "baseline_recall": 1.0
+            },
+            "category:ru:sewerage": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "needs_clarification:ru:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.625,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 3,
+          "mean_loss": 0.002486,
+          "accuracy": 0.84375,
+          "category_accuracy": 0.80625,
+          "category_macro_f1": 0.793282,
+          "urgency_accuracy": 0.7,
+          "urgency_macro_f1": 0.672968,
+          "ece": 0.148203,
+          "nll": 2.760232,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 1.0,
+          "guardrail_failures": {
+            "category:kk:housing_maintenance": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "category:ru:electricity": {
+              "recall": 0.0,
+              "baseline_recall": 1.0
+            },
+            "category:ru:sewerage": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "needs_clarification:kk:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "needs_clarification:ru:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "spam_suspected:kk:true": {
+              "recall": 0.5,
+              "baseline_recall": 0.875
+            },
+            "spam_suspected:ru:true": {
+              "recall": 0.25,
+              "baseline_recall": 0.75
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 4,
+          "mean_loss": 0.02406,
+          "accuracy": 0.834821,
+          "category_accuracy": 0.79375,
+          "category_macro_f1": 0.770826,
+          "urgency_accuracy": 0.6875,
+          "urgency_macro_f1": 0.656593,
+          "ece": 0.160504,
+          "nll": 3.114855,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 1.0,
+          "guardrail_failures": {
+            "category:kk:housing_maintenance": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "category:ru:electricity": {
+              "recall": 0.0,
+              "baseline_recall": 1.0
+            },
+            "category:ru:sewerage": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "needs_clarification:kk:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "needs_clarification:ru:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            },
+            "spam_suspected:kk:true": {
+              "recall": 0.5,
+              "baseline_recall": 0.875
+            },
+            "spam_suspected:ru:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.75
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.625,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        }
+      ],
+      "log_sha256": "7dc83a2570cdee338bf9462ae0c389f545807b250a8b35af873069f08f82b98c"
+    },
+    {
+      "name": "ce-guardrail-v2",
+      "commit": "b90ce83",
+      "seed": 17,
+      "rlcd_weight": 0,
+      "encoder_lr": 2.5e-05,
+      "head_lr": 0.0001,
+      "status": "rejected",
+      "epochs": [
+        {
+          "epoch": 1,
+          "mean_loss": 0.303359,
+          "accuracy": 0.876488,
+          "category_accuracy": 0.8,
+          "category_macro_f1": 0.769861,
+          "urgency_accuracy": 0.71875,
+          "urgency_macro_f1": 0.696855,
+          "ece": 0.104172,
+          "nll": 0.7912,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 0.5,
+          "guardrail_failures": {
+            "category:electricity": {
+              "recall": 0.5,
+              "baseline_recall": 1.0
+            },
+            "category:sewerage": {
+              "recall": 0.0,
+              "baseline_recall": 0.125
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.5,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 2,
+          "mean_loss": 0.000264,
+          "accuracy": 0.891369,
+          "category_accuracy": 0.84375,
+          "category_macro_f1": 0.839509,
+          "urgency_accuracy": 0.75625,
+          "urgency_macro_f1": 0.71789,
+          "ece": 0.095257,
+          "nll": 0.964267,
+          "eligible": false,
+          "worst_class_recall": 0.333333,
+          "max_recall_drop": 0.583334,
+          "guardrail_failures": {
+            "category:electricity": {
+              "recall": 0.5,
+              "baseline_recall": 1.0
+            },
+            "urgency:urgent": {
+              "recall": 0.645833,
+              "baseline_recall": 0.916667
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.333333,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 3,
+          "mean_loss": 9e-06,
+          "accuracy": 0.889881,
+          "category_accuracy": 0.84375,
+          "category_macro_f1": 0.839509,
+          "urgency_accuracy": 0.75,
+          "urgency_macro_f1": 0.709091,
+          "ece": 0.094654,
+          "nll": 1.008757,
+          "eligible": false,
+          "worst_class_recall": 0.333333,
+          "max_recall_drop": 0.583334,
+          "guardrail_failures": {
+            "category:electricity": {
+              "recall": 0.5,
+              "baseline_recall": 1.0
+            },
+            "urgency:urgent": {
+              "recall": 0.625,
+              "baseline_recall": 0.916667
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.333333,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 4,
+          "mean_loss": 6e-06,
+          "accuracy": 0.891369,
+          "category_accuracy": 0.84375,
+          "category_macro_f1": 0.839509,
+          "urgency_accuracy": 0.75,
+          "urgency_macro_f1": 0.709091,
+          "ece": 0.095824,
+          "nll": 1.011496,
+          "eligible": false,
+          "worst_class_recall": 0.333333,
+          "max_recall_drop": 0.583334,
+          "guardrail_failures": {
+            "category:electricity": {
+              "recall": 0.5,
+              "baseline_recall": 1.0
+            },
+            "urgency:urgent": {
+              "recall": 0.625,
+              "baseline_recall": 0.916667
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.333333,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        }
+      ],
+      "log_sha256": "7eac9aa6e45493232dafb54d5d982065d9a2bdd244aa0245c79e9911bbf11759"
+    },
+    {
+      "name": "rlcd-guardrail-v2-aborted",
+      "commit": "b90ce83",
+      "seed": 17,
+      "rlcd_weight": 1,
+      "encoder_lr": 2.5e-05,
+      "head_lr": 0.0001,
+      "status": "aborted",
+      "epochs": [],
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "ce-low-lr",
+      "commit": "638a124",
+      "seed": 17,
+      "rlcd_weight": 0,
+      "encoder_lr": 5e-06,
+      "head_lr": 2e-05,
+      "status": "rejected",
+      "epochs": [
+        {
+          "epoch": 1,
+          "mean_loss": 0.604925,
+          "accuracy": 0.83631,
+          "category_accuracy": 0.80625,
+          "category_macro_f1": 0.795377,
+          "urgency_accuracy": 0.71875,
+          "urgency_macro_f1": 0.709197,
+          "ece": 0.040622,
+          "nll": 0.498194,
+          "eligible": false,
+          "worst_class_recall": 0.3125,
+          "max_recall_drop": 0.5,
+          "guardrail_failures": {
+            "category:electricity": {
+              "recall": 0.5,
+              "baseline_recall": 1.0
+            },
+            "needs_clarification:ru:false": {
+              "recall": 0.725,
+              "baseline_recall": 1.0
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 2,
+          "mean_loss": 0.045567,
+          "accuracy": 0.864583,
+          "category_accuracy": 0.80625,
+          "category_macro_f1": 0.796694,
+          "urgency_accuracy": 0.7,
+          "urgency_macro_f1": 0.68,
+          "ece": 0.102988,
+          "nll": 0.790537,
+          "eligible": false,
+          "worst_class_recall": 0.25,
+          "max_recall_drop": 0.5,
+          "guardrail_failures": {
+            "category:electricity": {
+              "recall": 0.5,
+              "baseline_recall": 1.0
+            },
+            "urgency:ru:urgent": {
+              "recall": 0.541667,
+              "baseline_recall": 0.916667
+            }
+          },
+          "inherited_low_recall": {}
+        },
+        {
+          "epoch": 3,
+          "mean_loss": 0.000705,
+          "accuracy": 0.857143,
+          "category_accuracy": 0.8,
+          "category_macro_f1": 0.784339,
+          "urgency_accuracy": 0.7,
+          "urgency_macro_f1": 0.6875,
+          "ece": 0.120916,
+          "nll": 1.009286,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 0.5,
+          "guardrail_failures": {
+            "category:electricity": {
+              "recall": 0.5,
+              "baseline_recall": 1.0
+            }
+          },
+          "inherited_low_recall": {
+            "needs_clarification:kk:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            }
+          }
+        },
+        {
+          "epoch": 4,
+          "mean_loss": 0.000299,
+          "accuracy": 0.858631,
+          "category_accuracy": 0.8,
+          "category_macro_f1": 0.784339,
+          "urgency_accuracy": 0.70625,
+          "urgency_macro_f1": 0.693199,
+          "ece": 0.124977,
+          "nll": 1.058318,
+          "eligible": false,
+          "worst_class_recall": 0.0,
+          "max_recall_drop": 0.5,
+          "guardrail_failures": {
+            "category:electricity": {
+              "recall": 0.5,
+              "baseline_recall": 1.0
+            }
+          },
+          "inherited_low_recall": {
+            "needs_clarification:kk:true": {
+              "recall": 0.0,
+              "baseline_recall": 0.0
+            }
+          }
+        }
+      ],
+      "log_sha256": "03c6b43dd6a623bbaac608d8ecb6a31b3af4ba0526fbe7e8131bc04d44f95239"
+    }
+  ],
+  "claim_boundary": "Synthetic-only rejected-run evidence proves execution and diagnoses regression; it does not establish production accuracy.",
+  "gpu_session": {
+    "brev_environment": "pulse109-laya-20260926",
+    "started_at": "2026-09-26T16:28:07+00:00",
+    "stopped_at": "2026-09-26T17:11:35+00:00",
+    "stopped_status_verified": true,
+    "compute_seconds_upper_bound": 2608,
+    "estimated_compute_cost_usd": 0.7737,
+    "approved_cost_cap_usd": 1.35
+  },
+  "bundle": {
+    "local_ignored_path": "artifacts/laya-gpu-phase0-rejected-20260926/pulse109-laya-phase0-evidence-20260926.tar.gz",
+    "sha256": "5552c0dc32b6109ad043718a92cfa481d267a29a9f11e29f0f7bdbf437435b65"
+  },
+  "decision": {
+    "keep_provider_default": "mock",
+    "activate_checkpoint": false,
+    "reason": "Every candidate regressed at least one supported validation class beyond the configured tolerance.",
+    "next_data_priority": [
+      "electricity",
+      "sewerage",
+      "housing_maintenance",
+      "urgent ru"
+    ]
+  }
+}

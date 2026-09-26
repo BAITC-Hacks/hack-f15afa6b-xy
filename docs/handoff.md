@@ -13,12 +13,18 @@ encoder+head, отдельные validation/calibration/test splits, три не
 с 3.3% urgent и test со 100% urgent, поэтому urgency после обучения упал до 0%. Это доказало работу
 pipeline, но заблокировало активацию checkpoint.
 
-Phase 0 исправляет причину: RU/KK версии одного semantic core остаются в одной
-группе, splits детерминированно стратифицируются и проверяют все labels; loss балансируется по
-task/language/class; checkpoint проходит recall guardrails; evidence получает confusion metrics и
-обезличенные test predictions. Следующий GPU experiment должен сравнить `--rlcd-weight 0` и `1` на
-одинаковых seed. До его результатов `P109_DECISION_PROVIDER=mock` остаётся default, urgency не передаётся
-обученному checkpoint. Команды и границы доказательств находятся в
+Phase 0 исправил разбиение, баланс loss и recall guardrails (`a7f7f80`, `b90ce83`, `638a124`). Повторный
+2×T4 experiment проверил CE, CE+RLCD и CE с learning rate в 5 раз ниже. Все три seed-17 кандидата были
+отклонены: лучший CE достиг 0.891369 validation accuracy и 0.7411 urgency macro-F1, но снизил поддержанный
+`electricity` recall; RLCD дополнительно ухудшил NLL и signal recalls. Low-LR сохранил лучшую калибровку
+на первой эпохе (ECE 0.040622), но не устранил category regression. Проверяемое rejected-run evidence
+зафиксировано в `training/evidence/laya-gpu-phase0-rejected-20260926.json`; Brev VM остановлена после
+43.5 минут, оценка compute $0.7737 при лимите $1.35.
+
+`P109_DECISION_PROVIDER=mock` остаётся default, ни один новый checkpoint не активирован. Следующий этап —
+добавить независимые, проверенные RU/KK semantic groups прежде всего для electricity, sewerage,
+housing maintenance и urgent RU, затем повторить один CE seed и только после прохождения guardrails —
+три seed. Команды и границы доказательств находятся в
 [Laya integration](laya-integration.md#nvidia-fine-tuning-and-calibration).
 
 ## 2026-09-24: операции, Radar и координация
