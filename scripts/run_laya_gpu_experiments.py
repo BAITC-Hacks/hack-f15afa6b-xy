@@ -79,7 +79,21 @@ def verify_dataset(data_dir):
         require(all(row.get("split") == split for row in rows), f"{path.name} contains wrong split")
         records += len(rows)
     return {"records": records, "groups": len(groups), "sha256": sha256(manifest_path),
-            "data_status": manifest["data_status"]}
+            "data_status": manifest["data_status"],
+            "approved_input_sha256": manifest.get("approved_input_sha256")}
+
+
+def verify_review_binding(dataset, manifest_path):
+    require(Path(manifest_path).is_file(), "Approved-data review manifest is missing")
+    manifest = load_json(manifest_path)
+    require(manifest.get("schema_version") == "pulse109-laya-approved-export-v1",
+            "Unknown approved-data review manifest schema")
+    approved_hash = manifest.get("approved_output_sha256")
+    require(isinstance(approved_hash, str) and len(approved_hash) == 64,
+            "Approved-data review manifest has no valid export hash")
+    require(dataset.get("approved_input_sha256") == approved_hash,
+            "Training dataset is not bound to the reviewed approved export")
+    return sha256(manifest_path)
 
 
 def numeric_values(value):
@@ -178,6 +192,11 @@ def verify_experiment(output):
     require(experiment.get("schema_version") == "pulse109-laya-experiment-v1",
             "Unknown experiment manifest schema")
     require(experiment.get("status") == "complete", "Experiment is not complete")
+    review_manifest = output / "data/approved_review_manifest.json"
+    if dataset["data_status"] == "mixed_approved_and_synthetic":
+        require(verify_review_binding(dataset, review_manifest)
+                == experiment.get("approved_review_manifest_sha256"),
+                "Approved-data review manifest hash mismatch")
     require(len(experiment.get("runs", [])) >= 2, "At least two independent seeds are required")
     checked = []
     for entry in experiment["runs"]:
@@ -266,6 +285,18 @@ def run_experiment(args):
             "--encoder-lr and --head-lr must be positive")
     require(0 <= args.max_slice_recall_drop <= 1,
             "--max-slice-recall-drop must be between 0 and 1")
+    approved_manifest = None
+    approved_jsonl = None
+    if args.approved_jsonl:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from prepare_laya_review_batch import verify_export
+        approved_jsonl = args.approved_jsonl.expanduser().resolve()
+        approved_manifest = (args.approved_manifest.expanduser().resolve()
+                             if args.approved_manifest else approved_jsonl.with_suffix(
+                                 approved_jsonl.suffix + ".manifest.json"))
+        verify_export(approved_jsonl, approved_manifest)
+    else:
+        require(not args.approved_manifest, "--approved-manifest requires --approved-jsonl")
     available = gpu_count()
     workers = args.gpus or available
     require(1 <= workers <= available, f"Requested {workers} GPUs, but {available} are visible")
@@ -273,10 +304,14 @@ def run_experiment(args):
     data_dir = args.output / "data"
     build = [sys.executable, str(ROOT / "scripts/build_laya_training_data.py"),
              "--output", str(data_dir), "--variants", str(args.variants), "--seed", str(args.data_seed)]
-    if args.approved_jsonl:
-        build += ["--approved-jsonl", str(args.approved_jsonl)]
+    if approved_jsonl:
+        build += ["--approved-jsonl", str(approved_jsonl)]
     subprocess.run(build, cwd=ROOT, check=True)
+    if approved_manifest:
+        shutil.copy2(approved_manifest, data_dir / "approved_review_manifest.json")
     dataset = verify_dataset(data_dir)
+    review_manifest_hash = (verify_review_binding(dataset, data_dir / "approved_review_manifest.json")
+                            if approved_manifest else None)
     started = datetime.now(timezone.utc).isoformat()
     entries, results = [], []
     for seed in args.seeds:
@@ -307,6 +342,7 @@ def run_experiment(args):
         "gpu_workers": workers, "seeds": args.seeds, "runs": entries,
         "rlcd_weight": args.rlcd_weight, "max_slice_recall_drop": args.max_slice_recall_drop,
         "encoder_lr": args.encoder_lr, "head_lr": args.head_lr,
+        "approved_review_manifest_sha256": review_manifest_hash,
         "aggregate_test_metrics": metric_summary(results),
         "data_status": dataset["data_status"],
         "claim_boundary": ("Synthetic-only repeated runs prove training and calibration execution, not production accuracy."
@@ -319,7 +355,7 @@ def run_experiment(args):
     print(json.dumps(verified, ensure_ascii=False, indent=2))
 
 
-def write_self_check_run(root, data_hash, seed):
+def write_self_check_run(root, data_hash, seed, data_status="synthetic_only"):
     run_dir = root / "runs" / f"seed-{seed}"
     checkpoint = run_dir / "checkpoint"
     checkpoint.mkdir(parents=True)
@@ -350,12 +386,14 @@ def write_self_check_run(root, data_hash, seed):
               "trained_config.json": sha256(checkpoint / "rl_agent_config.json"),
               "test_predictions.jsonl": sha256(predictions),
               **{name: sha256(run_dir / name) for name in files}}
+    claim = ("Synthetic-only self-check proves execution, not production accuracy."
+             if data_status == "synthetic_only" else
+             "Mixed approved-data self-check proves execution, not production accuracy.")
     manifest = {"schema_version": "pulse109-laya-run-v1", "status": "complete", "seed": seed,
                 "epochs": 1, "git_commit": "a" * 40, "git_dirty": False,
                 "hyperparameters": {"rlcd_weight": 1.0},
                 "artifact_hashes": hashes, "weight_change_proof": True,
-                "data_status": "synthetic_only",
-                "claim_boundary": "Synthetic-only self-check proves execution, not production accuracy."}
+                "data_status": data_status, "claim_boundary": claim}
     path = run_dir / "run_manifest.json"
     path.write_text(json.dumps(manifest))
     log = root / "logs" / f"seed-{seed}.log"
@@ -419,6 +457,35 @@ def self_check():
             pass
         else:
             raise AssertionError("Evidence verifier accepted a modified checkpoint")
+        mixed_manifest = load_json(second_data / "dataset_manifest.json")
+        mixed_manifest["data_status"] = "mixed_approved_and_synthetic"
+        mixed_manifest["approved_input_sha256"] = "b" * 64
+        (second_data / "dataset_manifest.json").write_text(json.dumps(mixed_manifest))
+        review_manifest = second_data / "approved_review_manifest.json"
+        review_manifest.write_text(json.dumps({
+            "schema_version": "pulse109-laya-approved-export-v1",
+            "approved_output_sha256": "b" * 64,
+        }) + "\n")
+        data_hash = sha256(second_data / "dataset_manifest.json")
+        mixed_entries = [write_self_check_run(second, data_hash, seed,
+                         "mixed_approved_and_synthetic") for seed in (17, 29)]
+        mixed_experiment = {
+            "schema_version": "pulse109-laya-experiment-v1", "status": "complete",
+            "runs": mixed_entries, "rlcd_weight": 1.0,
+            "data_status": "mixed_approved_and_synthetic",
+            "approved_review_manifest_sha256": sha256(review_manifest),
+            "claim_boundary": "Mixed approved-data self-check proves execution, not production accuracy.",
+        }
+        (second / "experiment_manifest.json").write_text(json.dumps(mixed_experiment))
+        require(verify_experiment(second)["runs"] == 2,
+                "Mixed approved-data evidence verifier failed")
+        review_manifest.write_text("tampered\n")
+        try:
+            verify_experiment(second)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Evidence verifier accepted a modified review manifest")
     print("PASS: deterministic data, split isolation, PII gate and evidence tamper detection")
 
 
@@ -441,6 +508,7 @@ def main():
     parser.add_argument("--max-slice-recall-drop", type=float, default=.25)
     parser.add_argument("--gpus", type=int)
     parser.add_argument("--approved-jsonl", type=Path)
+    parser.add_argument("--approved-manifest", type=Path)
     parser.add_argument("--model")
     parser.add_argument("--model-revision")
     args = parser.parse_args()

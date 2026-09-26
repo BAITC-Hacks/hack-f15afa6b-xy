@@ -119,9 +119,34 @@ spending GPU time on another multi-seed run.
 Omit `--gpus` to use every visible GPU. The two commands form a controlled CE-only versus CE+RLCD
 comparison: data, seed and optimization settings stay equal. The job pins the base checkpoint revision,
 builds deterministic group-stratified RU/KK simulations, balances task/language/class influence, launches
-one DDP training job per seed, and saves only checkpoints within the configured recall tolerance. Use
-`--approved-jsonl /private/path/approved.jsonl` only for an anonymized, approved file following the
-generated record schema. The input is hashed but never copied into Git.
+one DDP training job per seed, and saves only checkpoints within the configured recall tolerance.
+
+Private candidate text must pass the review gate before training. Candidate JSONL contains only
+`id`, `group_id`, `source_kind`, `language` and `text`; keep every file in this flow outside Git.
+
+```sh
+python scripts/prepare_laya_review_batch.py prepare \
+  --input /private/path/candidates.jsonl \
+  --output /private/path/review.jsonl
+
+# A reviewer completes status, labels, reviewer, reviewed_at,
+# training_use_approved and approval_reference in review.jsonl.
+python scripts/prepare_laya_review_batch.py export \
+  --input /private/path/review.jsonl \
+  --output /private/path/approved.jsonl
+
+python scripts/run_laya_gpu_experiments.py \
+  --output artifacts/laya-gpu-reviewed \
+  --approved-jsonl /private/path/approved.jsonl \
+  --approved-manifest /private/path/approved.jsonl.manifest.json \
+  --seeds 17,29 \
+  --rlcd-weight 0
+```
+
+The gate rejects common PII, changed candidate fields, incomplete review, missing training-use
+approval, duplicate rows and path collisions. The GPU runner verifies the approved export hash and
+copies its privacy-safe review manifest into the evidence bundle. Reviewer declarations and hashes
+record the workflow; they do not prove that a label is correct.
 
 Each seed produces the trained checkpoint, training history, per-class confusion/precision/recall/F1,
 baseline and post-training metrics, held-out temperatures, privacy-safe test predictions, CUDA/NVIDIA

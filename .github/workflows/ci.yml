@@ -37,7 +37,9 @@ jobs:
       - name: Verify Laya decision integration and fallback
         run: python scripts/check_laya.py
       - name: Verify Laya training data and evidence checks
-        run: python scripts/run_laya_gpu_experiments.py --self-check
+        run: |
+          python scripts/prepare_laya_review_batch.py self-check
+          python scripts/run_laya_gpu_experiments.py --self-check
       - name: Verify coverage evidence boundaries
         run: python scripts/check_coverage.py
       - name: Verify local audit with synthetic inputs

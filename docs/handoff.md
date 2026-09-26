@@ -23,9 +23,17 @@ Phase 0 исправил разбиение, баланс loss и recall guardra
 
 `P109_DECISION_PROVIDER=mock` остаётся default, ни один новый checkpoint не активирован. Следующий этап —
 добавить независимые, проверенные RU/KK semantic groups прежде всего для electricity, sewerage,
-housing maintenance и urgent RU, затем повторить один CE seed и только после прохождения guardrails —
-три seed. Команды и границы доказательств находятся в
+housing maintenance и urgent RU, затем повторить минимальный CE preflight на seed 17/29 и только
+после прохождения guardrails — три seed. Команды и границы доказательств находятся в
 [Laya integration](laya-integration.md#nvidia-fine-tuning-and-calibration).
+
+Добавлен review gate `scripts/prepare_laya_review_batch.py`: приватные кандидаты превращаются в
+редактируемую очередь, а в training JSONL экспортируются только завершённые human review с отдельным
+подтверждением права на обучение. PII, изменение исходного текста после подготовки, незавершённые
+решения, дубли и совпадающие пути блокируются. GPU runner требует и проверяет manifest экспорта и
+сохраняет его в evidence bundle. Минимальный следующий набор: по 6 независимых RU и 6 KK групп для
+`electricity`, `sewerage` и `housing_maintenance` (36 групп), включая срочные примеры; до получения
+этих разрешённых текстов новый GPU-прогон не нужен.
 
 ## 2026-09-24: операции, Radar и координация
 
