@@ -117,7 +117,8 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8769
 
 The promotion command copies immutable, hash-verified weights and updates a stage pointer atomically.
 Its output includes `previous_version`; rollback means restarting the Laya service with that version
-directory and restoring `P109_LAYA_CHECKPOINT_ID`. Keep Laya on a private network and set
+directory and restoring `P109_LAYA_CHECKPOINT_ID`. The server verifies that tree, then loads Laya from
+a temporary writable copy because the library updates tokenizer metadata during startup. Keep Laya on a private network and set
 `LAYA_API_KEY`/`P109_LAYA_API_KEY` when it is reachable beyond localhost.
 
 ## NVIDIA fine-tuning and calibration
@@ -146,8 +147,16 @@ The 2026-09-26 Phase 0 run rejected every candidate checkpoint. CE preserved urg
 the earlier imbalanced run, reaching 0.7411 validation urgency macro F1, but regressed supported
 `electricity` recall. RLCD degraded calibration and signal recalls; reducing both learning rates fivefold
 did not remove the category regression. The compact evidence is tracked at
-`training/evidence/laya-gpu-phase0-rejected-20260926.json`. Add new reviewed semantic groups before
-spending GPU time on another multi-seed run.
+`training/evidence/laya-gpu-phase0-rejected-20260926.json`.
+
+A follow-up run added paired RU/KK hard cases for every category and both binary edge-case groups, then
+used CE-only training with encoder LR `5e-6` and head LR `2e-5`. Both seeds passed the unchanged recall
+guardrails. On the untouched synthetic test split, mean category accuracy rose from 0.3750 to 0.7031,
+mean category macro F1 reached 0.6744, and checkpoint-calibrated ECE reached 0.0440. Seed 29 was promoted
+to immutable shadow version `f56bcae3d1270eb4ca271569eb7e3c3ce4b997c7ae0bd6f510f8f79c42480062`;
+its CUDA server passed health and real inference checks while leaving the promoted hashes unchanged.
+The compact evidence is tracked at `training/evidence/laya-gpu-hardcases-shadow-20260926.json`.
+These results remain synthetic-only and do not authorize canary or production activation.
 
 Omit `--gpus` to use every visible GPU. The two commands form a controlled CE-only versus CE+RLCD
 comparison: data, seed and optimization settings stay equal. The job pins the base checkpoint revision,
