@@ -1,0 +1,278 @@
+{
+  "schema_version": "pulse109-laya-gpu-evidence-v1",
+  "status": "verified",
+  "claim_boundary": "Synthetic-only repeated runs prove training and calibration execution, not production accuracy.",
+  "training_code": {
+    "git_commit": "c82e1d2084e91ebd5d5e3a0d84a7f70a26ff4aec",
+    "git_dirty": false
+  },
+  "base_model": {
+    "name": "convaiinnovations/laya-multilingual",
+    "revision": "e4e9ddf21a7b1903b7acffd8814ad4307bf63a67",
+    "model_sha256": "9d628fd971b700382ac6f65920a86f149777b2e748e0c955fb3b19695aa8f204"
+  },
+  "dataset": {
+    "status": "synthetic_only",
+    "records": 1152,
+    "groups": 144,
+    "manifest_sha256": "7fe11b64a2c8b1582cc7fab061dab037f3878810af61d2dd7df42cbc1f574521",
+    "train_decision_items": 2016,
+    "validation_decision_items": 672,
+    "calibration_decision_items": 672,
+    "test_decision_items": 672,
+    "languages": [
+      "kk",
+      "ru"
+    ]
+  },
+  "hardware": {
+    "provider": "NVIDIA Brev",
+    "instance_type": "n1-standard-4:nvidia-tesla-t4:2",
+    "gpu_count": 2,
+    "gpu_name": "Tesla T4",
+    "memory_bytes_per_gpu": 15637086208,
+    "compute_capability": [
+      7,
+      5
+    ],
+    "driver": "595.91.07",
+    "python": "3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0]",
+    "torch": "2.14.0+cu130",
+    "cuda_runtime": "13.0",
+    "laya": "0.3.20",
+    "environment_status_after_run": "STOPPED"
+  },
+  "experiment": {
+    "started_at": "2026-09-26T04:02:54.743794+00:00",
+    "finished_at": "2026-09-26T04:21:45.831224+00:00",
+    "seeds": [
+      17,
+      29,
+      43
+    ],
+    "epochs_per_seed": 4,
+    "gpu_workers": 2,
+    "aggregate_test_metrics": {
+      "baseline_category_accuracy": {
+        "mean": 0.45,
+        "population_std": 0.0,
+        "values": [
+          0.45,
+          0.45,
+          0.45
+        ]
+      },
+      "trained_category_accuracy": {
+        "mean": 0.785417,
+        "population_std": 0.03118,
+        "values": [
+          0.79375,
+          0.74375,
+          0.81875
+        ]
+      },
+      "trained_category_macro_f1": {
+        "mean": 0.768198,
+        "population_std": 0.032843,
+        "values": [
+          0.769119,
+          0.727521,
+          0.807955
+        ]
+      },
+      "checkpoint_calibrated_ece": {
+        "mean": 0.280451,
+        "population_std": 0.008382,
+        "values": [
+          0.289834,
+          0.282033,
+          0.269486
+        ]
+      },
+      "checkpoint_calibrated_nll": {
+        "mean": 1.32473,
+        "population_std": 0.272294,
+        "values": [
+          1.70687,
+          1.174806,
+          1.092514
+        ]
+      }
+    },
+    "calibration_effect": {
+      "trained_raw_ece_mean": 0.298037,
+      "checkpoint_calibrated_ece_mean": 0.280451,
+      "trained_raw_nll_mean": 5.252056,
+      "checkpoint_calibrated_nll_mean": 1.32473
+    },
+    "runs": [
+      {
+        "seed": 17,
+        "started_at": "2026-09-26T04:03:01.892181+00:00",
+        "finished_at": "2026-09-26T04:09:03.152410+00:00",
+        "run_manifest_sha256": "831400f42b84d1aed5c800d72c9cd85d47debe71dc78b3d2856a41397fca42f8",
+        "trained_model_sha256": "ae10424b8aa6edb3a20b8893c0f4a0edeca46d248da4da4757f7fe2846980520",
+        "trained_config_sha256": "afd763d6f4bd39a881a30d7976ca482a76769cc1af0f10309d0ae3ccc481260d",
+        "weight_change_proof": true,
+        "metrics": {
+          "baseline_category_accuracy": 0.45,
+          "trained_category_accuracy": 0.79375,
+          "trained_category_macro_f1": 0.769119,
+          "trained_raw_ece": 0.295809,
+          "checkpoint_calibrated_ece": 0.289834,
+          "trained_raw_nll": 5.492831,
+          "checkpoint_calibrated_nll": 1.70687,
+          "overall_accuracy": 0.693452,
+          "validation_best_accuracy": 0.811012
+        },
+        "calibration": {
+          "by_type": {
+            "choice": 5.0,
+            "noul": 3.477074
+          },
+          "by_option_count": {
+            "choice:2": 5.0,
+            "choice:6-10": 0.695652,
+            "noul:2": 3.477074
+          },
+          "by_decision_language": {
+            "category:kk": 1.016746,
+            "category:ru": 0.607799,
+            "needs_clarification:kk": 0.999984,
+            "needs_clarification:ru": 0.991552,
+            "spam_suspected:kk": 1.0,
+            "spam_suspected:ru": 5.0,
+            "urgency:kk": 5.0,
+            "urgency:ru": 5.0
+          },
+          "by_language_option_count": {
+            "kk": {
+              "choice:2": 5.0,
+              "choice:6-10": 1.016746,
+              "noul:2": 0.999993
+            },
+            "ru": {
+              "choice:2": 5.0,
+              "choice:6-10": 0.607799,
+              "noul:2": 3.91777
+            }
+          }
+        }
+      },
+      {
+        "seed": 29,
+        "started_at": "2026-09-26T04:09:22.798195+00:00",
+        "finished_at": "2026-09-26T04:15:20.448647+00:00",
+        "run_manifest_sha256": "32e2e99bf0a38345953863c9d37b6642d8940add1d3f4a874a8ec4190a65f434",
+        "trained_model_sha256": "f71bd613fb8b55a8c675df98d72ec490c437e01f87f5faf1087d30af0d12c569",
+        "trained_config_sha256": "400a818cb8901c55dc56646f166dfd37c142b394b9783f76ddb3917f6dc12b7c",
+        "weight_change_proof": true,
+        "metrics": {
+          "baseline_category_accuracy": 0.45,
+          "trained_category_accuracy": 0.74375,
+          "trained_category_macro_f1": 0.727521,
+          "trained_raw_ece": 0.304053,
+          "checkpoint_calibrated_ece": 0.282033,
+          "trained_raw_nll": 5.25955,
+          "checkpoint_calibrated_nll": 1.174806,
+          "overall_accuracy": 0.6875,
+          "validation_best_accuracy": 0.818452
+        },
+        "calibration": {
+          "by_type": {
+            "choice": 5.0,
+            "noul": 5.0
+          },
+          "by_option_count": {
+            "choice:2": 5.0,
+            "choice:6-10": 3.293132,
+            "noul:2": 5.0
+          },
+          "by_decision_language": {
+            "category:kk": 3.089564,
+            "category:ru": 3.425912,
+            "needs_clarification:kk": 5.0,
+            "needs_clarification:ru": 5.0,
+            "spam_suspected:kk": 1.0,
+            "spam_suspected:ru": 5.0,
+            "urgency:kk": 5.0,
+            "urgency:ru": 5.0
+          },
+          "by_language_option_count": {
+            "kk": {
+              "choice:2": 5.0,
+              "choice:6-10": 3.089564,
+              "noul:2": 5.0
+            },
+            "ru": {
+              "choice:2": 5.0,
+              "choice:6-10": 3.425912,
+              "noul:2": 5.0
+            }
+          }
+        }
+      },
+      {
+        "seed": 43,
+        "started_at": "2026-09-26T04:15:38.920595+00:00",
+        "finished_at": "2026-09-26T04:21:34.906913+00:00",
+        "run_manifest_sha256": "3e6944702fbe1fbd62b9729cb1ab85ae0d69b6b70616227fe72ad891741ec80e",
+        "trained_model_sha256": "1ca765e06a34d10e8d9396d74429614afc463e447a795fac487632b105e80082",
+        "trained_config_sha256": "dd9de4bca4657dd13b99373d9e7453ae0863adbfab0c72d527b7813e909e6c53",
+        "weight_change_proof": true,
+        "metrics": {
+          "baseline_category_accuracy": 0.45,
+          "trained_category_accuracy": 0.81875,
+          "trained_category_macro_f1": 0.807955,
+          "trained_raw_ece": 0.294248,
+          "checkpoint_calibrated_ece": 0.269486,
+          "trained_raw_nll": 5.003788,
+          "checkpoint_calibrated_nll": 1.092514,
+          "overall_accuracy": 0.700893,
+          "validation_best_accuracy": 0.83631
+        },
+        "calibration": {
+          "by_type": {
+            "choice": 5.0,
+            "noul": 5.0
+          },
+          "by_option_count": {
+            "choice:2": 5.0,
+            "choice:6-10": 3.424757,
+            "noul:2": 5.0
+          },
+          "by_decision_language": {
+            "category:kk": 3.744451,
+            "category:ru": 3.092417,
+            "needs_clarification:kk": 5.0,
+            "needs_clarification:ru": 5.0,
+            "spam_suspected:kk": 1.0,
+            "spam_suspected:ru": 1.0,
+            "urgency:kk": 5.0,
+            "urgency:ru": 5.0
+          },
+          "by_language_option_count": {
+            "kk": {
+              "choice:2": 5.0,
+              "choice:6-10": 3.744451,
+              "noul:2": 5.0
+            },
+            "ru": {
+              "choice:2": 5.0,
+              "choice:6-10": 3.092417,
+              "noul:2": 5.0
+            }
+          }
+        }
+      }
+    ]
+  },
+  "evidence_bundle": {
+    "local_path": "artifacts/laya-gpu-20260926",
+    "archive_sha256": "4545fc06871312ae684c624a0516db03338174b640fed3d5b8e0a7d1e9524899",
+    "file_hash_manifest": "artifacts/laya-gpu-20260926/compact-evidence-sha256.txt",
+    "compact_bundle_excludes_model_weights": true,
+    "full_checkpoint_size_bytes_each": 643835524,
+    "full_checkpoints_retained_on_stopped_brev_disk": true
+  }
+}
