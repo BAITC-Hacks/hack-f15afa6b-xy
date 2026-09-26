@@ -97,18 +97,28 @@ three seeds. Start it only from a clean committed checkout on an NVIDIA host wit
 nvidia-smi
 python -m pip install "laya==0.3.20"
 python scripts/run_laya_gpu_experiments.py \
-  --output artifacts/laya-gpu-20260926 \
+  --output artifacts/laya-gpu-ce \
   --gpus 2 \
-  --seeds 17,29,43
+  --seeds 17,29,43 \
+  --rlcd-weight 0
+
+python scripts/run_laya_gpu_experiments.py \
+  --output artifacts/laya-gpu-rlcd \
+  --gpus 2 \
+  --seeds 17,29,43 \
+  --rlcd-weight 1
 ```
 
-Omit `--gpus` to use every visible GPU. The job pins the base checkpoint revision, builds deterministic
-RU/KK simulations, launches one DDP training job per seed, and stops on the first failed run. Use
+Omit `--gpus` to use every visible GPU. The two commands form a controlled CE-only versus CE+RLCD
+comparison: data, seed and optimization settings stay equal. The job pins the base checkpoint revision,
+builds deterministic group-stratified RU/KK simulations, balances task/language/class influence, launches
+one DDP training job per seed, and saves only checkpoints within the configured recall tolerance. Use
 `--approved-jsonl /private/path/approved.jsonl` only for an anonymized, approved file following the
 generated record schema. The input is hashed but never copied into Git.
 
-Each seed produces the trained checkpoint, training history, baseline and post-training metrics,
-held-out temperatures, CUDA/NVIDIA inventory, hashes, Git commit and a full log. The experiment
+Each seed produces the trained checkpoint, training history, per-class confusion/precision/recall/F1,
+baseline and post-training metrics, held-out temperatures, privacy-safe test predictions, CUDA/NVIDIA
+inventory, hashes, Git commit and a full log. The experiment
 manifest reports mean and population standard deviation across seeds. Verify a copied evidence bundle
 without training again:
 

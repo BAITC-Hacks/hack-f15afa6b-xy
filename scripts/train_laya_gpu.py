@@ -25,7 +25,8 @@ from transformers import AutoTokenizer
 from huggingface_hub import snapshot_download
 
 from laya.agent import _fix_tokenizer_config
-from laya.common import QTYPES, build_model, build_sequence, proper_reward, render_options, temp_bucket
+from laya.common import QTYPES, build_model, build_sequence, proper_reward, render_options
+from laya_training_metrics import checkpoint_selection, compact_predictions, evaluate, temperature_map
 
 DEFAULT_MODEL_REVISION = "e4e9ddf21a7b1903b7acffd8814ad4307bf63a67"
 
@@ -85,6 +86,27 @@ def load_items(path, tokenizer, config):
     return items
 
 
+def balance_training_items(items):
+    """Give every task, language and class equal total loss influence."""
+    counts = defaultdict(int)
+    languages, labels = defaultdict(set), defaultdict(set)
+    for item in items:
+        label = item["keys"][item["label"]]
+        counts[(item["qid"], item["language"], label)] += 1
+        languages[item["qid"]].add(item["language"])
+        labels[(item["qid"], item["language"])].add(label)
+    tasks = len(languages)
+    cells = {}
+    for item in items:
+        qid, language = item["qid"], item["language"]
+        label = item["keys"][item["label"]]
+        count = counts[(qid, language, label)]
+        weight = len(items) / (tasks * len(languages[qid]) * len(labels[(qid, language)]) * count)
+        item["weight"] = weight
+        cells[f"{qid}:{language}:{label}"] = {"count": count, "weight": round(weight, 6)}
+    return {"strategy": "equal_task_language_class", "cells": dict(sorted(cells.items()))}
+
+
 def collate(items, pad_id):
     rows, length = len(items), max(len(item["ids"]) for item in items)
     options = max(len(item["markers"]) for item in items)
@@ -102,7 +124,8 @@ def collate(items, pad_id):
         target[index, :count] = torch.tensor(item["target"])
     return {"input_ids": ids, "attention_mask": attention, "marker_pos": marker_pos,
             "marker_mask": marker_mask, "target": target,
-            "qtype": torch.tensor([item["qtype"] for item in items])}
+            "qtype": torch.tensor([item["qtype"] for item in items]),
+            "weight": torch.tensor([item.get("weight", 1.0) for item in items])}
 
 
 def forward_rows(model, items, pad_id, device, batch_size, amp_dtype):
@@ -120,107 +143,10 @@ def forward_rows(model, items, pad_id, device, batch_size, amp_dtype):
             for index, item in enumerate(chunk):
                 count = len(item["target"])
                 rows.append({key: item[key] for key in (
-                    "qid", "language", "record_id", "group_id", "qtype", "qtype_name", "label", "keys")})
+                    "qid", "language", "qtype", "qtype_name", "label", "keys")})
                 rows[-1].update({"logits": values[index, :count].tolist(), "target": item["target"]})
     model.train()
     return rows
-
-
-def fit_temperature(rows, minimum=10):
-    if len(rows) < minimum:
-        return 1.0
-    width = max(len(row["logits"]) for row in rows)
-    logits = torch.full((len(rows), width), -1e4)
-    targets = torch.zeros((len(rows), width))
-    for index, row in enumerate(rows):
-        count = len(row["logits"])
-        logits[index, :count] = torch.tensor(row["logits"])
-        targets[index, :count] = torch.tensor(row["target"])
-    log_temperature = torch.zeros(1, requires_grad=True)
-    optimizer = torch.optim.LBFGS([log_temperature], lr=.1, max_iter=100)
-
-    def closure():
-        optimizer.zero_grad()
-        loss = -(targets * torch.log_softmax(logits / log_temperature.exp(), -1)).sum(-1).mean()
-        loss.backward()
-        return loss
-
-    optimizer.step(closure)
-    value = float(torch.clamp(log_temperature.exp(), .5, 5).item())
-    return round(value, 6) if math.isfinite(value) else 1.0
-
-
-def temperature_map(rows):
-    by_type, by_bucket, by_decision, by_language = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
-    for row in rows:
-        by_type[row["qtype_name"]].append(row)
-        bucket = temp_bucket(row["qtype"], len(row["logits"]))
-        by_bucket[bucket].append(row)
-        by_decision[f"{row['qid']}:{row['language']}"].append(row)
-        by_language[(row["language"], bucket)].append(row)
-    return {
-        "by_type": {key: fit_temperature(value) for key, value in sorted(by_type.items())},
-        "by_option_count": {key: fit_temperature(value) for key, value in sorted(by_bucket.items())},
-        "by_decision_language": {key: fit_temperature(value) for key, value in sorted(by_decision.items())},
-        "by_language_option_count": {
-            language: {bucket: fit_temperature(value)
-                       for (lang, bucket), value in sorted(by_language.items()) if lang == language}
-            for language in sorted({key[0] for key in by_language})
-        },
-    }
-
-
-def row_temperature(row, calibration, mode):
-    if mode == "pulse":
-        return calibration["by_decision_language"].get(f"{row['qid']}:{row['language']}", 1.0)
-    if mode == "checkpoint":
-        return calibration["by_option_count"].get(temp_bucket(row["qtype"], len(row["logits"])), 1.0)
-    return 1.0
-
-
-def evaluate(rows, calibration=None, mode="raw"):
-    correct, confidences, briers, losses = [], [], [], []
-    category_pairs = []
-    per_slice = defaultdict(list)
-    for row in rows:
-        temperature = row_temperature(row, calibration or {}, mode)
-        logits = np.asarray(row["logits"], dtype=float) / temperature
-        probabilities = np.exp(logits - logits.max())
-        probabilities /= probabilities.sum()
-        target = np.asarray(row["target"], dtype=float)
-        predicted, actual = int(probabilities.argmax()), int(target.argmax())
-        hit = int(predicted == actual)
-        confidence = float(probabilities[predicted])
-        correct.append(hit); confidences.append(confidence)
-        briers.append(float(np.square(probabilities - target).sum()))
-        losses.append(float(-(target * np.log(np.clip(probabilities, 1e-12, 1))).sum()))
-        per_slice[f"{row['qid']}:{row['language']}"].append(hit)
-        if row["qid"] == "category":
-            category_pairs.append((row["keys"][actual], row["keys"][predicted]))
-    ece = 0.0
-    for lower in np.linspace(0, .9, 10):
-        selected = [i for i, confidence in enumerate(confidences) if lower <= confidence < lower + .1 + 1e-12]
-        if selected:
-            ece += len(selected) / len(rows) * abs(np.mean([correct[i] for i in selected])
-                                                   - np.mean([confidences[i] for i in selected]))
-    labels = sorted({value for pair in category_pairs for value in pair})
-    f1s = []
-    for label in labels:
-        tp = sum(actual == predicted == label for actual, predicted in category_pairs)
-        fp = sum(actual != label and predicted == label for actual, predicted in category_pairs)
-        fn = sum(actual == label and predicted != label for actual, predicted in category_pairs)
-        precision = tp / (tp + fp) if tp + fp else 0
-        recall = tp / (tp + fn) if tp + fn else 0
-        f1s.append(2 * precision * recall / (precision + recall) if precision + recall else 0)
-    return {
-        "decisions": len(rows), "accuracy": round(float(np.mean(correct)), 6),
-        "category_accuracy": round(float(np.mean([a == b for a, b in category_pairs])), 6) if category_pairs else None,
-        "category_macro_f1": round(float(np.mean(f1s)), 6) if f1s else None,
-        "ece": round(float(ece), 6), "brier": round(float(np.mean(briers)), 6),
-        "nll": round(float(np.mean(losses)), 6),
-        "slices": {key: {"count": len(value), "accuracy": round(float(np.mean(value)), 6)}
-                   for key, value in sorted(per_slice.items())},
-    }
 
 
 def git_value(root, *args):
@@ -252,17 +178,21 @@ def save_checkpoint(model, tokenizer, config, output):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--model", default="convaiinnovations/laya-multilingual")
     parser.add_argument("--model-revision", default=DEFAULT_MODEL_REVISION)
-    parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--seed", type=int)
     parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--micro-batch", type=int, default=8)
     parser.add_argument("--grad-accum", type=int, default=4)
     parser.add_argument("--encoder-lr", type=float, default=2.5e-5)
     parser.add_argument("--head-lr", type=float, default=1e-4)
     parser.add_argument("--group-size", type=int, default=4)
+    parser.add_argument("--rlcd-weight", type=float, default=1.0,
+                        help="0 runs CE-only; positive values mix RLCD with CE")
+    parser.add_argument("--max-slice-recall-drop", type=float, default=.25)
+    parser.add_argument("--min-slice-recall", type=float, default=.05)
     parser.add_argument("--max-train-items", type=int)
     parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args()
@@ -271,12 +201,40 @@ def main():
                  "label": 0, "keys": ["a", "b"], "logits": [3.0, 0.0], "target": [1.0, 0.0]}] * 12
         calibration = temperature_map(rows)
         assert evaluate(rows, calibration, "pulse")["accuracy"] == 1.0
-        print("PASS: calibration and metric self-check")
+        ties = [{**rows[0], "logits": [0.0, 0.0]}] * 10
+        assert evaluate(ties)["ece"] == .5
+        items = ([{"qid": "urgency", "language": "ru", "label": 0, "keys": ["normal", "urgent"]}] * 3
+                 + [{"qid": "urgency", "language": "ru", "label": 1, "keys": ["normal", "urgent"]}]
+                 + [{"qid": "category", "language": "ru", "label": 0, "keys": ["a", "b"]},
+                    {"qid": "category", "language": "ru", "label": 1, "keys": ["a", "b"]}])
+        balance_training_items(items)
+        totals = defaultdict(float)
+        for item in items:
+            totals[item["qid"]] += item["weight"]
+        assert len({round(value, 6) for value in totals.values()}) == 1
+        urgency = [{"qid": "urgency", "language": "ru", "qtype": 0, "qtype_name": "choice",
+                    "label": label, "keys": ["normal", "urgent"], "target": [1 - label, label],
+                    "logits": [3.0, 0.0] if label == 0 else [0.0, 3.0]}
+                   for label in (0, 1) for _ in range(6)]
+        baseline = evaluate(rows + urgency)
+        collapsed = evaluate(rows + [{**row, "logits": [3.0, 0.0]} for row in urgency])
+        assert not checkpoint_selection(collapsed, baseline, .25)["eligible"]
+        assert not checkpoint_selection(collapsed, collapsed, .25)["eligible"]
+        predictions = compact_predictions(rows, calibration)
+        assert set(predictions[0]) == {"sample_id", "task", "language", "actual",
+                                      "predicted", "confidence", "correct"}
+        print("PASS: calibration, balanced loss, metrics, checkpoint guardrail and private evidence self-check")
         return
+    if args.data_dir is None or args.output is None or args.seed is None:
+        parser.error("--data-dir, --output and --seed are required unless --self-check is used")
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is required; no NVIDIA GPU is visible")
-    if args.epochs < 1 or args.micro_batch < 1 or args.grad_accum < 1:
-        raise SystemExit("epochs, micro-batch and grad-accum must be positive")
+    if args.epochs < 1 or args.micro_batch < 1 or args.grad_accum < 1 or args.rlcd_weight < 0:
+        raise SystemExit("epochs, micro-batch and grad-accum must be positive; rlcd-weight cannot be negative")
+    if args.rlcd_weight and args.group_size < 2:
+        raise SystemExit("group-size must be at least 2 when RLCD is enabled")
+    if not 0 <= args.max_slice_recall_drop <= 1 or not 0 <= args.min_slice_recall <= 1:
+        raise SystemExit("slice recall guardrails must be between 0 and 1")
 
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
@@ -312,7 +270,9 @@ def main():
     if args.max_train_items:
         train_items = train_items[:args.max_train_items]
     usable = len(train_items) - len(train_items) % world_size
-    local_items = train_items[:usable][rank::world_size]
+    train_items = train_items[:usable]
+    training_balance = balance_training_items(train_items)
+    local_items = train_items[rank::world_size]
     if not local_items:
         raise SystemExit("No training items assigned to this GPU rank")
     if rank == 0:
@@ -320,6 +280,9 @@ def main():
         baseline_rows = forward_rows(model, test_items, tokenizer.pad_token_id, device,
                                      args.micro_batch, amp_dtype)
         baseline = evaluate(baseline_rows)
+        baseline_validation_rows = forward_rows(model, validation_items, tokenizer.pad_token_id, device,
+                                                args.micro_batch, amp_dtype)
+        baseline_validation = evaluate(baseline_validation_rows)
     if world_size > 1:
         dist.barrier()
 
@@ -333,7 +296,7 @@ def main():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, updates), eta_min=1e-6)
     scaler = torch.amp.GradScaler("cuda", enabled=True)
     history = []
-    best_validation, best_state = -1.0, None
+    best_validation, best_selection, best_state = -1.0, None, None
     for epoch in range(args.epochs):
         random.Random(args.seed + epoch + rank).shuffle(local_items)
         wrapped.train(); optimizer.zero_grad(set_to_none=True)
@@ -346,43 +309,57 @@ def main():
                                       batch["marker_pos"].to(device), batch["marker_mask"].to(device),
                                       batch["qtype"].to(device))
             logits = logits.float(); mask = batch["marker_mask"].to(device)
-            target = batch["target"].to(device); option_count = mask.sum(-1, keepdim=True).float()
-            progress = epoch / max(1, args.epochs - 1); sigma = .4 + (.1 - .4) * progress
-            noise = torch.randn((args.group_size,) + logits.shape, device=device) * sigma * mask
-            noise = (noise - noise.sum(-1, keepdim=True) / option_count) * mask
-            sampled = logits.detach().unsqueeze(0) + noise
-            distributions = torch.softmax(sampled.masked_fill(~mask, -1e4), -1)
-            with torch.no_grad():
-                rewards = proper_reward(distributions, target.unsqueeze(0), batch["qtype"].to(device),
-                                        mask, w_sph=.75, w_rps=1.0)
-                advantage = rewards - rewards.mean(0, keepdim=True)
-                advantage /= advantage.std() + 1e-6
-            log_probability = -(((sampled - logits.unsqueeze(0)) ** 2) * mask).sum(-1) / (2 * sigma ** 2)
-            rl_loss = -(advantage * log_probability).mean()
-            ce_loss = -(target * torch.log_softmax(logits.masked_fill(~mask, -1e4), -1)).sum(-1).mean()
-            loss = (rl_loss + ce_loss) / args.grad_accum + 0.0 * act.sum()
+            target = batch["target"].to(device); weights = batch["weight"].to(device)
+            ce_rows = -(target * torch.log_softmax(logits.masked_fill(~mask, -1e4), -1)).sum(-1)
+            ce_loss = (ce_rows * weights).mean()
+            rl_loss = logits.new_zeros(())
+            if args.rlcd_weight:
+                option_count = mask.sum(-1, keepdim=True).float()
+                progress = epoch / max(1, args.epochs - 1); sigma = .4 + (.1 - .4) * progress
+                noise = torch.randn((args.group_size,) + logits.shape, device=device) * sigma * mask
+                noise = (noise - noise.sum(-1, keepdim=True) / option_count) * mask
+                sampled = logits.detach().unsqueeze(0) + noise
+                distributions = torch.softmax(sampled.masked_fill(~mask, -1e4), -1)
+                with torch.no_grad():
+                    rewards = proper_reward(distributions, target.unsqueeze(0), batch["qtype"].to(device),
+                                            mask, w_sph=.75, w_rps=1.0)
+                    advantage = rewards - rewards.mean(0, keepdim=True)
+                    advantage /= advantage.std(unbiased=False) + 1e-6
+                log_probability = -(((sampled - logits.unsqueeze(0)) ** 2) * mask).sum(-1) / (2 * sigma ** 2)
+                rl_loss = (-(advantage * log_probability).mean(0) * weights).mean()
+            loss = (ce_loss + args.rlcd_weight * rl_loss) / args.grad_accum + 0.0 * act.sum()
             scaler.scale(loss).backward(); losses.append(float((loss * args.grad_accum).detach()))
             last = batch_index + args.micro_batch >= len(local_items)
             if ((batch_index // args.micro_batch + 1) % args.grad_accum == 0) or last:
                 scaler.unscale_(optimizer); torch.nn.utils.clip_grad_norm_(wrapped.parameters(), 1.0)
-                scaler.step(optimizer); scaler.update(); scheduler.step(); optimizer.zero_grad(set_to_none=True)
+                scale = scaler.get_scale(); scaler.step(optimizer); scaler.update()
+                if scaler.get_scale() >= scale:
+                    scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
+        loss_stats = torch.tensor([sum(losses), len(losses)], dtype=torch.float64, device=device)
         if world_size > 1:
-            dist.barrier()
+            dist.all_reduce(loss_stats, op=dist.ReduceOp.SUM)
+        mean_loss = float((loss_stats[0] / loss_stats[1]).item())
         if rank == 0:
             validation_rows = forward_rows(model, validation_items, tokenizer.pad_token_id, device,
                                            args.micro_batch, amp_dtype)
             validation = evaluate(validation_rows)
-            history.append({"epoch": epoch + 1, "mean_loss": round(float(np.mean(losses)), 6),
-                            "validation": validation})
+            selection = checkpoint_selection(validation, baseline_validation,
+                                             args.max_slice_recall_drop, args.min_slice_recall)
+            history.append({"epoch": epoch + 1, "mean_loss": round(mean_loss, 6),
+                            "validation": validation, "checkpoint_selection": selection})
             print(json.dumps(history[-1], ensure_ascii=False))
-            if validation["accuracy"] > best_validation:
+            if selection["eligible"] and (best_selection is None or selection["rank"] > best_selection["rank"]):
                 best_validation = validation["accuracy"]
+                best_selection = selection
                 best_state = {key: value.detach().half().contiguous().cpu()
                               for key, value in model.state_dict().items()}
         if world_size > 1:
             dist.barrier()
 
     if rank == 0:
+        if best_state is None:
+            raise RuntimeError("No trained epoch passed validation class-recall guardrails")
         model.load_state_dict(best_state, strict=True); model.to(device)
         calibration_rows = forward_rows(model, calibration_items, tokenizer.pad_token_id, device,
                                         args.micro_batch, amp_dtype)
@@ -396,19 +373,32 @@ def main():
         metrics = {"baseline_raw": baseline, "trained_raw": evaluate(test_rows),
                    "trained_checkpoint_calibrated": evaluate(test_rows, calibration, "checkpoint"),
                    "trained_pulse_calibrated": evaluate(test_rows, calibration, "pulse"),
-                   "validation_best_accuracy": best_validation}
+                   "validation_best_accuracy": best_validation,
+                   "validation_baseline": baseline_validation,
+                   "validation_checkpoint_selection": best_selection}
         checkpoint = args.output / "checkpoint"
         save_checkpoint(model, tokenizer, config, checkpoint)
+        predictions = args.output / "test_predictions.jsonl"
+        predictions.write_text("".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+                                       for row in compact_predictions(test_rows, calibration)))
         files = {"dataset_manifest.json": args.data_dir / "dataset_manifest.json",
                  "base_model.safetensors": model_dir / "model.safetensors",
                  "trained_model.safetensors": checkpoint / "model.safetensors",
-                 "trained_config.json": checkpoint / "rl_agent_config.json"}
+                 "trained_config.json": checkpoint / "rl_agent_config.json",
+                 "test_predictions.jsonl": predictions}
         environment = environment_info()
-        (args.output / "environment.json").write_text(json.dumps(environment, indent=2) + "\n")
-        (args.output / "calibration.json").write_text(json.dumps(calibration, indent=2) + "\n")
-        (args.output / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-        (args.output / "training_history.json").write_text(json.dumps(history, indent=2) + "\n")
+        evidence = {"environment.json": environment, "calibration.json": calibration,
+                    "metrics.json": metrics, "training_history.json": history}
+        for name, value in evidence.items():
+            path = args.output / name
+            path.write_text(json.dumps(value, indent=2) + "\n")
+            files[name] = path
         root = Path(__file__).resolve().parents[1]
+        data_status = json.loads((args.data_dir / "dataset_manifest.json").read_text())["data_status"]
+        claim_boundary = ("Synthetic-only metrics prove execution, not production accuracy."
+                          if data_status == "synthetic_only" else
+                          "Mixed approved and synthetic metrics describe only the recorded dataset, "
+                          "not production accuracy.")
         manifest = {
             "schema_version": "pulse109-laya-run-v1", "status": "complete",
             "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
@@ -416,18 +406,22 @@ def main():
             "base_model": args.model, "base_model_revision": snapshot_revision(str(model_dir)),
             "git_commit": git_value(root, "rev-parse", "HEAD"),
             "git_dirty": bool(git_value(root, "status", "--porcelain")),
-            "data_status": json.loads((args.data_dir / "dataset_manifest.json").read_text())["data_status"],
+            "data_status": data_status,
             "hyperparameters": {"micro_batch": args.micro_batch, "grad_accum": args.grad_accum,
                                 "encoder_lr": args.encoder_lr, "head_lr": args.head_lr,
-                                "group_size": args.group_size, "amp_dtype": "float16",
+                                "group_size": args.group_size, "rlcd_weight": args.rlcd_weight,
+                                "max_slice_recall_drop": args.max_slice_recall_drop,
+                                "min_slice_recall": args.min_slice_recall,
+                                "amp_dtype": "float16",
                                 "max_train_items": args.max_train_items},
+            "training_balance": training_balance,
             "item_counts": {"train_dataset": train_item_count, "train_used": usable,
                             "validation": len(validation_items), "calibration": len(calibration_items),
                             "test": len(test_items)},
             "artifact_hashes": {name: sha256(path) for name, path in files.items()},
             "weight_change_proof": files["base_model.safetensors"].exists()
             and sha256(files["base_model.safetensors"]) != sha256(files["trained_model.safetensors"]),
-            "claim_boundary": "Synthetic-only metrics prove execution, not production accuracy."
+            "claim_boundary": claim_boundary,
         }
         (args.output / "run_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         print(json.dumps({"run_manifest": str(args.output / "run_manifest.json"), "metrics": metrics}, indent=2))

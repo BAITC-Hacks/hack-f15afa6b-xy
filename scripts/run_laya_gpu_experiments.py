@@ -36,6 +36,19 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def verify_claim_boundary(data_status, claim):
+    text = claim.lower()
+    require("not production accuracy" in text,
+            "Claim boundary must state that metrics do not establish production accuracy")
+    if data_status == "synthetic_only":
+        require("synthetic-only" in text, "Synthetic data claim boundary is missing")
+    elif data_status == "mixed_approved_and_synthetic":
+        require("approved" in text and "mixed" in text,
+                "Mixed approved-data claim boundary is missing")
+    else:
+        raise ValueError(f"Unsupported training data status: {data_status}")
+
+
 def verify_dataset(data_dir):
     manifest_path = data_dir / "dataset_manifest.json"
     manifest = load_json(manifest_path)
@@ -44,6 +57,12 @@ def verify_dataset(data_dir):
     config = data_dir / manifest["simulation_config"]["path"]
     require(config.is_file() and sha256(config) == manifest["simulation_config"]["sha256"],
             "Simulation config hash mismatch")
+    contract = manifest.get("split_contract")
+    if contract:
+        require(contract.get("all_required_labels_present") is True,
+                "Dataset split contract has missing labels")
+        require(contract.get("all_synthetic_groups_bilingual") is True,
+                "Dataset split contract has unpaired RU/KK groups")
     groups = {}
     records = 0
     for split in SPLITS:
@@ -97,6 +116,13 @@ def verify_run(run_dir, data_manifest_hash, expected_seed=None):
     require(manifest.get("git_commit") and not manifest.get("git_dirty"),
             "Training must run from a committed, clean checkout")
 
+    modern = "rlcd_weight" in manifest.get("hyperparameters", {})
+    if modern:
+        for name in ("environment.json", "calibration.json", "metrics.json", "training_history.json"):
+            path = run_dir / name
+            require(path.is_file() and sha256(path) == hashes.get(name),
+                    f"{name} hash mismatch")
+
     environment = load_json(run_dir / "environment.json")
     require(environment.get("gpus") and environment.get("cuda_runtime"), "NVIDIA CUDA evidence is missing")
     calibration = load_json(run_dir / "calibration.json")
@@ -107,11 +133,43 @@ def verify_run(run_dir, data_manifest_hash, expected_seed=None):
     required_metrics = {"baseline_raw", "trained_raw", "trained_checkpoint_calibrated",
                         "trained_pulse_calibrated", "validation_best_accuracy"}
     require(required_metrics <= metrics.keys(), "Required metrics are missing")
+    if modern:
+        require({"validation_baseline", "validation_checkpoint_selection"} <= metrics.keys(),
+                "Validation guardrail evidence is missing")
+        require(metrics["validation_checkpoint_selection"].get("eligible") is True,
+                "Saved checkpoint failed validation guardrails")
+        predictions = run_dir / "test_predictions.jsonl"
+        require(predictions.is_file() and sha256(predictions) == hashes.get("test_predictions.jsonl"),
+                "Compact prediction evidence hash mismatch")
+        rows = [json.loads(line) for line in predictions.read_text().splitlines() if line]
+        allowed = {"sample_id", "task", "language", "actual", "predicted", "confidence", "correct"}
+        require(rows and all(set(row) == allowed for row in rows),
+                "Compact predictions contain missing or unsafe fields")
+        sample_ids = [row["sample_id"] for row in rows]
+        require(all(isinstance(value, str) and value for value in sample_ids)
+                and len(set(sample_ids)) == len(sample_ids),
+                "Compact prediction sample IDs must be non-empty and unique")
+        for row in rows:
+            confidence = row["confidence"]
+            require(isinstance(confidence, (int, float)) and not isinstance(confidence, bool)
+                    and math.isfinite(confidence) and 0 <= confidence <= 1,
+                    "Compact prediction confidence must be finite and between 0 and 1")
+            require(isinstance(row["correct"], bool)
+                    and row["correct"] == (row["actual"] == row["predicted"]),
+                    "Compact prediction correctness does not match its labels")
+            require(all(isinstance(row[key], str) and row[key]
+                        for key in ("task", "language", "actual", "predicted")),
+                    "Compact prediction labels must be non-empty strings")
+        require(len(rows) == metrics["trained_raw"]["decisions"],
+                "Compact prediction count does not match test decisions")
     history = load_json(run_dir / "training_history.json")
     require(len(history) == manifest.get("epochs") and history, "Training history is incomplete")
-    require("Synthetic-only" in manifest.get("claim_boundary", ""), "Claim boundary is missing")
+    if modern or manifest.get("data_status"):
+        verify_claim_boundary(manifest.get("data_status"), manifest.get("claim_boundary", ""))
     return {"seed": manifest["seed"], "manifest_sha256": sha256(manifest_path),
-            "trained_model_sha256": trained_hash, "metrics": metrics}
+            "trained_model_sha256": trained_hash, "metrics": metrics,
+            "hyperparameters": manifest.get("hyperparameters", {}),
+            "data_status": manifest.get("data_status")}
 
 
 def verify_experiment(output):
@@ -125,6 +183,9 @@ def verify_experiment(output):
     for entry in experiment["runs"]:
         run_dir = output / entry["directory"]
         result = verify_run(run_dir, dataset["sha256"], entry["seed"])
+        if result["data_status"] is not None:
+            require(result["data_status"] == dataset["data_status"],
+                    "Run data status does not match dataset manifest")
         require(result["manifest_sha256"] == entry["manifest_sha256"], "Run manifest hash mismatch")
         log = output / entry["log"]
         require(log.is_file() and sha256(log) == entry["log_sha256"], "Training log hash mismatch")
@@ -132,21 +193,40 @@ def verify_experiment(output):
     require(len({run["seed"] for run in checked}) == len(checked), "Seeds must be unique")
     require(len({run["trained_model_sha256"] for run in checked}) == len(checked),
             "Independent seeds produced identical checkpoints")
+    if "data_status" in experiment:
+        require(experiment["data_status"] == dataset["data_status"],
+                "Experiment data status does not match dataset manifest")
+    verify_claim_boundary(experiment.get("data_status", dataset["data_status"]),
+                          experiment.get("claim_boundary", ""))
+    rlcd_weights = {run["hyperparameters"].get("rlcd_weight") for run in checked
+                    if "rlcd_weight" in run["hyperparameters"]}
+    if rlcd_weights:
+        require(len(rlcd_weights) == 1 and experiment.get("rlcd_weight") in rlcd_weights,
+                "Experiment and run RLCD weights do not match")
     return {"status": "verified", "runs": len(checked), "seeds": [run["seed"] for run in checked],
             "dataset": dataset, "claim_boundary": experiment["claim_boundary"]}
 
 
 def metric_summary(results):
     fields = {
+        "baseline_overall_accuracy": ("baseline_raw", "accuracy"),
+        "trained_overall_accuracy": ("trained_raw", "accuracy"),
         "baseline_category_accuracy": ("baseline_raw", "category_accuracy"),
         "trained_category_accuracy": ("trained_raw", "category_accuracy"),
         "trained_category_macro_f1": ("trained_raw", "category_macro_f1"),
+        "trained_urgency_kk_recall": ("trained_raw", "slices", "urgency:kk", "classes", "urgent", "recall"),
+        "trained_urgency_ru_recall": ("trained_raw", "slices", "urgency:ru", "classes", "urgent", "recall"),
         "checkpoint_calibrated_ece": ("trained_checkpoint_calibrated", "ece"),
         "checkpoint_calibrated_nll": ("trained_checkpoint_calibrated", "nll"),
     }
     summary = {}
-    for name, (section, field) in fields.items():
-        values = [result["metrics"][section][field] for result in results]
+    for name, path in fields.items():
+        values = []
+        for result in results:
+            value = result["metrics"]
+            for key in path:
+                value = value[key]
+            values.append(value)
         summary[name] = {"mean": round(statistics.mean(values), 6),
                          "population_std": round(statistics.pstdev(values), 6), "values": values}
     return summary
@@ -180,6 +260,9 @@ def run_experiment(args):
             f"Output directory is not empty: {args.output}")
     require(len(args.seeds) >= 2 and len(set(args.seeds)) == len(args.seeds),
             "Use at least two unique seeds")
+    require(args.rlcd_weight >= 0, "--rlcd-weight cannot be negative")
+    require(0 <= args.max_slice_recall_drop <= 1,
+            "--max-slice-recall-drop must be between 0 and 1")
     available = gpu_count()
     workers = args.gpus or available
     require(1 <= workers <= available, f"Requested {workers} GPUs, but {available} are visible")
@@ -200,7 +283,8 @@ def run_experiment(args):
                    f"--nproc-per-node={workers}", str(ROOT / "scripts/train_laya_gpu.py"),
                    "--data-dir", str(data_dir), "--output", str(run_dir), "--seed", str(seed),
                    "--epochs", str(args.epochs), "--micro-batch", str(args.micro_batch),
-                   "--grad-accum", str(args.grad_accum)]
+                   "--grad-accum", str(args.grad_accum), "--rlcd-weight", str(args.rlcd_weight),
+                   "--max-slice-recall-drop", str(args.max_slice_recall_drop)]
         if args.model:
             command += ["--model", args.model]
         if args.model_revision:
@@ -217,9 +301,12 @@ def run_experiment(args):
         "schema_version": "pulse109-laya-experiment-v1", "status": "complete",
         "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
         "gpu_workers": workers, "seeds": args.seeds, "runs": entries,
+        "rlcd_weight": args.rlcd_weight, "max_slice_recall_drop": args.max_slice_recall_drop,
         "aggregate_test_metrics": metric_summary(results),
         "data_status": dataset["data_status"],
-        "claim_boundary": "Synthetic-only repeated runs prove training and calibration execution, not production accuracy.",
+        "claim_boundary": ("Synthetic-only repeated runs prove training and calibration execution, not production accuracy."
+                           if dataset["data_status"] == "synthetic_only" else
+                           "Mixed approved-data runs prove training and calibration execution, not production accuracy."),
     }
     (args.output / "experiment_manifest.json").write_text(
         json.dumps(experiment, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -234,10 +321,19 @@ def write_self_check_run(root, data_hash, seed):
     (checkpoint / "model.safetensors").write_bytes(f"trained-{seed}".encode())
     (checkpoint / "rl_agent_config.json").write_text("{}\n")
     calibration = {"by_type": {"choice": 1.1}, "by_option_count": {"choice:6-10": .9}}
-    metrics = {name: {"category_accuracy": .5, "category_macro_f1": .4, "ece": .1, "nll": 1.0}
+    slice_metrics = {"urgency:kk": {"classes": {"urgent": {"recall": .8}}},
+                     "urgency:ru": {"classes": {"urgent": {"recall": .8}}}}
+    metrics = {name: {"decisions": 1, "accuracy": .5, "category_accuracy": .5,
+                      "category_macro_f1": .4, "ece": .1, "nll": 1.0, "slices": slice_metrics}
                for name in ("baseline_raw", "trained_raw", "trained_checkpoint_calibrated",
                             "trained_pulse_calibrated")}
     metrics["validation_best_accuracy"] = .5
+    metrics["validation_baseline"] = metrics["baseline_raw"]
+    metrics["validation_checkpoint_selection"] = {"eligible": True}
+    predictions = run_dir / "test_predictions.jsonl"
+    predictions.write_text(json.dumps({"sample_id": "test-000000", "task": "category",
+                                       "language": "ru", "actual": "a", "predicted": "a",
+                                       "confidence": .8, "correct": True}) + "\n")
     files = {"environment.json": {"gpus": [{"name": "self-check"}], "cuda_runtime": "test"},
              "calibration.json": calibration, "metrics.json": metrics,
              "training_history.json": [{"epoch": 1}]}
@@ -246,11 +342,15 @@ def write_self_check_run(root, data_hash, seed):
     hashes = {"dataset_manifest.json": data_hash,
               "base_model.safetensors": hashlib.sha256(b"base").hexdigest(),
               "trained_model.safetensors": sha256(checkpoint / "model.safetensors"),
-              "trained_config.json": sha256(checkpoint / "rl_agent_config.json")}
+              "trained_config.json": sha256(checkpoint / "rl_agent_config.json"),
+              "test_predictions.jsonl": sha256(predictions),
+              **{name: sha256(run_dir / name) for name in files}}
     manifest = {"schema_version": "pulse109-laya-run-v1", "status": "complete", "seed": seed,
                 "epochs": 1, "git_commit": "a" * 40, "git_dirty": False,
+                "hyperparameters": {"rlcd_weight": 1.0},
                 "artifact_hashes": hashes, "weight_change_proof": True,
-                "claim_boundary": "Synthetic-only self-check."}
+                "data_status": "synthetic_only",
+                "claim_boundary": "Synthetic-only self-check proves execution, not production accuracy."}
     path = run_dir / "run_manifest.json"
     path.write_text(json.dumps(manifest))
     log = root / "logs" / f"seed-{seed}.log"
@@ -284,9 +384,29 @@ def self_check():
         entries = [write_self_check_run(first, sha256(first_data / "dataset_manifest.json"), seed)
                    for seed in (17, 29)]
         experiment = {"schema_version": "pulse109-laya-experiment-v1", "status": "complete",
-                      "runs": entries, "claim_boundary": "Synthetic-only self-check."}
+                      "runs": entries, "rlcd_weight": 1.0,
+                      "data_status": "synthetic_only",
+                      "claim_boundary": "Synthetic-only self-check proves execution, not production accuracy."}
         (first / "experiment_manifest.json").write_text(json.dumps(experiment))
         require(verify_experiment(first)["runs"] == 2, "Evidence verifier failed")
+        metrics = first / "runs/seed-17/metrics.json"
+        original_metrics = metrics.read_bytes(); metrics.write_bytes(b"{}\n")
+        try:
+            verify_experiment(first)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Evidence verifier accepted modified metrics")
+        metrics.write_bytes(original_metrics)
+        predictions = first / "runs/seed-17/test_predictions.jsonl"
+        original = predictions.read_bytes(); predictions.write_bytes(b"tampered\n")
+        try:
+            verify_experiment(first)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Evidence verifier accepted modified predictions")
+        predictions.write_bytes(original)
         (first / "runs/seed-17/checkpoint/model.safetensors").write_bytes(b"tampered")
         try:
             verify_experiment(first)
@@ -309,6 +429,9 @@ def main():
     parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--micro-batch", type=int, default=8)
     parser.add_argument("--grad-accum", type=int, default=4)
+    parser.add_argument("--rlcd-weight", type=float, default=1.0,
+                        help="0 runs CE-only; positive values mix RLCD with CE")
+    parser.add_argument("--max-slice-recall-drop", type=float, default=.25)
     parser.add_argument("--gpus", type=int)
     parser.add_argument("--approved-jsonl", type=Path)
     parser.add_argument("--model")

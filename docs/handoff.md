@@ -7,9 +7,18 @@ encoder+head, отдельные validation/calibration/test splits, три не
 доказательств: логи, CUDA/NVIDIA inventory, история, температуры, метрики и SHA-256 исходных/обученных
 весов. CI проверяет разбиение, PII-фильтр, детерминизм и обнаружение подмены артефактов.
 
-Сам NVIDIA-прогон ещё не выполнен: прежний Brev L4 удалён, а новая платная GPU-сессия не создавалась.
-До появления успешно проверенного `experiment_manifest.json` приложение остаётся в mock-режиме и не
-заявляет обученную модель или production accuracy. Команды и границы доказательств находятся в
+Первый NVIDIA-прогон выполнен на 2×T4 для seed 17/29/43 и зафиксирован в
+`training/evidence/laya-gpu-20260926.json` (commit `5ec3174`). Synthetic category accuracy выросла
+с 0.45 до среднего 0.785417, но общий результат ухудшился: старое позиционное разбиение дало train
+с 3.3% urgent и test со 100% urgent, поэтому urgency после обучения упал до 0%. Это доказало работу
+pipeline, но заблокировало активацию checkpoint.
+
+Phase 0 исправляет причину: RU/KK версии одного semantic core остаются в одной
+группе, splits детерминированно стратифицируются и проверяют все labels; loss балансируется по
+task/language/class; checkpoint проходит recall guardrails; evidence получает confusion metrics и
+обезличенные test predictions. Следующий GPU experiment должен сравнить `--rlcd-weight 0` и `1` на
+одинаковых seed. До его результатов `P109_DECISION_PROVIDER=mock` остаётся default, urgency не передаётся
+обученному checkpoint. Команды и границы доказательств находятся в
 [Laya integration](laya-integration.md#nvidia-fine-tuning-and-calibration).
 
 ## 2026-09-24: операции, Radar и координация
