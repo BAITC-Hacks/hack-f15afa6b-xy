@@ -139,22 +139,31 @@ def evaluate(rows, calibration=None, mode="raw"):
 
 def checkpoint_selection(metrics, baseline, max_recall_drop, min_recall=.05):
     def recalls(result):
-        return {f"{slice_name}:{label}": values["recall"]
-                for slice_name, section in result["slices"].items()
-                for label, values in section["classes"].items() if values["support"]}
+        values = {f"{task}:{label}": scores["recall"]
+                  for task, section in result["tasks"].items()
+                  for label, scores in section["classes"].items() if scores["support"]}
+        values.update({f"{slice_name}:{label}": scores["recall"]
+                       for slice_name, section in result["slices"].items()
+                       if not slice_name.startswith("category:")
+                       for label, scores in section["classes"].items() if scores["support"]})
+        return values
 
     current, initial = recalls(metrics), recalls(baseline)
     regressions = {key: round(initial[key] - current[key], 6) for key in initial}
     failures = {key: {"recall": current[key], "baseline_recall": initial[key]}
                 for key, drop in regressions.items()
-                if drop > max_recall_drop or current[key] < min_recall}
+                if drop > max_recall_drop
+                or (initial[key] >= min_recall and current[key] < min_recall)}
+    inherited = {key: {"recall": current[key], "baseline_recall": initial[key]}
+                 for key in initial if initial[key] < min_recall and current[key] < min_recall}
     worst_recall = min(current.values()) if current else 0.0
     task_macro_f1 = float(np.mean([task["macro_f1"] for task in metrics["tasks"].values()]))
     rank = [round(worst_recall, 6), round(task_macro_f1, 6), metrics["accuracy"]]
     return {"eligible": not failures, "rank": rank, "worst_class_recall": round(worst_recall, 6),
             "task_macro_f1": round(task_macro_f1, 6),
             "max_recall_drop": round(max(regressions.values(), default=0.0), 6),
-            "guardrail_failures": failures}
+            "guardrail_failures": failures, "inherited_low_recall": inherited,
+            "policy": "task_classes_plus_non_category_language_slices"}
 
 
 def compact_predictions(rows, calibration):

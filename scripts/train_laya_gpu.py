@@ -219,7 +219,8 @@ def main():
         baseline = evaluate(rows + urgency)
         collapsed = evaluate(rows + [{**row, "logits": [3.0, 0.0]} for row in urgency])
         assert not checkpoint_selection(collapsed, baseline, .25)["eligible"]
-        assert not checkpoint_selection(collapsed, collapsed, .25)["eligible"]
+        inherited = checkpoint_selection(collapsed, collapsed, .25)
+        assert inherited["eligible"] and inherited["inherited_low_recall"]
         predictions = compact_predictions(rows, calibration)
         assert set(predictions[0]) == {"sample_id", "task", "language", "actual",
                                       "predicted", "confidence", "correct"}
