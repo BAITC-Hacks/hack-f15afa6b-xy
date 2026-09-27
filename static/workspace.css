@@ -279,7 +279,7 @@ progress{width:100%;height:6px;border:0;accent-color:#85ac91}
 progress::-webkit-progress-bar{background:#edf0ec;border-radius:6px}
 progress::-webkit-progress-value{background:#85ac91;border-radius:6px}
 .incident-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
-.citizen-layout{display:grid;grid-template-columns:minmax(300px,1.1fr) minmax(280px,.9fr);max-width:950px;gap:30px;align-items:start}
+.citizen-layout{display:grid;grid-template-columns:minmax(540px,1.65fr) minmax(290px,.65fr);max-width:1250px;gap:30px;align-items:start}
 .citizen-layout form{padding:30px}
 .citizen-layout h2{margin-bottom:22px}
 .citizen-layout textarea,.citizen-layout select{font-size:12px}
@@ -302,11 +302,16 @@ progress::-webkit-progress-value{background:#85ac91;border-radius:6px}
 .location-field>.micro{margin-bottom:12px}
 .map-shell{position:relative;overflow:hidden;border:1px solid #dce5df;border-radius:13px;background:#edf3ef;box-shadow:0 14px 35px #18382c12}
 .issue-map{width:100%;background:radial-gradient(circle at 68% 30%,#d9eee3,#edf3ef 55%,#e2ebe6);position:relative}
-.issue-map-picker{height:330px}
+.issue-map-picker{height:520px}
 .issue-map-view{height:220px;margin:15px 0 10px;border-radius:10px;overflow:hidden;border:1px solid #dce5df}
 .map-tip{position:absolute;left:12px;top:12px;z-index:2;background:#173e2fe8;color:white;border-radius:999px;padding:7px 10px;font-size:9px;letter-spacing:.2px;box-shadow:0 5px 18px #10271e33;pointer-events:none}
 .location-status{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px;color:var(--muted);font-size:10px;min-height:32px}
 .location-status .button{flex-shrink:0}
+.address-search{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.address-search .button{white-space:nowrap;padding-inline:18px}
+.geocode-results{display:grid;gap:6px;margin-top:8px}
+.geocode-result{border:1px solid #e0e6e2;background:#fff;color:var(--ink);border-radius:8px;padding:10px 12px;text-align:left;font-size:10px;line-height:1.45}
+.geocode-result:hover,.geocode-result[aria-pressed="true"]{border-color:#7fad96;background:#eef7f1;color:#315f49}
 .location-card{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
 .location-card>.micro{font-size:9px}
 .map-fallback{display:grid;place-items:center;height:100%;padding:25px;text-align:center;color:var(--muted);font-size:11px}
@@ -435,7 +440,8 @@ dialog{width:calc(100vw - 16px);max-height:calc(100dvh - 20px)}
 .metric-card strong{font-size:27px}
 .metric-card p{font-size:11px}
 .operator-grid,.incident-grid,.citizen-layout{grid-template-columns:1fr}
-.issue-map-picker{height:285px}
+.issue-map-picker{height:390px}
+.address-search{grid-template-columns:1fr}
 .dashboard-grid>.panel{padding:18px}
 .bar-row{grid-template-columns:110px 1fr 20px;gap:10px;font-size:9px}
 .incident-detail{padding:20px}

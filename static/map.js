@@ -39,6 +39,41 @@ function setLocation(form, map, marker, point, accuracy=null) {
   setStatus(form,accuracy?`Точка выбрана · точность около ${Math.round(accuracy)} м`:'Точка выбрана · метку можно перетащить');
 }
 
+function selectResult(form, map, marker, result, button) {
+  setLocation(form,map,marker,{lng:result.longitude,lat:result.latitude});
+  const district=[...form.elements.district.options].find(option=>result.label.includes(option.value));
+  if(district && form.elements.district.value!==district.value) {
+    form.elements.district.value=district.value;
+    form.elements.district.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+  if(result.bounds) map.fitBounds([[result.bounds[2],result.bounds[0]],[result.bounds[3],result.bounds[1]]],{padding:70,maxZoom:17,duration:700});
+  else map.flyTo({center:[result.longitude,result.latitude],zoom:16.5,duration:700});
+  form.querySelectorAll('.geocode-result').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
+  setStatus(form,'Адрес найден · проверьте метку и при необходимости перетащите её');
+}
+
+async function searchAddress(form, map, marker) {
+  const input=form.elements.address, button=form.querySelector('[data-address-search]');
+  const results=form.querySelector('[data-geocode-results]'), query=input.value.trim();
+  if(query.length<3) {setStatus(form,'Введите адрес подробнее');input.focus();return;}
+  button.disabled=true;button.textContent='Ищем…';results.textContent='';setStatus(form,'Ищем адрес в Алматы…');
+  try {
+    const response=await fetch(`/api/workspace/geocode?q=${encodeURIComponent(query)}`,{headers:{Accept:'application/json'}});
+    const data=await response.json().catch(()=>({detail:'Не удалось выполнить поиск'}));
+    if(!response.ok) throw new Error(data.detail||'Не удалось выполнить поиск');
+    if(!data.items.length) {setStatus(form,'Адрес не найден · уточните написание или поставьте точку вручную');return;}
+    const fragment=document.createDocumentFragment();let first;
+    data.items.forEach((result,index)=>{
+      const option=document.createElement('button');
+      option.type='button';option.className='geocode-result';option.textContent=result.label;
+      option.setAttribute('aria-pressed','false');option.addEventListener('click',()=>selectResult(form,map,marker,result,option));
+      fragment.append(option);if(index===0) first={result,option};
+    });
+    results.append(fragment);selectResult(form,map,marker,first.result,first.option);
+  } catch(error) {setStatus(form,error.message);}
+  finally {button.disabled=false;button.textContent='Найти на карте';}
+}
+
 async function mountPicker(element) {
   const maplibregl=await loadLibrary();
   if(!element.isConnected || element.dataset.mounted) return;
@@ -56,6 +91,8 @@ async function mountPicker(element) {
   locate.on('geolocate',event=>setLocation(form,map,marker,{lng:event.coords.longitude,lat:event.coords.latitude},event.coords.accuracy));
   locate.on('error',()=>setStatus(form,'Не удалось определить геопозицию · выберите точку на карте'));
   form.querySelector('[data-location-clear]').addEventListener('click',()=>resetLocationPicker(form));
+  form.querySelector('[data-address-search]').addEventListener('click',()=>searchAddress(form,map,marker));
+  form.elements.address.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();searchAddress(form,map,marker);}});
 }
 
 async function mountViewer(element) {
@@ -84,6 +121,7 @@ export function resetLocationPicker(root=document) {
   const element=root.querySelector('[data-map-mode="picker"]');
   if(!element) return;
   ['latitude','longitude','location_accuracy_m'].forEach(name=>{if(root.elements?.[name]) root.elements[name].value='';});
+  root.querySelector('[data-geocode-results]')?.replaceChildren();
   element._pulseMarker?.remove();
-  setStatus(root.elements?root:element.closest('form'),'Нажмите на карту или используйте кнопку геопозиции');
+  setStatus(root.elements?root:element.closest('form'),'Введите адрес или выберите точку на карте');
 }

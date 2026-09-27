@@ -1,11 +1,18 @@
 """Operator workspace on the existing complaint and audit tables."""
 import json
+import os
+import re
+import threading
+import time
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Literal
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
 from auth import current_actor
@@ -61,6 +68,18 @@ class Subscription(BaseModel):
     subscriber_key: str = Field(min_length=8, max_length=100)
 
 
+def normalized_address_query(value: str) -> str:
+    clean = " ".join(value.strip().split())
+    microdistrict = re.fullmatch(
+        r"(?:(?:мкр|микрорайон)\.?\s*)?(.+?[-\s]\d+)(?:\s*,\s*|\s+)(?:(?:дом|д|үй)\.?\s*)?(\d+[A-Za-zА-Яа-я/-]*)",
+        clean,
+        re.IGNORECASE,
+    )
+    if microdistrict:
+        clean = f"микрорайон {microdistrict.group(1)}, {microdistrict.group(2)}"
+    return clean if re.search(r"\bалмат[ыа]\b", clean, re.IGNORECASE) else clean + ", Алматы"
+
+
 def event(conn, cid, kind, payload, actor=None, event_id=None):
     now = datetime.now(timezone.utc).isoformat()
     conn.execute("INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -76,6 +95,9 @@ def suggested_response(c):
 def build_workspace_router(get_connection, classifier, topic_services, valid_regions, topic_names=None,
                            decision_service=None):
     router = APIRouter(prefix="/api/workspace")
+    geocode_cache = {}
+    geocode_lock = threading.Lock()
+    last_geocode_at = [0.0]
 
     def complaint(conn, cid):
         row = conn.execute("SELECT * FROM complaints WHERE id = ?", (cid,)).fetchone()
@@ -178,6 +200,49 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
     def incidents():
         with get_connection() as conn:
             return {"items": incident_list(conn)}
+
+    @router.get("/geocode")
+    def geocode(q: str = Query(min_length=3, max_length=200)):
+        query = normalized_address_query(q)
+        key = query.casefold()
+        if key in geocode_cache:
+            return {"query": query, "items": geocode_cache[key], "cached": True}
+        with geocode_lock:
+            if key in geocode_cache:
+                return {"query": query, "items": geocode_cache[key], "cached": True}
+            delay = 1 - (time.monotonic() - last_geocode_at[0])
+            if delay > 0:
+                time.sleep(delay)
+            params = urlencode({
+                "q": query, "format": "jsonv2", "limit": 5, "countrycodes": "kz",
+                "viewbox": "76.55,42.95,77.45,43.55", "bounded": 1,
+                "accept-language": "ru,kk",
+            })
+            base_url = os.environ.get("P109_GEOCODER_URL", "https://nominatim.openstreetmap.org/search")
+            request = Request(base_url + "?" + params, headers={
+                "User-Agent": "Pulse109/0.1 (+https://github.com/Eliasans02/pulse109)",
+                "Accept": "application/json",
+            })
+            try:
+                with urlopen(request, timeout=6) as response:
+                    payload = json.load(response)
+            except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+                raise HTTPException(503, "Поиск адреса временно недоступен. Выберите точку вручную.") from error
+            finally:
+                last_geocode_at[0] = time.monotonic()
+            items = []
+            for result in payload if isinstance(payload, list) else []:
+                try:
+                    latitude, longitude = float(result["lat"]), float(result["lon"])
+                    bounds = [float(value) for value in result.get("boundingbox", [])]
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if 42.95 <= latitude <= 43.55 and 76.55 <= longitude <= 77.45:
+                    items.append({"label": str(result.get("display_name") or query)[:300],
+                                  "latitude": latitude, "longitude": longitude,
+                                  "bounds": bounds if len(bounds) == 4 else None})
+            geocode_cache[key] = items
+        return {"query": query, "items": items, "cached": False}
 
     @router.get("/tracking/{cid}")
     def tracking(cid: str):

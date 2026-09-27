@@ -7,9 +7,11 @@ from pathlib import Path
 
 from check_clarification import start_server, stop_server
 from smoke import find_free_port, http_request
+from workspace_api import normalized_address_query
 
 
 def run():
+    assert normalized_address_query("жетысу 1, дом 26") == "микрорайон жетысу 1, 26, Алматы"
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory() as tmp:
         db = Path(tmp) / "demo.db"
