@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -30,6 +31,49 @@ VOICE_PROMPTS = {
     "mixed_address": ("mixed", "Теперь назовите адрес. Енді мекенжайды айтыңыз."),
     "mixed_review": ("mixed", "Проверьте данные. Мәліметтерді тексеріңіз."),
 }
+
+NUMBER_WORDS = {
+    "ноль": 0, "один": 1, "одна": 1, "первый": 1, "первая": 1, "первое": 1,
+    "два": 2, "две": 2, "второй": 2, "вторая": 2, "три": 3, "третий": 3,
+    "четыре": 4, "четвертый": 4, "четвёртый": 4, "пять": 5, "пятый": 5,
+    "шесть": 6, "шестой": 6, "семь": 7, "седьмой": 7, "восемь": 8, "восьмой": 8,
+    "девять": 9, "девятый": 9, "десять": 10, "десятый": 10, "одиннадцать": 11,
+    "двенадцать": 12, "тринадцать": 13, "четырнадцать": 14, "пятнадцать": 15,
+    "шестнадцать": 16, "семнадцать": 17, "восемнадцать": 18, "девятнадцать": 19,
+    "двадцать": 20, "тридцать": 30, "сорок": 40, "пятьдесят": 50, "шестьдесят": 60,
+    "семьдесят": 70, "восемьдесят": 80, "девяносто": 90, "сто": 100, "двести": 200,
+    "триста": 300, "четыреста": 400, "пятьсот": 500, "шестьсот": 600,
+    "семьсот": 700, "восемьсот": 800, "девятьсот": 900,
+    "нөл": 0, "бір": 1, "бірінші": 1, "екі": 2, "екінші": 2, "үш": 3, "үшінші": 3,
+    "төрт": 4, "төртінші": 4, "бес": 5, "бесінші": 5, "алты": 6, "алтыншы": 6,
+    "жеті": 7, "жетінші": 7, "сегіз": 8, "сегізінші": 8, "тоғыз": 9, "тоғызыншы": 9,
+    "он": 10, "оныншы": 10, "жиырма": 20, "отыз": 30, "қырық": 40, "елу": 50,
+    "алпыс": 60, "жетпіс": 70, "сексен": 80, "тоқсан": 90, "жүз": 100, "жүзінші": 100,
+}
+NUMBER_SEQUENCE = re.compile(
+    r"\b(?:" + "|".join(sorted(map(re.escape, NUMBER_WORDS), key=len, reverse=True)) +
+    r")(?:[ -]+(?:" + "|".join(sorted(map(re.escape, NUMBER_WORDS), key=len, reverse=True)) + r"))*\b",
+    re.IGNORECASE,
+)
+
+
+def normalize_address_numbers(text: str) -> str:
+    def replace(match: re.Match) -> str:
+        words = re.split(r"[ -]+", match.group().lower())
+        values = [NUMBER_WORDS[word] for word in words]
+        if len(values) > 1 and all(value < 10 for value in values):
+            return "".join(str(value) for value in values)
+        total = current = 0
+        for word, value in zip(words, values):
+            if word in {"жүз", "жүзінші"}:
+                current = max(1, current) * 100
+            elif value >= 100:
+                total += value
+            else:
+                current += value
+        return str(total + current)
+
+    return NUMBER_SEQUENCE.sub(replace, text)
 
 
 class VoiceRequest(BaseModel):
@@ -169,7 +213,8 @@ def build_voice_router() -> APIRouter:
         if not isinstance(text, str) or not text.strip() or len(text) > 10000:
             raise HTTPException(503, "Голосовая модель не распознала речь")
         assistant_prompt = f"{req.language}_{'address' if req.field == 'problem' else 'review'}"
-        return {"text": text.strip(), "field": req.field,
+        text = normalize_address_numbers(text.strip()) if req.field == "address" else text.strip()
+        return {"text": text, "field": req.field,
                 "next_field": "address" if req.field == "problem" else "review",
                 "assistant_message": VOICE_PROMPTS[assistant_prompt][1],
                 "assistant_prompt": assistant_prompt,

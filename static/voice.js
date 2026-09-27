@@ -44,11 +44,29 @@ function resample(input,inputRate,outputRate=16000) {
   if(inputRate===outputRate) return input;
   const output=new Float32Array(Math.round(input.length*outputRate/inputRate));
   const scale=inputRate/outputRate;
+  if(scale>1) {
+    for(let i=0;i<output.length;i++) {
+      const start=Math.floor(i*scale), end=Math.max(start+1,Math.min(input.length,Math.floor((i+1)*scale)));
+      let sum=0;for(let j=start;j<end;j++) sum+=input[j];output[i]=sum/(end-start);
+    }
+    return output;
+  }
   for(let i=0;i<output.length;i++) {
     const position=i*scale, left=Math.floor(position), right=Math.min(left+1,input.length-1);
     output[i]=input[left]+(input[right]-input[left])*(position-left);
   }
   return output;
+}
+
+export function prepareSpeech(input,inputRate) {
+  const samples=resample(input,inputRate), mean=samples.reduce((sum,value)=>sum+value,0)/samples.length;
+  let peak=0, energy=0;
+  for(let i=0;i<samples.length;i++) {samples[i]-=mean;peak=Math.max(peak,Math.abs(samples[i]));energy+=samples[i]**2;}
+  const rms=Math.sqrt(energy/samples.length);
+  if(!samples.length||peak<.006||rms<.0015) throw new Error('Микрофон записал слишком тихо. Говорите ближе и повторите ответ.');
+  const gain=Math.min(4,.92/peak,.08/rms);
+  if(Math.abs(gain-1)>.05) for(let i=0;i<samples.length;i++) samples[i]*=gain;
+  return samples;
 }
 
 function wav(samples) {
@@ -71,7 +89,7 @@ export async function beginVoiceTurn({field,language,api,onState=()=>{},onTimeou
   if(!navigator.mediaDevices?.getUserMedia) throw new Error('Браузер не поддерживает запись с микрофона');
   onState('prompting');
   await speakPrompt(voicePrompts[language][field],language,`${language}_${field}`,api);
-  const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
   const context=new AudioContext(), source=context.createMediaStreamSource(stream);
   const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];
   mute.gain.value=0;source.connect(processor);processor.connect(mute);mute.connect(context.destination);
@@ -87,7 +105,7 @@ export async function finishVoiceTurn(onState=()=>{}) {
   current.processor.disconnect();current.source.disconnect();current.mute.disconnect();
   current.stream.getTracks().forEach(track=>track.stop());await current.context.close();
   try {
-    const samples=resample(flatten(current.chunks),sampleRate);
+    const samples=prepareSpeech(flatten(current.chunks),sampleRate);
     return await current.api('/api/voice/transcribe',{audio_data:await dataUrl(wav(samples)),language:current.language,field:current.field});
   } finally {processing=false;}
 }

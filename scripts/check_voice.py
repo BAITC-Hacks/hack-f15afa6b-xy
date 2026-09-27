@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 from smoke import find_free_port, http_request, wait_for_server
+from voice_api import normalize_address_numbers
 
 
 class FakeVoice(BaseHTTPRequestHandler):
@@ -91,6 +92,8 @@ def stop(proc):
 
 
 def run():
+    assert normalize_address_numbers("Абая сорок четыре, дом двадцать шесть") == "Абая 44, дом 26"
+    assert normalize_address_numbers("Абай көшесі екі жүз қырық төртінші үй") == "Абай көшесі 244 үй"
     stt = ThreadingHTTPServer(("127.0.0.1", 0), FakeVoice)
     stt.service = "stt"
     tts = ThreadingHTTPServer(("127.0.0.1", 0), FakeVoice)
@@ -131,7 +134,7 @@ def run():
             address = call("/api/voice/transcribe", {
                 "audio_data": wav_data_url(), "language": "kk", "field": "address",
             })
-            assert address["text"].startswith("Абай көшесі") and address["next_field"] == "review"
+            assert address["text"] == "Абай көшесі 44 үй" and address["next_field"] == "review"
             call("/api/voice/transcribe", {
                 "audio_data": "data:audio/wav;base64,bm90LXdhdg==", "language": "ru", "field": "problem",
             }, 422)

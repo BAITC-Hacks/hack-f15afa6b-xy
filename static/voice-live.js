@@ -1,4 +1,4 @@
-import {beginVoiceTurn,finishVoiceTurn,mergeTranscript,speakPrompt,voicePrompts} from './voice.js?v=20260927-14';
+import {beginVoiceTurn,finishVoiceTurn,mergeTranscript,speakPrompt,voicePrompts} from './voice.js?v=20260927-16';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260927-12';
 
 const form=document.querySelector('#voice-live-form');
