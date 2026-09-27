@@ -1,9 +1,10 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView} from './views.js?v=20260927-2';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView} from './views.js?v=20260927-8';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260927-2';
 import {caseView} from './case.js?v=20260927-2';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
 import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260927-7';
+import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260927-8';
 
 async function photoData(input) {
   const file=input.files[0];
@@ -21,7 +22,7 @@ const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent
 let loadVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer, pendingIntake=null;
 const commandDialog=document.querySelector('#command-dialog');
 Object.assign(state,{routingHealth:null,healthRegion:'',regions:[],cities:[]});
-const titles={routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
+const titles={routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',map:'Карта обращений',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
 async function api(path, data) {
   let response;
   try {response=await authFetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});}
@@ -66,9 +67,10 @@ function render() {
   document.querySelector('#incident-count').textContent=state.metrics.active_incidents;
   document.querySelector('#quarantine-count').textContent=state.metrics.quarantined;
   document.querySelector('#radar-count').textContent=state.radar.items.filter(i=>!i.ignored&&!i.incident_id).length;
-  const views={routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
+  const views={routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,map:publicMapView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
   main.innerHTML=views[state.page](state);
   mountMaps(main);
+  if(state.page==='map') mountPublicIssueExplorer(main);
 }
 async function refresh(renderPage=true) {
   const version=++loadVersion;

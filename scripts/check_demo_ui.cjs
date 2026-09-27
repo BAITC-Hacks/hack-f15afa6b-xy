@@ -170,7 +170,8 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     assert.deepEqual(errors,[]);
     console.log('PASS UI 7: five breakpoints, mobile dialog, Escape, no console/runtime errors');
 
-    await page.goto(base+'/map');
+    await page.goto(base+'/#map');
+    await page.locator('[data-nav="map"][aria-current="page"]').waitFor();
     await page.locator(`.public-card[data-case-id="${citizenId}"]`).waitFor();
     assert.ok(await page.locator('.public-card').count()>40);
     assert.equal(await page.locator('.public-card img').count(),1);
@@ -182,7 +183,9 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     assert.equal(await page.locator('.public-card').count(),1);
     await page.locator('.public-card').click();
     assert.equal(await page.locator('.public-card.selected').getAttribute('data-case-id'),citizenId);
-    console.log('PASS UI 8: anonymous public map filters the safe card and shows clustered points');
+    await page.goto(base+'/map');
+    await page.locator('.public-card').first().waitFor();
+    console.log('PASS UI 8: integrated map filters safe cards; anonymous public link remains available');
   } catch(err) {
     console.error('UI failure:',await page.locator('#tracking-result').allTextContents(),errors);
     throw err;

@@ -393,7 +393,8 @@ h1{font-size:23px}
 .brand small{display:none}
 .brandmark{width:29px;height:30px;font-size:31px;border-radius:7px}
 .workspace-label,.nav-label,.sidebar-bottom,.sidebar nav[aria-label="Дополнительные разделы"]{display:none}
-.sidebar nav{flex-direction:row;margin:15px 0 0;gap:3px;overflow:auto}
+.sidebar nav{flex-direction:row;margin:15px 0 0;gap:3px;overflow:auto;scrollbar-width:none}
+.sidebar nav::-webkit-scrollbar{display:none}
 .sidebar nav a{font-size:10px;gap:6px;padding:9px 10px;white-space:nowrap}
 .sidebar nav a>span{font-size:14px;width:auto}
 .shell{margin:0}

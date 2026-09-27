@@ -4,9 +4,10 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#172925"><link rel="icon" href="data:,">
   <title>Pulse 109 — Рабочее место оператора</title>
-  <link rel="stylesheet" href="/static/workspace.css?v=20260927-2">
+  <link rel="stylesheet" href="/static/workspace.css?v=20260927-8">
   <link rel="stylesheet" href="/static/operations.css">
   <link rel="stylesheet" href="/static/auth.css">
+  <link rel="stylesheet" href="/static/public-map.css?v=20260927-8">
 </head>
 <body>
   <a id="skip-link" class="skip" href="#auth-title">К содержимому</a>
@@ -72,6 +73,7 @@
       <a href="#queue" data-nav="queue"><span aria-hidden="true">▤</span> Обращения <b id="nav-count">—</b></a>
       <a href="#radar" data-nav="radar"><span aria-hidden="true">◉</span> Радар <b id="radar-count">—</b></a>
       <a href="#incidents" data-nav="incidents"><span aria-hidden="true">◎</span> Инциденты <b id="incident-count">—</b></a>
+      <a href="#map" data-nav="map"><span aria-hidden="true">⌖</span> Карта</a>
       <a href="#dashboard" data-nav="dashboard"><span aria-hidden="true">▥</span> Аналитика</a>
       <a href="#operators" data-nav="operators"><span aria-hidden="true">♧</span> Команда</a>
       <a href="#routing" data-nav="routing"><span aria-hidden="true">⇄</span> Маршрутизация</a>
@@ -80,7 +82,6 @@
     <p class="nav-label">ДЕМО И ДАННЫЕ</p>
     <nav aria-label="Дополнительные разделы">
       <a href="#citizen" data-nav="citizen"><span aria-hidden="true">↗</span> Кабинет гражданина</a>
-      <a href="/map"><span aria-hidden="true">⌖</span> Публичная карта</a>
       <a href="/legacy#coverage-heading"><span aria-hidden="true">▦</span> Покрытие регионов</a>
       <a href="/legacy#intake-heading"><span aria-hidden="true">⊞</span> Исходный интерфейс</a>
     </nav>
@@ -97,6 +98,6 @@
   <dialog id="command-dialog" aria-labelledby="command-title"><div class="case-header"><h2 id="command-title">Команды карточки</h2><button class="button icon-button" data-action="close-commands" aria-label="Закрыть команды">×</button></div><div class="command-body"><label for="command-search">Найти действие</label><input id="command-search" type="search" autocomplete="off" placeholder="Например: уточнение"><p class="micro">Команда открывает preview. Для выполнения потребуется подтверждение.</p><div id="command-options"></div></div></dialog>
   <div id="toast" role="status" aria-live="polite" hidden></div>
   </div>
-  <script type="module" src="/static/workspace.js?v=20260927-2"></script>
+  <script type="module" src="/static/workspace.js?v=20260927-8"></script>
 </body>
 </html>
