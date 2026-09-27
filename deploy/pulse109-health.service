@@ -4,6 +4,6 @@ After=pulse109.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8025/api/health
+ExecStart=/usr/bin/curl --fail --silent --show-error --retry 5 --retry-connrefused --retry-delay 2 --retry-max-time 20 --max-time 10 http://127.0.0.1:8025/api/health
 NoNewPrivileges=true
 PrivateTmp=true
