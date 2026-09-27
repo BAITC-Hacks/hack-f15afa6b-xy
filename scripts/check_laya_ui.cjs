@@ -39,13 +39,19 @@ const mode=process.argv[3]||'laya';
       await page.getByText('AI Classification · DEMO FALLBACK',{exact:true}).waitFor();
       await page.getByText(/Laya недоступна/).waitFor();
       console.log('PASS LAYA UI 1: high confidence, clarification and visible offline fallback');
+    } else if(mode==='shadow') {
+      const shadow=await create('На Абая 44 с утра нет холодной воды во всём доме');
+      await open(shadow);
+      await page.getByText('AI Classification · Laya shadow',{exact:true}).waitFor();
+      await page.getByText(/Laya shadow: Водоснабжение .* Маршрут не изменён/).waitFor();
+      console.log('PASS LAYA UI 2: shadow result and non-interference are visible to the operator');
     } else {
       const disagreement=await create('disagreement: нет холодной воды');
       await open(disagreement);
       await page.getByText('AI Classification · Laya + classifier',{exact:true}).waitFor();
       await page.getByText(/Models disagree/).waitFor();
       await page.getByText(/Classifier: Водоснабжение 94% · Laya: Ливневая канализация 77%/).waitFor();
-      console.log('PASS LAYA UI 2: hybrid disagreement shows both model proposals');
+      console.log('PASS LAYA UI 3: hybrid disagreement shows both model proposals');
     }
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
