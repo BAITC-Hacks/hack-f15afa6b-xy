@@ -10,6 +10,7 @@ import re
 import threading
 import time
 from collections import deque
+from pathlib import Path
 from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -20,6 +21,7 @@ from pydantic import BaseModel, Field
 
 MAX_AUDIO_BYTES = 2 * 1024 * 1024
 MAX_TTS_AUDIO_BYTES = 2 * 1024 * 1024
+CACHED_TTS_MODEL = "k2-fsa/OmniVoice cached prompts"
 VOICE_PROMPTS = {
     "ru_problem": ("ru", "Расскажите, что произошло. Говорите до тридцати секунд."),
     "ru_address": ("ru", "Теперь назовите адрес или ближайший ориентир."),
@@ -101,6 +103,17 @@ def decode_wav_data(value: str) -> bytes:
     return content
 
 
+def cached_prompt(cache_dir: Path, prompt: str) -> bytes | None:
+    path = cache_dir / f"{prompt}.wav"
+    if not path.is_file():
+        return None
+    content = path.read_bytes()
+    if (len(content) < 44 or len(content) > MAX_TTS_AUDIO_BYTES or
+            not content.startswith(b"RIFF") or content[8:12] != b"WAVE"):
+        return None
+    return content
+
+
 def build_voice_router() -> APIRouter:
     router = APIRouter(prefix="/api/voice")
     stt_url = os.environ.get("P109_STT_BASE_URL", "").strip().rstrip("/")
@@ -109,6 +122,10 @@ def build_voice_router() -> APIRouter:
     tts_timeout = float(os.environ.get("P109_TTS_TIMEOUT", "35"))
     stt_key = os.environ.get("P109_STT_API_KEY")
     tts_key = os.environ.get("P109_TTS_API_KEY")
+    cache_dir = Path(os.environ.get(
+        "P109_VOICE_CACHE_DIR", Path(__file__).with_name("static") / "voice"
+    )).expanduser()
+    prompt_cache = {name: cached_prompt(cache_dir, name) for name in VOICE_PROMPTS}
     try:
         requests_per_minute = int(os.environ.get("P109_VOICE_REQUESTS_PER_MINUTE", "30"))
     except ValueError:
@@ -188,7 +205,11 @@ def build_voice_router() -> APIRouter:
                           "latency_ms": latency}
             except HTTPException as error:
                 result = {"status": "unavailable", "detail": error.detail}
-        if not tts_url:
+        cache_ready = all(prompt_cache.values())
+        if cache_ready:
+            result["tts"] = {"status": "healthy", "model": CACHED_TTS_MODEL,
+                             "device": "local", "latency_ms": 0, "mode": "cache"}
+        elif not tts_url:
             result["tts"] = {"status": "disabled"}
         else:
             try:
@@ -228,6 +249,10 @@ def build_voice_router() -> APIRouter:
         prompt = VOICE_PROMPTS.get(req.prompt)
         if prompt is None:
             raise HTTPException(422, "Неизвестная реплика голосового помощника")
+        audio = prompt_cache[req.prompt]
+        if audio is not None:
+            return {"audio_data": "data:audio/wav;base64," + base64.b64encode(audio).decode(),
+                    "model": CACHED_TTS_MODEL, "tts_latency_ms": 0, "audio_stored": False}
         if not tts_url:
             raise HTTPException(503, "OmniVoice не подключён")
         language, text = prompt

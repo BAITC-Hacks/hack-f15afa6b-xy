@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 from smoke import find_free_port, http_request, wait_for_server
-from voice_api import normalize_address_numbers
+from voice_api import cached_prompt, normalize_address_numbers
 
 
 class FakeVoice(BaseHTTPRequestHandler):
@@ -102,6 +102,11 @@ def run():
     threading.Thread(target=tts.serve_forever, daemon=True).start()
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory() as temporary:
+        cache_dir = Path(temporary) / "voice-cache"
+        cache_dir.mkdir()
+        (cache_dir / "ru_problem.wav").write_bytes(wav_bytes())
+        assert cached_prompt(cache_dir, "ru_problem") == wav_bytes()
+        os.environ["P109_VOICE_CACHE_DIR"] = str(Path(temporary) / "empty-cache")
         proc, url = start_pulse(root, Path(temporary) / "voice.db",
                                 f"http://127.0.0.1:{stt.server_port}",
                                 f"http://127.0.0.1:{tts.server_port}")
@@ -170,6 +175,7 @@ def run():
     for server in (stt, tts):
         server.shutdown()
         server.server_close()
+    os.environ.pop("P109_VOICE_CACHE_DIR", None)
     print("ALL 6 VOICE AGENT CHECKS PASSED")
 
 
