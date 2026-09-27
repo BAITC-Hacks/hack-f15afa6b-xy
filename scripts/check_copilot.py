@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from copilot import QwenCopilot
+from copilot import CopilotResponseError, QwenCopilot
 from smoke import find_free_port, http_request, wait_for_server
 
 
@@ -84,6 +84,14 @@ def run():
         QwenCopilot("https://api.example.com", "secret")
         raise AssertionError("Public Qwen endpoint was accepted")
     except ValueError:
+        pass
+    try:
+        QwenCopilot._validate({
+            "summary": "x", "reasoning": "x", "suggested_reply": "x",
+            "clarification_question": None, "recommended_action": "review_incident",
+        }, {"incident_candidate": False})
+        raise AssertionError("Unavailable incident action was accepted")
+    except CopilotResponseError:
         pass
     print("PASS 1: Copilot accepts only private endpoints with authentication")
 

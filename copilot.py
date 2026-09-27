@@ -128,11 +128,19 @@ class QwenCopilot:
             "clarification_question": "one question under 180 characters or null",
             "recommended_action": "clarify|prepare_reply|review_incident|manual_review",
         }
+        language_style = (
+            "Use natural standard Kazakh. Safe style example: «Өтінішіңіз тіркелді. Оператор мәліметтерді "
+            "тексеріп, жауапты қызметке бағыттайды. Орындалу мерзімі әлі расталған жоқ.»"
+            if context.get("language") == "kk" else
+            "Use clear natural Russian suitable for a municipal service operator."
+        )
         messages = [
             {"role": "system", "content": (
                 "You are the Pulse 109 operator copilot for Kazakhstan. Use only the supplied facts. "
                 "Reply in the complaint language (Russian or Kazakh). Never promise a deadline, invent a service action, "
                 "guess a cause, or make the decision for the operator. Keep the whole response under 1200 characters. "
+                "Use review_incident only when incident_candidate is true. If clarification_question is not null, "
+                "recommended_action must be clarify; otherwise clarify is forbidden. " + language_style + " "
                 "Return one JSON object and no markdown, matching this schema exactly: "
                 + json.dumps(schema, ensure_ascii=False)
             )},
@@ -163,7 +171,7 @@ class QwenCopilot:
             answer = json.loads(content)
         except (UnicodeDecodeError, json.JSONDecodeError, KeyError, IndexError, TypeError):
             raise CopilotResponseError("Qwen returned invalid structured output") from None
-        result = self._validate(answer)
+        result = self._validate(answer, context)
         model = str(response.get("model") or self.model)
         canonical = json.dumps({**result, "model": model, "model_revision": self.revision},
                                ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -171,7 +179,7 @@ class QwenCopilot:
                              latency_ms=latency_ms, result_id=hashlib.sha256(canonical).hexdigest())
 
     @staticmethod
-    def _validate(answer: dict) -> dict:
+    def _validate(answer: dict, context: dict) -> dict:
         required = {"summary", "reasoning", "suggested_reply", "clarification_question",
                     "recommended_action"}
         if not isinstance(answer, dict) or set(answer) != required:
@@ -188,8 +196,11 @@ class QwenCopilot:
             raise CopilotResponseError("Qwen clarification question is invalid")
         cleaned["clarification_question"] = question.strip() if isinstance(question, str) else None
         action = answer.get("recommended_action")
-        if action not in ACTIONS or (action == "clarify" and not cleaned["clarification_question"]):
+        question = cleaned["clarification_question"]
+        if action not in ACTIONS or (action == "clarify") != bool(question):
             raise CopilotResponseError("Qwen recommended an unsupported action")
+        if action == "review_incident" and not context.get("incident_candidate"):
+            raise CopilotResponseError("Qwen recommended an unavailable incident review")
         cleaned["recommended_action"] = action
         return cleaned
 
