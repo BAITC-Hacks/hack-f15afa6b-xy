@@ -31,6 +31,8 @@ from support_api import init_support, build_support_router
 from decision import DecisionService
 from object_storage import object_storage
 from voice_api import build_voice_router
+from analytics import build_analytics_router, init_analytics
+from similarity import SimilarityClient, rank_candidates
 
 def banner_text():
     mode = os.environ.get("P109_DECISION_PROVIDER", "mock")
@@ -152,6 +154,7 @@ async def lifespan(_: FastAPI):
         init_workspace(conn)
         init_incidents(conn)
         init_support(conn)
+        init_analytics(conn)
     yield
 
 app = FastAPI(title="Pulse 109 Synthetic Skeleton", lifespan=lifespan)
@@ -206,6 +209,7 @@ def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str
 
 decision_service = DecisionService(mock_classify, TOPIC_SERVICE_MAP, TOPICS)
 copilot = QwenCopilot.from_env()
+similarity_client = SimilarityClient.from_env()
 app.include_router(build_voice_router(decision_service.classify, TOPICS))
 @app.get("/api/health")
 def health_check():
@@ -217,6 +221,8 @@ def health_check():
         **model,
         "laya": decision_service.health(),
         "copilot": copilot.status() if copilot else {"configured": False, "mode": "deterministic_fallback"},
+        "similarity": {"configured": bool(similarity_client), "mode": "trained" if similarity_client else "lexical_fallback",
+                       "checkpoint_id": similarity_client.checkpoint_id if similarity_client else None},
         "object_storage": object_storage().status(),
         "banner": BANNER_TEXT,
     }
@@ -371,7 +377,6 @@ def classify_complaint(complaint_id: str):
     }
 
 
-# ponytail: Mock retrieval uses SQL filtering before E5 semantic embedding search.
 @app.get("/api/complaints/{complaint_id}/similar")
 def find_similar(complaint_id: str, limit: int = Query(5, ge=1, le=20)):
     with get_connection() as conn:
@@ -384,36 +389,19 @@ def find_similar(complaint_id: str, limit: int = Query(5, ge=1, le=20)):
             if clarifications:
                 topic, _, _ = mock_classify(target["text"] + "\n\n" + "\n".join(clarifications))
             topic = topic or target["proposed_topic"]
-        if topic:
-            rows = conn.execute(
-                "SELECT id, data_origin, text, topic, decision_status, resolution_text "
-                "FROM complaints WHERE id != ? AND (topic = ? OR proposed_topic = ?) "
-                "ORDER BY ingested_at DESC LIMIT ?",
-                (complaint_id, topic, topic, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT id, data_origin, text, topic, decision_status, resolution_text "
-                "FROM complaints WHERE id != ? ORDER BY ingested_at DESC LIMIT ?",
-                (complaint_id, limit),
-            ).fetchall()
-
-    candidates = [
-        {
-            "complaint_id": r["id"],
-            "excerpt": r["text"][:140] + ("..." if len(r["text"]) > 140 else ""),
-            "origin": r["data_origin"],
-            "topic": r["topic"],
-            "decision_status": r["decision_status"],
-            "resolution_text": r["resolution_text"],
-            "similarity": None,
-        }
-        for r in rows
-    ]
+        rows = [dict(row) for row in conn.execute(
+            "SELECT id,data_origin,text,COALESCE(topic,proposed_topic) topic,decision_status,resolution_text "
+            "FROM complaints WHERE id != ? AND resolution_text IS NOT NULL "
+            "ORDER BY resolved_at DESC,ingested_at DESC LIMIT 100", (complaint_id,)
+        ).fetchall()]
+    ranked, mode, checkpoint_id = rank_candidates(target["text"], topic, rows, similarity_client, limit)
+    candidates = [{"complaint_id": row["id"], "excerpt": row["text"][:140] + ("..." if len(row["text"]) > 140 else ""),
+                   "origin": row["data_origin"], "topic": row["topic"], "decision_status": row["decision_status"],
+                   "resolution_text": row["resolution_text"], "similarity": row["similarity"]} for row in ranked]
     return {
-        "mode": "mock",
-        "checkpoint_id": None,
-        "training_status": "not_trained",
+        "mode": mode,
+        "checkpoint_id": checkpoint_id,
+        "training_status": "trained" if checkpoint_id else "not_trained",
         "candidates": candidates,
     }
 
@@ -465,47 +453,8 @@ def confirm_complaint(complaint_id: str, req: ConfirmRequest):
     return {"complaint": dict(updated), "banner": BANNER_TEXT}
 
 
-@app.get("/api/alerts")
-def get_alerts():
-    raise HTTPException(
-        status_code=501,
-        detail={"error": "not_implemented", "message": "Alerts module will be implemented in future milestone (REQ-10)"},
-    )
-
-
-@app.get("/api/forecast")
-def get_forecast(horizon_months: int = Query(1)):
-    if horizon_months not in {1, 2, 3}:
-        raise HTTPException(status_code=422, detail="horizon_months must be 1, 2, or 3")
-    raise HTTPException(
-        status_code=501,
-        detail={
-            "error": "not_implemented",
-            "message": "Forecast module will be implemented in future milestone (REQ-11)",
-            "horizon_months": horizon_months,
-        },
-    )
-
-
-@app.post("/api/query")
-def natural_query():
-    raise HTTPException(
-        status_code=501,
-        detail={"error": "not_implemented", "message": "Natural-language query module will be implemented in future milestone (REQ-12)"},
-    )
-
-
-@app.get("/api/reports")
-def get_reports(format: str = Query("pdf")):
-    if format not in {"pdf", "xlsx"}:
-        raise HTTPException(status_code=422, detail="format must be 'pdf' or 'xlsx'")
-    raise HTTPException(
-        status_code=501,
-        detail={"error": "not_implemented", "message": "Reports module will be implemented in future milestone (REQ-13)", "format": format},
-    )
-
-
 static_dir = Path(__file__).resolve().parent / "static"
+app.include_router(build_analytics_router(get_connection, REGIONS, TOPICS))
 app.include_router(build_workspace_router(get_connection, mock_classify, TOPIC_SERVICE_MAP, VALID_REGION_IDS,
                                          {t["id"]: t["name_ru"] for t in TOPICS}, decision_service,
                                          copilot))

@@ -147,7 +147,7 @@ def run_smoke():
         # 8. Candidate retrieval
         status, sim_res = http_request(f"{base_url}/api/complaints/{cid}/similar?limit=5")
         assert status == 200
-        assert sim_res["mode"] == "mock"
+        assert sim_res["mode"] == "lexical_fallback"
         assert sim_res["checkpoint_id"] is None
         assert sim_res["training_status"] == "not_trained"
         candidates = sim_res["candidates"]
@@ -156,8 +156,10 @@ def run_smoke():
             assert cand["complaint_id"] != cid
             assert cand["origin"] == "synthetic"
             assert "excerpt" in cand
-            assert cand["similarity"] is None
-        print(f"PASS 8: GET /api/complaints/{cid}/similar returned {len(candidates)} candidate cases (similarity=None, origin=synthetic)")
+            assert 0 <= cand["similarity"] <= 1
+            assert cand["resolution_text"]
+        assert candidates == sorted(candidates, key=lambda item: (-item["similarity"], item["complaint_id"]))
+        print(f"PASS 8: GET /api/complaints/{cid}/similar ranked {len(candidates)} solved cases with safe fallback scores")
 
         # Boundary checks for similar limit
         status, _ = http_request(f"{base_url}/api/complaints/{cid}/similar?limit=0")
@@ -198,26 +200,29 @@ def run_smoke():
         assert "operator_confirmed" in event_types
         print(f"PASS 12: Audit trail intact with 3 sequential events: {event_types}")
 
-        # 13. Explicit 501 stubs and validation
+        # 13. Aggregate analytics and validated exports
         status, res = http_request(f"{base_url}/api/alerts")
-        assert status == 501 and "not_implemented" in str(res)
-        print("PASS 13a: GET /api/alerts returned 501 Not Implemented")
+        assert status == 200 and res["data_origin"] == "organizer" and res["method"]
+        print(f"PASS 13a: GET /api/alerts returned {len(res['items'])} evidence-backed alerts")
 
-        status, res = http_request(f"{base_url}/api/forecast?horizon_months=1")
-        assert status == 501 and "not_implemented" in str(res)
-        print("PASS 13b: GET /api/forecast?horizon_months=1 returned 501 Not Implemented")
+        status, res = http_request(f"{base_url}/api/forecast?horizon_months=3")
+        assert status == 200 and len(res["forecast"]) == 3 and res["evaluation"]["backtest_points"] > 0
+        assert res["evaluation"]["mae"] >= 0 and res["evaluation"]["smape_percent"] >= 0
+        print("PASS 13b: GET /api/forecast returned 3 months with MAE and sMAPE backtest metrics")
 
         status, _ = http_request(f"{base_url}/api/forecast?horizon_months=5")
         assert status == 422
         print("PASS 13c: GET /api/forecast?horizon_months=5 rejected with 422 (input validation)")
 
-        status, res = http_request(f"{base_url}/api/query", "POST")
-        assert status == 501 and "not_implemented" in str(res)
-        print("PASS 13d: POST /api/query returned 501 Not Implemented")
+        status, res = http_request(f"{base_url}/api/query", "POST", {"question": "Какие категории лидируют?"})
+        assert status == 200 and res["chart"]["values"] and res["provenance"]["data_origin"] == "organizer"
+        print("PASS 13d: POST /api/query returned a numeric answer, chart and provenance")
 
-        status, res = http_request(f"{base_url}/api/reports?format=pdf")
-        assert status == 501 and "not_implemented" in str(res)
-        print("PASS 13e: GET /api/reports?format=pdf returned 501 Not Implemented")
+        with urllib.request.urlopen(f"{base_url}/api/reports?format=pdf") as response:
+            assert response.headers.get_content_type() == "application/pdf" and response.read().startswith(b"%PDF")
+        with urllib.request.urlopen(f"{base_url}/api/reports?format=xlsx") as response:
+            assert response.headers.get_content_type() == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" and response.read().startswith(b"PK")
+        print("PASS 13e: PDF and XLSX exports are real downloadable files")
 
         status, _ = http_request(f"{base_url}/api/reports?format=csv")
         assert status == 422

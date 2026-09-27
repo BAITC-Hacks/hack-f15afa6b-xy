@@ -1,6 +1,6 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260928-1';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260928-2';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260927-2';
-import {caseView} from './case.js?v=20260928-1';
+import {caseView} from './case.js?v=20260928-2';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
 import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260927-13';
@@ -18,7 +18,7 @@ async function mediaData(input) {
   return images.includes(file.type)?{photo_data:data,video_data:null}:{photo_data:null,video_data:data};
 }
 
-const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[]};
+const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[],analytics:{alerts:{items:[]},forecast:null,query:null}};
 Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
@@ -96,21 +96,24 @@ function render() {
 }
 async function refresh(renderPage=true) {
   const version=++loadVersion;
-  const [queue,incidents,operators,metrics,radar]=await Promise.all([
-    api('/api/workspace/queue'),api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar')]);
+  const [queue,incidents,operators,metrics,radar,alerts,forecast]=await Promise.all([
+    api('/api/workspace/queue'),api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar'),api('/api/alerts'),api('/api/forecast?horizon_months=3')]);
   if(version!==loadVersion) return;
   Object.assign(state,{items:queue.items,incidents:incidents.items,operators:operators.items,metrics,radar});
+  Object.assign(state.analytics,{alerts,forecast});
   if(renderPage) render();
 }
 async function openCase(id) {
   const version=++caseVersion;
   stopPresence();state.incident=null;state.signal=null;
-  const [analysis,history,playbooks]=await Promise.all([api(`/api/workspace/complaints/${encodeURIComponent(id)}/triage`,{}).catch(error=>({error})),api(`/api/complaints/${encodeURIComponent(id)}`),api(`/api/workspace/complaints/${encodeURIComponent(id)}/playbooks`).catch(error=>({items:[],error:error.message}))]);
+  const [analysis,history,playbooks,analogues]=await Promise.all([api(`/api/workspace/complaints/${encodeURIComponent(id)}/triage`,{}).catch(error=>({error})),api(`/api/complaints/${encodeURIComponent(id)}`),api(`/api/workspace/complaints/${encodeURIComponent(id)}/playbooks`).catch(error=>({items:[],error:error.message})),api(`/api/complaints/${encodeURIComponent(id)}/similar?limit=3`).catch(()=>({candidates:[],mode:'unavailable'}))]);
   if(version!==caseVersion) return;
   const detail=analysis.error?manualDetail(history.complaint,analysis.error.message):analysis;
   detail.events=history.events;
   detail.playbooks=playbooks.items;
   detail.playbookError=playbooks.error;
+  detail.analogues=analogues.candidates;
+  detail.analogueMode=analogues.mode;
   detail.selectedTopic=detail.complaint.topic||(detail.triage.confidence_band==='high'?detail.triage.category:null);
   detail.selectedPriority=detail.complaint.priority||detail.triage.urgency;
   state.detail=detail;
@@ -374,6 +377,13 @@ document.addEventListener('change',async e=>{
   }
 });
 document.addEventListener('submit',async e=>{
+  if(e.target.id==='analytics-query') {
+    e.preventDefault();
+    const question=new FormData(e.target).get('question').trim();
+    if(!question) {toast('Введите вопрос к данным',true);return;}
+    try {state.analytics.query=await api('/api/query',{question});render();} catch(err) {toast(err.message,true);}
+    return;
+  }
   if(e.target.id==='incident-update-form') {
     e.preventDefault();
     const data=new FormData(e.target), note=data.get('note').trim(), status=data.get('status');
