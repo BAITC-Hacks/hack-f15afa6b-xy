@@ -224,7 +224,7 @@ def _security_headers(response, path: str = ""):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
     if path.startswith("/api/auth"):
         response.headers["Cache-Control"] = "no-store"
     return response

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from auth import current_actor
 from clarification import VALID_CLARIFICATION_REASONS, get_received_clarifications
@@ -21,9 +21,20 @@ class Intake(BaseModel):
     region_id: str
     language: Literal["ru", "kk", "mixed", "unknown"] = "ru"
     address: str | None = Field(default=None, max_length=200)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    location_accuracy_m: float | None = Field(default=None, ge=0, le=100000)
     district: str | None = Field(default=None, max_length=100)
     channel: Literal["web", "phone", "telegram", "whatsapp"] = "web"
     sender_key: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def location_is_complete(self):
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("Укажите широту и долготу вместе")
+        if self.location_accuracy_m is not None and self.latitude is None:
+            raise ValueError("Точность требует координаты")
+        return self
 
 
 class Decision(BaseModel):
@@ -192,6 +203,8 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             service = SERVICE_NAMES.get(c["service_id"]) if c["decision_status"] == "confirmed" and c["region_id"] == "KZ-ALA" else None
             return {"id": c["id"], "registered_at": c["received_at"] or c["ingested_at"], "status": status,
                     "service_name": service, "incident": dict(incident) if incident else None, "updates": updates,
+                    "location": ({"latitude": c["latitude"], "longitude": c["longitude"]}
+                                 if c["latitude"] is not None and c["longitude"] is not None else None),
                     "resolved_at": c["resolved_at"], "resolution_text": c["resolution_text"] if c["resolved_at"] else None,
                     "data_origin": "synthetic", "delivery": "demo_only"}
 
@@ -204,11 +217,16 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         with get_connection() as conn:
             conn.execute("""INSERT INTO complaints
                 (id, data_origin, source_system, text, region_id, received_at, ingested_at,
-                 language, address, district, channel, sender_key)
-                VALUES (?, 'synthetic', 'operator_demo_intake', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 language, address, latitude, longitude, location_accuracy_m, district, channel, sender_key)
+                VALUES (?, 'synthetic', 'operator_demo_intake', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (cid, req.text.strip(), req.region_id, now, now, req.language,
-                 req.address.strip() if req.address else address_in(req.text), req.district, req.channel, req.sender_key))
-            event(conn, cid, "intake", {"channel": req.channel, "text_len": len(req.text)}, "citizen_demo")
+                 req.address.strip() if req.address else address_in(req.text),
+                 round(req.latitude, 6) if req.latitude is not None else None,
+                 round(req.longitude, 6) if req.longitude is not None else None,
+                 round(req.location_accuracy_m, 1) if req.location_accuracy_m is not None else None,
+                 req.district, req.channel, req.sender_key))
+            event(conn, cid, "intake", {"channel": req.channel, "text_len": len(req.text),
+                                        "has_location": req.latitude is not None}, "citizen_demo")
         return {"id": cid, "data_origin": "synthetic", "decision_status": "pending"}
 
     @router.post("/complaints/{cid}/triage")

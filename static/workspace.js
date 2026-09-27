@@ -3,6 +3,7 @@ import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} f
 import {caseView} from './case.js';
 import {radarView,signalView,incidentView,stamp} from './incidents.js';
 import {authFetch,bootstrapAuth} from './auth.js';
+import {mountMaps,resetLocationPicker} from './map.js';
 
 const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null};
 Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
@@ -39,6 +40,7 @@ function render() {
   document.querySelector('#radar-count').textContent=state.radar.items.filter(i=>!i.ignored&&!i.incident_id).length;
   const views={routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
   main.innerHTML=views[state.page](state);
+  mountMaps(main);
 }
 async function refresh(renderPage=true) {
   const version=++loadVersion;
@@ -61,6 +63,7 @@ async function openCase(id) {
   detail.selectedPriority=detail.complaint.priority||detail.triage.urgency;
   state.detail=detail;
   content.innerHTML=caseView(detail,state.topics);
+  mountMaps(content);
   watchPresence(id,state.operators,api);
   if(!dialog.open) dialog.showModal();
 }
@@ -74,6 +77,7 @@ function rerenderCase() {
   const check=document.querySelector('#include-incident')?.checked;
   const presence=document.querySelector('#presence');
   content.innerHTML=caseView(state.detail,state.topics);
+  mountMaps(content);
   if(presence) document.querySelector('#presence').replaceWith(presence);
   if(draft && document.querySelector('#reply-text')) document.querySelector('#reply-text').value=draft;
   if(check!==undefined && document.querySelector('#include-incident')) document.querySelector('#include-incident').checked=check;
@@ -97,6 +101,7 @@ async function trackCase(id) {
     try {localStorage.setItem('pulse109-last-receipt',data.id);} catch { /* The number remains visible in the receipt. */ }
     document.querySelector('#tracking-id').value=data.id;
     result.innerHTML=trackingView(data);
+    mountMaps(result);
   } catch(err) {
     if(version===trackingVersion && result.isConnected) result.textContent=err.message;
   }
@@ -309,13 +314,14 @@ document.addEventListener('submit',async e=>{
   try {
     const data=new FormData(form), text=data.get('text').trim();
     if(!text) throw new Error('Опишите проблему');
-    const result=await api('/api/workspace/intake',{text,district:data.get('district'),language:data.get('language'),region_id:'KZ-ALA',channel:'web'});
+    const number=name=>data.get(name)?Number(data.get(name)):null;
+    const result=await api('/api/workspace/intake',{text,address:data.get('address')?.trim()||null,district:data.get('district'),language:data.get('language'),region_id:'KZ-ALA',channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m')});
     state.trackingId=result.id;
     try {localStorage.setItem('pulse109-last-receipt',result.id);} catch { /* The receipt is usable without storage. */ }
     document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`)}</div>`;
     document.querySelector('#tracking-id').value=result.id;
     await trackCase(result.id);
-    form.querySelector('textarea').value=''; await refresh(false);
+    form.querySelector('textarea').value='';form.elements.address.value='';resetLocationPicker(form);await refresh(false);
   } catch(err) {toast(err.message,true);} finally {submit.disabled=false;}
 });
 window.addEventListener('hashchange',()=>{trackingVersion++;state.tracking=null;state.group='';state.search='';render();main.focus();if(state.page==='routing') loadHealth().catch(err=>toast(err.message,true));});

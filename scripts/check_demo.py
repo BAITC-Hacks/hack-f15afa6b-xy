@@ -33,7 +33,8 @@ def run():
             assert len(queue["items"]) == 50, "Seed must be idempotent and retain 20 originals"
             print("PASS 1: 50 synthetic complaints; idempotent seed preserves original records")
 
-            cid = intake("Добрый день, на Абая 44 с утра нет воды, весь дом без воды, когда включат?")
+            cid = intake("Добрый день, на Абая 44 с утра нет воды, весь дом без воды, когда включат?",
+                         latitude=43.2389494, longitude=76.9451234, location_accuracy_m=9.44)
             detail = call(f"/api/workspace/complaints/{cid}/triage", {})
             ai = detail["triage"]
             assert ai["category"] == "water_supply" and ai["category_confidence"] == .94
@@ -45,8 +46,12 @@ def run():
             assert detail["routing"]["operator"]["current_load"] == 2
             assert detail["complaint"]["decision_status"] == "pending"
             assert detail["complaint"]["incident_id"] is None
+            assert detail["complaint"]["latitude"] == 43.238949
+            assert detail["complaint"]["longitude"] == 76.945123
+            assert detail["complaint"]["location_accuracy_m"] == 9.4
             tracked = call(f"/api/workspace/tracking/{cid.lower()}")
             assert tracked["id"] == cid and tracked["status"] == "pending"
+            assert tracked["location"] == {"latitude": 43.238949, "longitude": 76.945123}
             assert tracked["service_name"] is None and tracked["incident"] is None and tracked["updates"] == []
             print("PASS 2: RU intake → 94% demo confidence → 17 candidates → Aidana 2/5; no auto-decision")
 
@@ -122,6 +127,7 @@ def run():
 
             call("/api/workspace/intake", {"text": " ", "region_id": "KZ-ALA"}, 422)
             call("/api/workspace/intake", {"text": "тест", "region_id": "invalid"}, 422)
+            call("/api/workspace/intake", {"text": "тест", "region_id": "KZ-ALA", "latitude": 43.2}, 422)
             call("/api/workspace/complaints/missing/triage", {}, 404)
             call(f"/api/workspace/complaints/{kk}/decide", {"topic": "invalid", "priority": "normal"}, 422)
             call("/api/workspace/incidents/INC-204/subscribe", {"subscriber_key": "synthetic-browser-1"})

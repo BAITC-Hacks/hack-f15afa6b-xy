@@ -297,6 +297,23 @@ progress::-webkit-progress-value{background:#85ac91;border-radius:6px}
 .tracking-card>p{margin-top:12px;font-size:12px}
 .tracking-card .badge{white-space:normal}
 .tracking-card .timeline p{white-space:pre-wrap}
+.location-field{border:0;padding:0;margin:24px 0 8px;min-width:0}
+.location-field legend{font-size:12px;font-weight:650;padding:0;margin-bottom:7px}
+.location-field>.micro{margin-bottom:12px}
+.map-shell{position:relative;overflow:hidden;border:1px solid #dce5df;border-radius:13px;background:#edf3ef;box-shadow:0 14px 35px #18382c12}
+.issue-map{width:100%;background:radial-gradient(circle at 68% 30%,#d9eee3,#edf3ef 55%,#e2ebe6);position:relative}
+.issue-map-picker{height:330px}
+.issue-map-view{height:220px;margin:15px 0 10px;border-radius:10px;overflow:hidden;border:1px solid #dce5df}
+.map-tip{position:absolute;left:12px;top:12px;z-index:2;background:#173e2fe8;color:white;border-radius:999px;padding:7px 10px;font-size:9px;letter-spacing:.2px;box-shadow:0 5px 18px #10271e33;pointer-events:none}
+.location-status{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px;color:var(--muted);font-size:10px;min-height:32px}
+.location-status .button{flex-shrink:0}
+.location-card{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
+.location-card>.micro{font-size:9px}
+.map-fallback{display:grid;place-items:center;height:100%;padding:25px;text-align:center;color:var(--muted);font-size:11px}
+.issue-map .maplibregl-ctrl-group{border-radius:9px;overflow:hidden;box-shadow:0 5px 18px #122c2140}
+.issue-map .maplibregl-ctrl button{width:34px;height:34px}
+.issue-map .maplibregl-popup-content{border-radius:9px;padding:10px 13px;color:var(--ink);font-size:11px;box-shadow:0 7px 24px #122c212d}
+.issue-map .maplibregl-ctrl-attrib{font-size:8px}
 
 #playbook-dialog{width:min(590px,calc(100vw - 24px))}
 #playbook-dialog .case-header h2{font-size:19px}
@@ -418,6 +435,7 @@ dialog{width:calc(100vw - 16px);max-height:calc(100dvh - 20px)}
 .metric-card strong{font-size:27px}
 .metric-card p{font-size:11px}
 .operator-grid,.incident-grid,.citizen-layout{grid-template-columns:1fr}
+.issue-map-picker{height:285px}
 .dashboard-grid>.panel{padding:18px}
 .bar-row{grid-template-columns:110px 1fr 20px;gap:10px;font-size:9px}
 .incident-detail{padding:20px}
