@@ -86,8 +86,8 @@ class QwenCopilot:
             raise ValueError("P109_COPILOT_API_KEY is required for a configured Qwen service")
         if timeout <= 0:
             raise ValueError("P109_COPILOT_TIMEOUT must be positive")
-        if not re.fullmatch(r"[0-9a-f]{40}", revision):
-            raise ValueError("P109_COPILOT_REVISION must be a pinned commit hash")
+        if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision):
+            raise ValueError("P109_COPILOT_REVISION must be a pinned commit or model digest")
         self.base_url = base_url
         self.api_key = api_key
         self.model = model.strip() or MODEL
@@ -122,17 +122,23 @@ class QwenCopilot:
 
     def assist(self, context: dict) -> CopilotResult:
         schema = {
-            "summary": "one sentence, at most 200 characters",
-            "reasoning": "facts from context only, at most 240 characters",
-            "suggested_reply": "polite draft, at most 400 characters",
-            "clarification_question": "one question under 180 characters or null",
-            "recommended_action": "clarify|prepare_reply|review_incident|manual_review",
+            "type": "object", "additionalProperties": False,
+            "required": ["summary", "reasoning", "suggested_reply",
+                         "clarification_question", "recommended_action"],
+            "properties": {
+                "summary": {"type": "string", "minLength": 1, "maxLength": 200},
+                "reasoning": {"type": "string", "minLength": 1, "maxLength": 240},
+                "suggested_reply": {"type": "string", "minLength": 1, "maxLength": 400},
+                "clarification_question": {"type": ["string", "null"], "maxLength": 180},
+                "recommended_action": {"type": "string", "enum": sorted(ACTIONS)},
+            },
         }
         language_style = (
             "Use natural standard Kazakh. Safe style example: «Өтінішіңіз тіркелді. Оператор мәліметтерді "
             "тексеріп, жауапты қызметке бағыттайды. Орындалу мерзімі әлі расталған жоқ.»"
             if context.get("language") == "kk" else
-            "Use clear natural Russian suitable for a municipal service operator."
+            "Use clear natural Russian. Safe style example: «Обращение зарегистрировано. Оператор "
+            "проверит данные и направит его в ответственную службу. Срок исполнения пока не подтверждён.»"
         )
         messages = [
             {"role": "system", "content": (
@@ -141,6 +147,9 @@ class QwenCopilot:
                 "guess a cause, or make the decision for the operator. Keep the whole response under 1200 characters. "
                 "Use review_incident only when incident_candidate is true. If clarification_question is not null, "
                 "recommended_action must be clarify; otherwise clarify is forbidden. " + language_style + " "
+                "When confidence_band is high, do not ask a clarification question. "
+                "The summary must only paraphrase the complaint; never say that data or work were checked or completed. "
+                "Address the citizen politely; do not tell them to diagnose or contact another service. "
                 "Return one JSON object and no markdown, matching this schema exactly: "
                 + json.dumps(schema, ensure_ascii=False)
             )},
@@ -148,7 +157,10 @@ class QwenCopilot:
         ]
         payload = json.dumps({
             "model": self.model, "messages": messages, "temperature": 0,
-            "max_tokens": 350, "response_format": {"type": "json_object"},
+            "max_tokens": 350, "reasoning_effort": "none",
+            "response_format": {"type": "json_schema", "json_schema": {
+                "name": "pulse109_copilot", "strict": True, "schema": schema,
+            }},
         }, ensure_ascii=False).encode("utf-8")
         request = Request(self.base_url + "/v1/chat/completions", data=payload, method="POST", headers={
             "Authorization": "Bearer " + self.api_key,
@@ -191,6 +203,15 @@ class QwenCopilot:
             if not isinstance(value, str) or not value.strip() or len(value.strip()) > limit:
                 raise CopilotResponseError(f"Qwen output field {field!r} is invalid")
             cleaned[field] = value.strip()
+        if re.search(
+            r"\b(?:уже\s+)?(?:устранили|исправили|отремонтировали|восстановили|проверили|направили)\b|"
+            r"\b(?:данные|работа|обращение)\s+(?:проверен[аоы]?|направлен[аоы]?|выполнен[аоы]?)\b|"
+            r"\b(?:проблема|неисправность)\s+(?:устранена|решена)\b|\bтеперь\s+работает\b|"
+            r"\bбудет\s+(?:устранен[ао]?|исправлен[ао]?|восстановлен[ао]?)\b|"
+            r"\b(?:до|в течение)\s+\d+\s*(?:минут|час|дн|рабоч)",
+            " ".join(cleaned.values()), re.IGNORECASE,
+        ):
+            raise CopilotResponseError("Qwen suggested an unverified action or deadline")
         question = answer.get("clarification_question")
         if question is not None and (not isinstance(question, str) or not question.strip() or len(question.strip()) > 300):
             raise CopilotResponseError("Qwen clarification question is invalid")

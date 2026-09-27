@@ -85,12 +85,21 @@ def run():
         raise AssertionError("Public Qwen endpoint was accepted")
     except ValueError:
         pass
+    assert QwenCopilot("http://127.0.0.1:11434", "secret", revision="a" * 64).status()["configured"]
     try:
         QwenCopilot._validate({
             "summary": "x", "reasoning": "x", "suggested_reply": "x",
             "clarification_question": None, "recommended_action": "review_incident",
         }, {"incident_candidate": False})
         raise AssertionError("Unavailable incident action was accepted")
+    except CopilotResponseError:
+        pass
+    try:
+        QwenCopilot._validate({
+            "summary": "x", "reasoning": "x", "suggested_reply": "Мы уже устранили проблему.",
+            "clarification_question": None, "recommended_action": "prepare_reply",
+        }, {"incident_candidate": False})
+        raise AssertionError("Unverified service action was accepted")
     except CopilotResponseError:
         pass
     print("PASS 1: Copilot accepts only private endpoints with authentication")
@@ -126,6 +135,7 @@ def run():
                 assert answer["model_revision"] == "cdbee75f17c01a7cc42f958dc650907174af0554"
                 sent = FakeQwen.requests[-1]
                 assert sent["authorization"] == "Bearer fixture-secret"
+                assert sent["body"]["reasoning_effort"] == "none"
                 prompt = sent["body"]["messages"][1]["content"]
                 assert "Абая 44" not in prompt and "123456789012" not in prompt
                 assert "+7 777" not in prompt and "a@example.kz" not in prompt
