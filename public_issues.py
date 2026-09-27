@@ -89,7 +89,8 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
                              c.received_at, c.ingested_at) AS last_updated,
                     (SELECT i.next_update FROM incidents i WHERE i.id = c.incident_id) AS next_update,
                     (SELECT COUNT(*) FROM complaint_subscriptions s WHERE s.complaint_id = c.id) AS subscribers,
-                    EXISTS(SELECT 1 FROM complaint_photos p WHERE p.complaint_id = c.id) AS has_photo
+                    EXISTS(SELECT 1 FROM complaint_photos p WHERE p.complaint_id = c.id) AS has_photo,
+                    EXISTS(SELECT 1 FROM complaint_videos v WHERE v.complaint_id = c.id) AS has_video
                 FROM complaints c
                 WHERE c.data_origin = 'synthetic' AND c.quarantined = 0
                 ORDER BY COALESCE(c.received_at, c.ingested_at) DESC""")]
@@ -107,6 +108,7 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
                                       "Примерно по району" if item["location_source"] == "district_approximate" else
                                       "Примерно по региону")
             item["has_photo"] = bool(item["has_photo"])
+            item["has_video"] = bool(item["has_video"])
             for key in ("sender_key", "ingested_at", "quarantined"):
                 item.pop(key)
             items.append(item)
@@ -182,5 +184,16 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
                 WHERE p.complaint_id = ? AND c.data_origin = 'synthetic'""", (cid,)).fetchone()
         if not row:
             raise HTTPException(404, "Фото не найдено")
+        return Response(row["content"], media_type=row["mime_type"],
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+    @router.get("/public/complaints/{cid}/video")
+    def public_video(cid: str):
+        with get_connection() as conn:
+            row = conn.execute("""SELECT v.mime_type, v.content FROM complaint_videos v
+                JOIN complaints c ON c.id = v.complaint_id
+                WHERE v.complaint_id = ? AND c.data_origin = 'synthetic'""", (cid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Видео не найдено")
         return Response(row["content"], media_type=row["mime_type"],
                         headers={"Cache-Control": "public, max-age=3600"})

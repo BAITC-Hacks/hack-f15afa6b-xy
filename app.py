@@ -28,6 +28,7 @@ from incidents import init_incidents
 from radar import build_incident_router
 from support_api import init_support, build_support_router
 from decision import DecisionService
+from voice_api import build_voice_router
 
 BANNER_TEXT = "SYNTHETIC DEMO — MODELS NOT TRAINED"
 
@@ -156,6 +157,7 @@ if cors_origins:
     )
 app.include_router(build_clarification_router(get_connection, BANNER_TEXT))
 app.include_router(build_queue_router(get_connection, BANNER_TEXT, VALID_REGION_IDS))
+app.include_router(build_voice_router())
 
 class IntakeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)

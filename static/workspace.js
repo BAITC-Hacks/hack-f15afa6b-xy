@@ -1,17 +1,21 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView} from './views.js?v=20260927-8';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView} from './views.js?v=20260927-12';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260927-2';
-import {caseView} from './case.js?v=20260927-10';
+import {caseView} from './case.js?v=20260927-12';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
 import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
-import {mountMaps,resetLocationPicker} from './map.js?v=20260927-7';
-import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260927-8';
+import {mountMaps,resetLocationPicker} from './map.js?v=20260927-12';
+import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260927-12';
+import {handleVoiceAction} from './voice.js?v=20260927-12';
 
-async function photoData(input) {
+async function mediaData(input) {
   const file=input.files[0];
-  if(!file) return null;
-  if(!['image/jpeg','image/png','image/webp'].includes(file.type)) throw new Error('Выберите фото JPEG, PNG или WebP');
-  if(file.size>4*1024*1024) throw new Error('Фото должно быть не больше 4 МБ');
-  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Не удалось прочитать фото'));reader.readAsDataURL(file);});
+  if(!file) return {photo_data:null,video_data:null};
+  const images=['image/jpeg','image/png','image/webp'], videos=['video/mp4','video/webm'];
+  if(![...images,...videos].includes(file.type)) throw new Error('Выберите фото JPEG/PNG/WebP или видео MP4/WebM');
+  const limit=images.includes(file.type)?4:12;
+  if(file.size>limit*1024*1024) throw new Error(`Файл должен быть не больше ${limit} МБ`);
+  const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Не удалось прочитать файл'));reader.readAsDataURL(file);});
+  return images.includes(file.type)?{photo_data:data,video_data:null}:{photo_data:null,video_data:data};
 }
 
 const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null};
@@ -54,7 +58,7 @@ async function registerIntake(form,payload) {
   document.querySelector('#tracking-id').value=result.id;
   document.querySelector('#citizen-notice').hidden=true;
   await trackCase(result.id);
-  form.querySelector('textarea').value='';form.elements.address.value='';form.elements.photo.value='';resetLocationPicker(form);await refresh(false);
+  form.querySelector('textarea').value='';form.elements.address.value='';form.elements.media.value='';resetLocationPicker(form);await refresh(false);
 }
 function render() {
   state.page=titles[location.hash.slice(1)]?location.hash.slice(1):'queue';
@@ -196,6 +200,7 @@ function openCommands() {
 }
 async function handleAction(node) {
   const action=node.dataset.action, d=state.detail, c=d?.complaint;
+  if(action==='voice-record'||action==='voice-stop') {await handleVoiceAction(node,api,toast);return;}
   if(action==='commands') {openCommands();return;}
   if(action==='close-commands') {commandDialog.close();return;}
   if(action==='run-command') {
@@ -357,8 +362,9 @@ document.addEventListener('submit',async e=>{
     if(!text) throw new Error('Опишите проблему');
     const number=name=>data.get(name)?Number(data.get(name)):null;
     if(!data.get('latitude')||!data.get('longitude')) throw new Error('Выберите место проблемы на карте');
-    const payload={text,address:data.get('address')?.trim()||null,city_code:data.get('city_code'),district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m'),photo_data:await photoData(form.elements.photo)};
-    const {photo_data,...probe}=payload, similar=await api('/api/workspace/public/similar',probe);
+    const media=await mediaData(form.elements.media);
+    const payload={text,address:data.get('address')?.trim()||null,city_code:data.get('city_code'),district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m'),...media};
+    const {photo_data,video_data,...probe}=payload, similar=await api('/api/workspace/public/similar',probe);
     if(similar.items.length) {pendingIntake=payload;showSimilar(similar.items);return;}
     await registerIntake(form,payload);
   } catch(err) {toast(err.message,true);} finally {submit.disabled=false;}

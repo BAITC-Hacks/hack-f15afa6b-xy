@@ -144,6 +144,10 @@ function publicPopup(item) {
     const image=document.createElement('img');image.src=`/api/workspace/public/complaints/${encodeURIComponent(item.id)}/photo`;
     image.alt=`Фото проблемы к обращению ${item.id}`;image.loading='lazy';card.append(image);
   }
+  if(item.has_video) {
+    const video=document.createElement('video');video.src=`/api/workspace/public/complaints/${encodeURIComponent(item.id)}/video`;
+    video.controls=true;video.preload='metadata';video.setAttribute('aria-label',`Видео проблемы к обращению ${item.id}`);card.append(video);
+  }
   return card;
 }
 

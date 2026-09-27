@@ -33,6 +33,7 @@ class Intake(BaseModel):
     channel: Literal["web", "phone", "telegram", "whatsapp"] = "web"
     sender_key: str | None = Field(default=None, max_length=100)
     photo_data: str | None = Field(default=None, max_length=5_600_000)
+    video_data: str | None = Field(default=None, max_length=16_800_000)
 
     @model_validator(mode="after")
     def location_is_complete(self):
@@ -40,6 +41,8 @@ class Intake(BaseModel):
             raise ValueError("Укажите широту и долготу вместе")
         if self.location_accuracy_m is not None and self.latitude is None:
             raise ValueError("Точность требует координаты")
+        if self.photo_data and self.video_data:
+            raise ValueError("Прикрепите один файл: фото или видео")
         return self
 
 
@@ -61,6 +64,26 @@ def decode_photo(value):
         raise HTTPException(422, "Допустимы фото JPEG, PNG или WebP")
     if len(content) > 4 * 1024 * 1024:
         raise HTTPException(422, "Фото должно быть не больше 4 МБ")
+    return detected, content
+
+
+def decode_video(value):
+    if not value:
+        return None
+    try:
+        header, encoded = value.split(",", 1)
+        if header not in {"data:video/mp4;base64", "data:video/webm;base64"}:
+            raise ValueError
+        declared = header[5:-7]
+        content = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        raise HTTPException(422, "Не удалось прочитать видео") from None
+    detected = ("video/mp4" if len(content) >= 12 and content[4:8] == b"ftyp" else
+                "video/webm" if content.startswith(b"\x1aE\xdf\xa3") else None)
+    if detected != declared:
+        raise HTTPException(422, "Допустимы видео MP4 или WebM")
+    if len(content) > 12 * 1024 * 1024:
+        raise HTTPException(422, "Видео должно быть не больше 12 МБ")
     return detected, content
 
 
@@ -115,6 +138,9 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         item["city_name"] = CITY_BY_CODE.get(item.get("city_code"), {}).get("name_ru")
         item["has_photo"] = bool(conn.execute(
             "SELECT 1 FROM complaint_photos WHERE complaint_id = ?", (cid,)
+        ).fetchone())
+        item["has_video"] = bool(conn.execute(
+            "SELECT 1 FROM complaint_videos WHERE complaint_id = ?", (cid,)
         ).fetchone())
         return item
 
@@ -242,7 +268,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             service = SERVICE_NAMES.get(c["service_id"]) if c["decision_status"] == "confirmed" and c["region_id"] == "KZ-ALA" else None
             return {"id": c["id"], "registered_at": c["received_at"] or c["ingested_at"], "status": status,
                     "service_name": service, "incident": dict(incident) if incident else None, "updates": updates,
-                    "city": c.get("city_name"), "has_photo": c["has_photo"],
+                    "city": c.get("city_name"), "has_photo": c["has_photo"], "has_video": c["has_video"],
                     "location": ({"latitude": c["latitude"], "longitude": c["longitude"]}
                                  if c["latitude"] is not None and c["longitude"] is not None else None),
                     "resolved_at": c["resolved_at"], "resolution_text": c["resolution_text"] if c["resolved_at"] else None,
@@ -256,6 +282,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         if req.city_code and (not city or city["region_id"] != req.region_id):
             raise HTTPException(422, "Город не соответствует выбранному региону")
         photo = decode_photo(req.photo_data)
+        video = decode_video(req.video_data)
         cid = "PULSE-" + uuid.uuid4().hex[:6].upper()
         now = datetime.now(timezone.utc).isoformat()
         with get_connection() as conn:
@@ -273,10 +300,13 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             if photo:
                 conn.execute("INSERT INTO complaint_photos VALUES (?, ?, ?, ?)",
                              (cid, photo[0], photo[1], now))
+            if video:
+                conn.execute("INSERT INTO complaint_videos VALUES (?, ?, ?, ?)",
+                             (cid, video[0], video[1], now))
             event(conn, cid, "intake", {"channel": req.channel, "city_code": req.city_code,
                                         "text_len": len(req.text),
                                         "has_location": req.latitude is not None,
-                                        "has_photo": bool(photo)}, "citizen_demo")
+                                        "has_photo": bool(photo), "has_video": bool(video)}, "citizen_demo")
         return {"id": cid, "data_origin": "synthetic", "decision_status": "pending"}
 
     @router.post("/complaints/{cid}/triage")
