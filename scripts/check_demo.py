@@ -71,8 +71,11 @@ def run():
             assert public_case["has_photo"] and public_case["city"] == "Алматы"
             assert public_case["topic"] == "water_supply" and public_case["topic_name"]
             assert public_case["latitude"] == 43.239 and public_case["longitude"] == 76.945
-            assert public_case["location_precision_m"] == 100
+            assert public_case["location_precision_m"] == 100 and public_case["location_source"] == "user_selected"
             assert not {"address", "sender_key", "assigned_operator", "service_id"} & public_case.keys()
+            approximate = next(item for item in public["items"] if item["id"] == "PULSE-2400")
+            assert approximate["location_source"] == "district_approximate" and approximate["location_precision_m"] == 2500
+            assert not any(item["id"] == "PULSE-2420" for item in public["items"]), "Suspected spam must stay private"
             similar = call("/api/workspace/public/similar", {
                 "text": "На Абая 44 нет воды во всём доме", "region_id": "KZ-ALA",
                 "city_code": "750000000", "district": "Алмалинский", "address": "Абая 44",

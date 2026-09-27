@@ -1,4 +1,4 @@
-import {mountPublicMap} from './map.js?v=20260927-2';
+import {mountPublicMap} from './map.js?v=20260927-7';
 
 const cards=document.querySelector('#public-cards'), status=document.querySelector('#public-status');
 const labels={pending:'На рассмотрении',confirmed:'Принято в работу',needs_clarification:'Нужно уточнение',resolved:'Решено'};
@@ -23,7 +23,7 @@ function caseCard(item) {
   top.append(id,badge);card.append(top);
   if(item.has_photo) {const image=document.createElement('img');image.src=`/api/workspace/public/complaints/${encodeURIComponent(item.id)}/photo`;image.alt=`Фото проблемы к обращению ${item.id}`;image.loading='lazy';card.append(image);}
   const text=document.createElement('span');text.className='public-card-text';text.textContent=item.text;
-  const meta=document.createElement('small');meta.textContent=[place(item),item.topic_name,item.service_name].filter(Boolean).join(' · ');
+  const meta=document.createElement('small');meta.textContent=[place(item),item.location_label,item.topic_name,item.service_name].filter(Boolean).join(' · ');
   const date=document.createElement('time');date.dateTime=item.registered_at;date.textContent=new Date(item.registered_at).toLocaleString('ru-RU',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Almaty'});
   const update=document.createElement('small');update.textContent=`Обновлено ${new Date(item.last_updated).toLocaleString('ru-RU',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Almaty'})}${item.subscribers?` · ${item.subscribers} подписок`:''}`;
   card.append(text,meta,date,update);

@@ -1,12 +1,33 @@
 """Safe public views and duplicate deflection for synthetic complaints."""
+import hashlib
 from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
 
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, model_validator
 
-from cities import CITY_BY_CODE
-from triage import SERVICE_NAMES, analyze, address_in, symptom, tokens
+from cities import CITIES, CITY_BY_CODE
+from triage import SERVICE_NAMES, analyze, address_in, risk_for, symptom, tokens
+
+
+REGION_CENTERS = {
+    "KZ-ABA": (50.41, 80.23), "KZ-AKM": (53.28, 69.38), "KZ-AKT": (50.28, 57.17),
+    "KZ-ALM": (43.88, 77.07), "KZ-ATY": (47.12, 51.88), "KZ-ZKO": (51.23, 51.37),
+    "KZ-ZHA": (42.90, 71.37), "KZ-ZHE": (45.02, 78.37), "KZ-KAR": (49.81, 73.09),
+    "KZ-KOS": (53.21, 63.62), "KZ-KZY": (44.85, 65.51), "KZ-MAN": (43.65, 51.20),
+    "KZ-PAV": (52.29, 76.97), "KZ-SEV": (54.88, 69.16), "KZ-TUR": (43.30, 68.25),
+    "KZ-ULY": (47.78, 67.77), "KZ-VKO": (49.95, 82.63), "KZ-AST": (51.17, 71.45),
+    "KZ-ALA": (43.24, 76.92), "KZ-SHY": (42.34, 69.59),
+}
+ALMATY_DISTRICT_CENTERS = {
+    "Алмалинский": (43.25, 76.93), "Ауэзовский": (43.23, 76.84),
+    "Бостандыкский": (43.21, 76.91), "Медеуский": (43.26, 76.98),
+    "Алатауский": (43.30, 76.82), "Жетысуский": (43.29, 76.92),
+    "Наурызбайский": (43.22, 76.75), "Турксибский": (43.34, 77.00),
+}
+REGION_PLACE = {}
+for city in CITIES:
+    REGION_PLACE.setdefault(city["region_id"], city["name_ru"])
 
 
 class SimilarRequest(BaseModel):
@@ -36,6 +57,18 @@ def distance_metres(a_lat, a_lng, b_lat, b_lng):
     return round(earth * 2 * asin(sqrt(min(1, value))))
 
 
+def public_location(item):
+    if item.get("latitude") is not None and item.get("longitude") is not None:
+        return round(item["latitude"], 3), round(item["longitude"], 3), 100, "user_selected"
+    center = ALMATY_DISTRICT_CENTERS.get(item.get("district")) if item["region_id"] == "KZ-ALA" else None
+    center, precision, source, spread = ((center, 2500, "district_approximate", .012) if center else
+                                         (REGION_CENTERS[item["region_id"]], 25000, "region_approximate", .08))
+    digest = hashlib.sha256(item["id"].encode()).digest()
+    lat = center[0] + (digest[0] / 255 - .5) * spread
+    lng = center[1] + (digest[1] / 255 - .5) * spread
+    return round(lat, 3), round(lng, 3), precision, source
+
+
 def attach_public_issue_routes(router: APIRouter, get_connection, classifier, topic_services,
                                valid_regions, topic_names):
     def category(item):
@@ -46,9 +79,10 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
     @router.get("/public/complaints")
     def public_complaints():
         with get_connection() as conn:
-            rows = conn.execute("""SELECT c.id, substr(c.text, 1, 1000) AS text, c.region_id,
+            rows = [dict(row) for row in conn.execute("""SELECT c.id, substr(c.text, 1, 1000) AS text, c.region_id,
                     c.city_code, c.district, c.latitude, c.longitude,
                     COALESCE(c.topic, c.proposed_topic) AS topic, c.service_id, c.incident_id,
+                    c.sender_key, c.ingested_at, c.quarantined,
                     CASE WHEN c.resolved_at IS NOT NULL THEN 'resolved' ELSE c.decision_status END AS status,
                     COALESCE(c.received_at, c.ingested_at) AS registered_at,
                     COALESCE((SELECT MAX(a.occurred_at) FROM audit_events a WHERE a.complaint_id = c.id),
@@ -57,18 +91,24 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
                     (SELECT COUNT(*) FROM complaint_subscriptions s WHERE s.complaint_id = c.id) AS subscribers,
                     EXISTS(SELECT 1 FROM complaint_photos p WHERE p.complaint_id = c.id) AS has_photo
                 FROM complaints c
-                WHERE c.data_origin = 'synthetic' AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL
-                ORDER BY COALESCE(c.received_at, c.ingested_at) DESC""").fetchall()
+                WHERE c.data_origin = 'synthetic' AND c.quarantined = 0
+                ORDER BY COALESCE(c.received_at, c.ingested_at) DESC""")]
         items = []
         for row in rows:
             item = dict(row)
+            if risk_for(item, rows)["reasons"]:
+                continue
             item["topic"] = category(item)
-            item["city"] = CITY_BY_CODE.get(item.pop("city_code"), {}).get("name_ru")
+            item["city"] = CITY_BY_CODE.get(item.pop("city_code"), {}).get("name_ru") or REGION_PLACE.get(item["region_id"])
             item["topic_name"] = topic_names.get(item["topic"], "Другая проблема")
             item["service_name"] = SERVICE_NAMES.get(item.pop("service_id"))
-            item["latitude"], item["longitude"] = round(item["latitude"], 3), round(item["longitude"], 3)
-            item["location_precision_m"] = 100
+            item["latitude"], item["longitude"], item["location_precision_m"], item["location_source"] = public_location(item)
+            item["location_label"] = ("Точка указана заявителем" if item["location_source"] == "user_selected" else
+                                      "Примерно по району" if item["location_source"] == "district_approximate" else
+                                      "Примерно по региону")
             item["has_photo"] = bool(item["has_photo"])
+            for key in ("sender_key", "ingested_at", "quarantined"):
+                item.pop(key)
             items.append(item)
         return {"items": items, "count": len(items), "data_origin": "synthetic"}
 

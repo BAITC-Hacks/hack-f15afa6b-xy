@@ -172,13 +172,14 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
 
     await page.goto(base+'/map');
     await page.locator(`.public-card[data-case-id="${citizenId}"]`).waitFor();
-    assert.equal(await page.locator('.public-card').count(),1);
+    assert.ok(await page.locator('.public-card').count()>40);
     assert.equal(await page.locator('.public-card img').count(),1);
     await page.locator('#public-filters select[name="city"]').selectOption('Алматы');
-    assert.equal(await page.locator('.public-card').count(),1);
+    assert.ok(await page.locator('.public-card').count()>20);
     await page.locator('#public-filters input[name="search"]').fill('несуществующая проблема');
     assert.equal(await page.locator('.public-card').count(),0);
-    await page.locator('#public-filters input[name="search"]').fill('');
+    await page.locator('#public-filters input[name="search"]').fill(citizenId);
+    assert.equal(await page.locator('.public-card').count(),1);
     await page.locator('.public-card').click();
     assert.equal(await page.locator('.public-card.selected').getAttribute('data-case-id'),citizenId);
     console.log('PASS UI 8: anonymous public map filters the safe card and shows clustered points');

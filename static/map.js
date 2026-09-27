@@ -139,6 +139,7 @@ function publicPopup(item) {
   const title=document.createElement('strong');title.textContent=item.id;
   const text=document.createElement('p');text.textContent=item.text;
   card.append(title,text);
+  const location=document.createElement('small');location.textContent=item.location_label;card.append(location);
   if(item.has_photo) {
     const image=document.createElement('img');image.src=`/api/workspace/public/complaints/${encodeURIComponent(item.id)}/photo`;
     image.alt=`Фото проблемы к обращению ${item.id}`;image.loading='lazy';card.append(image);
@@ -154,7 +155,7 @@ export async function mountPublicMap(element, items, onSelect=()=>{}) {
   element._pulseMap=map;
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
   map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
-  const collection=()=>({type:'FeatureCollection',features:currentItems.map(item=>({type:'Feature',geometry:{type:'Point',coordinates:[item.longitude,item.latitude]},properties:{id:item.id,status:item.status}}))});
+  let markers=[];
   const fit=(duration=0)=>{
     if(!currentItems.length) {map.flyTo({center:[67.5,48],zoom:4,duration});return;}
     const bounds=new maplibregl.LngLatBounds();currentItems.forEach(item=>bounds.extend([item.longitude,item.latitude]));
@@ -164,29 +165,41 @@ export async function mountPublicMap(element, items, onSelect=()=>{}) {
     map.flyTo({center:[item.longitude,item.latitude],zoom:Math.max(map.getZoom(),14),duration:550});
     new maplibregl.Popup({offset:18}).setLngLat([item.longitude,item.latitude]).setDOMContent(publicPopup(item)).addTo(map);
   };
-  map.on('load',()=>{
-    map.addSource('public-cases',{type:'geojson',data:collection(),cluster:true,clusterMaxZoom:13,clusterRadius:48});
-    map.addLayer({id:'public-clusters',type:'circle',source:'public-cases',filter:['has','point_count'],paint:{'circle-color':'#176d58','circle-radius':['step',['get','point_count'],20,10,25,50,31],'circle-stroke-color':'#fff','circle-stroke-width':3,'circle-opacity':.9}});
-    map.addLayer({id:'public-cluster-count',type:'symbol',source:'public-cases',filter:['has','point_count'],layout:{'text-field':['get','point_count_abbreviated'],'text-size':12},paint:{'text-color':'#fff'}});
-    map.addLayer({id:'public-points',type:'circle',source:'public-cases',filter:['!',['has','point_count']],paint:{'circle-color':['match',['get','status'],'resolved','#6c7c76','confirmed','#157665','#c27a2c'],'circle-radius':9,'circle-stroke-color':'#fff','circle-stroke-width':3}});
-    element.dataset.clustered='true';
-    map.on('click','public-clusters',async event=>{
-      const feature=event.features[0], source=map.getSource('public-cases');
-      map.easeTo({center:feature.geometry.coordinates,zoom:await source.getClusterExpansionZoom(feature.properties.cluster_id)});
+  const draw=()=>{
+    if(!map.isStyleLoaded()) return;
+    markers.forEach(marker=>marker.remove());markers=[];
+    const groups=[];
+    // ponytail: O(n²) grouping is fine for a demo map; use Supercluster beyond 1,000 visible points.
+    currentItems.forEach(item=>{
+      const point=map.project([item.longitude,item.latitude]);
+      const group=groups.find(candidate=>Math.hypot(candidate.point.x-point.x,candidate.point.y-point.y)<48);
+      if(group) group.items.push(item); else groups.push({point,items:[item]});
     });
-    map.on('click','public-points',event=>{const item=byId.get(event.features[0].properties.id);if(item){show(item);onSelect(item);}});
-    ['public-clusters','public-points'].forEach(layer=>{
-      map.on('mouseenter',layer,()=>map.getCanvas().style.cursor='pointer');
-      map.on('mouseleave',layer,()=>map.getCanvas().style.cursor='');
+    markers=groups.map(group=>{
+      const latitude=group.items.reduce((sum,item)=>sum+item.latitude,0)/group.items.length;
+      const longitude=group.items.reduce((sum,item)=>sum+item.longitude,0)/group.items.length;
+      const node=document.createElement('button'), single=group.items.length===1?group.items[0]:null;
+      node.type='button';node.className=`public-map-marker ${single?single.status:'cluster'} ${single?.location_source==='user_selected'?'exact':''}`;
+      node.textContent=single?'':String(group.items.length);
+      node.title=single?`${single.id}: ${single.text}`:`${group.items.length} обращений`;
+      const marker=new maplibregl.Marker({element:node}).setLngLat([longitude,latitude]);
+      if(single) marker.setPopup(new maplibregl.Popup({offset:18}).setDOMContent(publicPopup(single)));
+      node.addEventListener('click',event=>{
+        if(single) onSelect(single);
+        else {event.stopPropagation();map.easeTo({center:[longitude,latitude],zoom:Math.min(map.getZoom()+2,16)});}
+      });
+      return marker.addTo(map);
     });
-    fit();
-  });
+    element.dataset.clustered='true';element.dataset.sourceFeatures=String(currentItems.length);
+    element.dataset.renderedFeatures=String(markers.length);
+  };
+  map.on('load',()=>{fit();draw();});
+  map.on('moveend',draw);
   return {
     focus(id) {const item=byId.get(id);if(item) show(item);},
     setItems(next) {
       currentItems=next;byId=new Map(next.map(item=>[item.id,item]));
-      map.getSource('public-cases')?.setData(collection());
-      if(map.loaded()) fit(300);
+      fit(300);draw();
     },
   };
 }

@@ -3,7 +3,7 @@ import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} f
 import {caseView} from './case.js?v=20260927-2';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
 import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
-import {mountMaps,resetLocationPicker} from './map.js?v=20260927-2';
+import {mountMaps,resetLocationPicker} from './map.js?v=20260927-7';
 
 async function photoData(input) {
   const file=input.files[0];
