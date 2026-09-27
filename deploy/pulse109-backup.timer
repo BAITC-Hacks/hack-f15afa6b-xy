@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Pulse 109 database backup
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=pulse109-backup.service
+
+[Install]
+WantedBy=timers.target

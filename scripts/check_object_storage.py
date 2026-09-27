@@ -33,8 +33,12 @@ def check(storage):
     complaint_id = "CHECK-" + uuid.uuid4().hex[:10].upper()
     key = storage.put_media(complaint_id, "photo", "image/png", content)
     assert key and storage.get_media(key) == content
+    backup = b"SQLite format 3\0private-backup-check"
+    backup_key = storage.put_backup("pulse109-20260927T120000Z.db", backup, "a" * 64)
+    assert backup_key and storage.get_backup(backup_key) == backup
     assert storage.check()["status"] == "healthy"
     storage.delete(key)
+    storage.delete(backup_key)
     return key
 
 

@@ -12,6 +12,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 
 MAX_MEDIA_BYTES = 12 * 1024 * 1024
+MAX_BACKUP_BYTES = 256 * 1024 * 1024
 EXTENSIONS = {
     "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
     "video/mp4": "mp4", "video/webm": "webm",
@@ -98,6 +99,35 @@ class ObjectStorage:
             raise ObjectStorageError("Could not read media from private object storage") from error
         if len(content) > MAX_MEDIA_BYTES:
             raise ObjectStorageError("Stored media exceeds the size limit")
+        return content
+
+    def put_backup(self, name, content, sha256):
+        if not self.enabled:
+            return None
+        if not re.fullmatch(r"pulse109-\d{8}T\d{6}Z\.db", name) or len(content) > MAX_BACKUP_BYTES:
+            raise ObjectStorageError("Database backup is invalid")
+        key = f"{self.prefix}/backups/{name}"
+        try:
+            self.client.put_object(
+                Bucket=self.bucket, Key=key, Body=content, ContentType="application/vnd.sqlite3",
+                ContentLength=len(content), CacheControl="private, no-store", Metadata={"sha256": sha256},
+            )
+        except (BotoCoreError, ClientError) as error:
+            raise ObjectStorageError("Could not save database backup") from error
+        return key
+
+    def get_backup(self, key):
+        if not self.enabled or not key.startswith(f"{self.prefix}/backups/"):
+            raise ObjectStorageError("Database backup key is invalid")
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)
+            if int(response.get("ContentLength", 0)) > MAX_BACKUP_BYTES:
+                raise ObjectStorageError("Stored backup exceeds the size limit")
+            content = response["Body"].read(MAX_BACKUP_BYTES + 1)
+        except (BotoCoreError, ClientError, KeyError) as error:
+            raise ObjectStorageError("Could not read database backup") from error
+        if len(content) > MAX_BACKUP_BYTES:
+            raise ObjectStorageError("Stored backup exceeds the size limit")
         return content
 
     def delete(self, key):

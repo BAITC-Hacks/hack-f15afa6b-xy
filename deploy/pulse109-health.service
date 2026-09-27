@@ -1,0 +1,9 @@
+[Unit]
+Description=Check Pulse 109 application health
+After=pulse109.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8025/api/health
+NoNewPrivileges=true
+PrivateTmp=true
