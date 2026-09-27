@@ -1,4 +1,4 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260928-2';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260928-3';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260927-2';
 import {caseView} from './case.js?v=20260928-2';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';

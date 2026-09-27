@@ -86,18 +86,49 @@ def _linear_forecast(values: list[int], horizon: int) -> list[int]:
     return [max(0, round(intercept + slope * (len(values) + step))) for step in range(horizon)]
 
 
+def _forecast_values(values: list[int], horizon: int, method: str) -> list[int]:
+    if method == "last_value":
+        return [values[-1]] * horizon
+    if method == "moving_average_3":
+        rolling = list(values)
+        result = []
+        for _ in range(horizon):
+            result.append(round(statistics.mean(rolling[-3:])))
+            rolling.append(result[-1])
+        return result
+    return _linear_forecast(values, horizon)
+
+
+def _backtest(values: list[int], method: str) -> tuple[list[int], list[float]]:
+    errors, percentages = [], []
+    for index in range(max(4, len(values) - 6), len(values)):
+        estimate = _forecast_values(values[:index], 1, method)[0]
+        actual = values[index]
+        errors.append(abs(estimate - actual))
+        if estimate + actual:
+            percentages.append(200 * abs(estimate - actual) / (estimate + actual))
+    return errors, percentages
+
+
 def forecast(conn, horizon: int, region_id=None, topic=None) -> dict:
     history = _series(conn, region_id, topic)
     if len(history) < 6:
         raise HTTPException(status_code=409, detail="At least six monthly observations are required")
+    excluded_partial_month = None
+    recent_baseline = statistics.median(item["count"] for item in history[-4:-1])
+    if len(history) > 6 and recent_baseline >= 10 and history[-1]["count"] < recent_baseline * .35:
+        excluded_partial_month = history.pop()
     values = [item["count"] for item in history]
-    predicted = _linear_forecast(values, horizon)
-    errors, percentages = [], []
-    for index in range(max(4, len(values) - 6), len(values)):
-        estimate, actual = _linear_forecast(values[:index], 1)[0], values[index]
-        errors.append(abs(estimate - actual))
-        if estimate + actual:
-            percentages.append(200 * abs(estimate - actual) / (estimate + actual))
+    candidates = {}
+    for method in ("last_value", "moving_average_3", "linear_trend"):
+        method_errors, method_percentages = _backtest(values, method)
+        candidates[method] = {
+            "mae": round(statistics.mean(method_errors), 2),
+            "smape_percent": round(statistics.mean(method_percentages), 2) if method_percentages else 0.0,
+        }
+    method = min(candidates, key=lambda name: (candidates[name]["mae"], candidates[name]["smape_percent"]))
+    predicted = _forecast_values(values, horizon, method)
+    errors, percentages = _backtest(values, method)
     mae = round(statistics.mean(errors), 2)
     smape = round(statistics.mean(percentages), 2) if percentages else 0.0
     interval = max(1, round(1.96 * math.sqrt(statistics.mean(error * error for error in errors))))
@@ -107,9 +138,11 @@ def forecast(conn, horizon: int, region_id=None, topic=None) -> dict:
         for step, value in enumerate(predicted)
     ]
     return {
-        "data_origin": "organizer", "method": "linear_trend", "horizon_months": horizon,
+        "data_origin": "organizer", "method": method, "horizon_months": horizon,
         "filters": {"region_id": region_id, "topic": topic}, "history_months": len(history),
         "forecast": points, "evaluation": {"backtest_points": len(errors), "mae": mae, "smape_percent": smape},
+        "model_selection": {"criterion": "lowest rolling backtest MAE", "candidates": candidates},
+        "excluded_partial_month": excluded_partial_month,
         "interval_method": "1.96 × rolling backtest RMSE",
     }
 

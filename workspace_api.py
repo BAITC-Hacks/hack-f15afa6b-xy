@@ -31,10 +31,13 @@ def ai_evidence():
         "rejected": evidence_dir / "laya-gpu-phase0-rejected-20260926.json",
         "stt": evidence_dir / "voice-stt-gpu-20260927.json",
         "tts": evidence_dir / "voice-tts-ab-20260927.json",
+        "similarity": evidence_dir / "similarity-e5-gpu-20260928.json",
     }
     try:
         documents = {name: json.loads(path.read_text(encoding="utf-8")) for name, path in files.items()}
-        laya, stt, tts = documents["laya"], documents["stt"], documents["tts"]
+        laya, stt, tts, similarity = (
+            documents["laya"], documents["stt"], documents["tts"], documents["similarity"]
+        )
         metrics = laya["experiment"]["aggregate_test_metrics"]
         speech = {item["language"]: item for item in stt["evaluation"]["results"]}
         omnivoice = [item for item in tts["roundtrip_evaluation"]["results"]
@@ -53,6 +56,17 @@ def ai_evidence():
             "stt": {"model": stt["model"]["id"], "runs_per_language": stt["evaluation"]["runs_per_language"],
                     "ru_median_ms": speech["ru"]["median_ms"], "kk_median_ms": speech["kk"]["median_ms"]},
             "tts": {"engine": "OmniVoice", "ru_kk_roundtrip_cer": max(item["character_error_rate"] for item in omnivoice)},
+            "similarity": {
+                "model": similarity["base_model"],
+                "selected_run": similarity["selection"]["selected_run"],
+                "checkpoint_sha256": similarity["selection"]["checkpoint_sha256"],
+                "test": {"baseline": similarity["baseline"]["test"], "trained": similarity["trained"]["test"]},
+                "cross_language_test": {
+                    "baseline": similarity["baseline"]["cross_language_test"],
+                    "trained": similarity["trained"]["cross_language_test"],
+                },
+                "claim_boundary": similarity["claim_boundary"],
+            },
             "evidence_sha256": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in files.items()},
             "claim_boundary": laya["claim_boundary"], "next_gate": laya["activation"]["next_gate"],
         }
