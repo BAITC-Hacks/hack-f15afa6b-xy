@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import os
 import shutil
@@ -13,6 +14,10 @@ try:
     from promote_laya_checkpoint import hash_tree, load_json, require
 except ImportError:
     from scripts.promote_laya_checkpoint import hash_tree, load_json, require
+
+
+def authorized(header, api_key):
+    return not api_key or hmac.compare_digest(header or "", "Bearer " + api_key)
 
 
 def validate_promotion(version_dir):
@@ -52,11 +57,25 @@ def create_service():
     router = Router(device=device, default="multilingual", max_loaded=1)
     router.attach("multilingual", agent)
     app = create_app(router)
+    api_key = os.environ.get("P109_LAYA_API_KEY")
+    if api_key:
+        from fastapi import Request
+        from fastapi.responses import JSONResponse
+
+        @app.middleware("http")
+        async def require_api_key(request: Request, call_next):
+            if not authorized(request.headers.get("authorization"), api_key):
+                return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+            return await call_next(request)
     app.state.checkpoint_working_directory = working_directory
     return app
 
 
 def self_check():
+    assert authorized(None, None)
+    assert authorized("Bearer secret", "secret")
+    assert not authorized(None, "secret")
+    assert not authorized("Bearer wrong", "secret")
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         version = "0" * 64
