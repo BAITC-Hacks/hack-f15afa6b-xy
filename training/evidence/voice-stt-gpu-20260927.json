@@ -1,0 +1,75 @@
+{
+  "schema_version": "pulse109-voice-stt-gpu-evidence-v1",
+  "generated_at": "2026-09-27T10:44:58.396357+00:00",
+  "result": "The pinned open-source mixed RU/KK STT model ran on NVIDIA CUDA and exactly matched both synthetic control phrases in every measured run.",
+  "production_eligible": false,
+  "claim_boundary": "Two synthetic TTS phrases prove the CUDA inference path and latency, not real-citizen WER or production readiness.",
+  "source": {
+    "repository": "https://github.com/Eliasans02/pulse109",
+    "branch": "feat/laya-gpu-training",
+    "git_commit": "74b13ce21710c7d545d41437690c2cf558a57aee"
+  },
+  "compute": {
+    "provider": "NVIDIA Brev",
+    "instance": "pulse109-laya-20260926",
+    "available_gpus": 2,
+    "gpu_model": "Tesla T4",
+    "inference_gpus_used": 1,
+    "torch": "2.14.0+cu130",
+    "cuda": "13.0",
+    "price_per_hour_usd": 1.09,
+    "instance_started_at": "2026-09-27T15:39:40+05:00",
+    "stop_requested_at": "2026-09-27T15:46:15+05:00",
+    "stop_confirmed_at": "2026-09-27T15:46:53+05:00",
+    "billable_runtime_upper_bound_minutes": 7.7,
+    "estimated_cost_upper_bound_usd": 0.14,
+    "approved_cost_limit_usd": 0.4,
+    "final_status": "STOPPED",
+    "stopped_storage_rate_usd_per_hour": 0.02
+  },
+  "model": {
+    "id": "alibiserikbay/kazakh-russian-mixed-stt@26298d2a61dc1573bfc11b7055c7d09a1e64b8a4/asr/rukk",
+    "sha256": "92fe1791d7c93f385fc10a959dd216caa98c6a571df72f11d1605c6327393b88",
+    "device": "cuda"
+  },
+  "evaluation": {
+    "data_status": "synthetic_tts_controls",
+    "human_speech": false,
+    "languages": [
+      "ru",
+      "kk"
+    ],
+    "runs_per_language": 10,
+    "results": [
+      {
+        "language": "ru",
+        "duration_seconds": 3.17,
+        "audio_sha256": "853a47032f4e6ef599e3f28f16212f6f0d3eb840576229343239118c56bf4621",
+        "transcript": "на улице абая сорок четыре с утра нет холодной воды",
+        "expected": "на улице абая сорок четыре с утра нет холодной воды",
+        "exact_match": true,
+        "runs": 10,
+        "median_ms": 42.5,
+        "p95_ms": 250,
+        "realtime_factor_median": 0.0134
+      },
+      {
+        "language": "kk",
+        "duration_seconds": 4.54,
+        "audio_sha256": "2eb88250344eece3522cd5ced9b78f74e68de48fdbc620238d4da4a6d17ca396",
+        "transcript": "абай көшесі қырық төртінші үйде таңертеңнен бері су жоқ",
+        "expected": "абай көшесі қырық төртінші үйде таңертеңнен бері су жоқ",
+        "exact_match": true,
+        "runs": 10,
+        "median_ms": 56.0,
+        "p95_ms": 58,
+        "realtime_factor_median": 0.0123
+      }
+    ]
+  },
+  "privacy": {
+    "contains_personal_data": false,
+    "audio_stored_by_service": false,
+    "tracked_audio": false
+  }
+}
