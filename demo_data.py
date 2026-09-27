@@ -33,6 +33,10 @@ def init_workspace(conn):
             incident_id TEXT NOT NULL, subscriber_key TEXT NOT NULL, created_at TEXT NOT NULL,
             PRIMARY KEY (incident_id, subscriber_key)
         );
+        CREATE TABLE IF NOT EXISTS complaint_photos (
+            complaint_id TEXT PRIMARY KEY, mime_type TEXT NOT NULL, content BLOB NOT NULL,
+            created_at TEXT NOT NULL, FOREIGN KEY (complaint_id) REFERENCES complaints(id)
+        );
         CREATE TABLE IF NOT EXISTS playbook_previews (
             token TEXT PRIMARY KEY, complaint_id TEXT NOT NULL, playbook_id TEXT NOT NULL,
             request TEXT NOT NULL, fingerprint TEXT NOT NULL, created_at TEXT NOT NULL,

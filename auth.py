@@ -217,6 +217,9 @@ def _is_public(request: Request) -> bool:
         return True
     if method == "GET" and re.fullmatch(r"/api/workspace/tracking/[^/]+", path):
         return True
+    if method == "GET" and (path == "/api/workspace/public/complaints" or
+                            re.fullmatch(r"/api/workspace/public/complaints/[^/]+/photo", path)):
+        return True
     return bool(method == "POST" and re.fullmatch(r"/api/workspace/incidents/[^/]+/subscribe", path))
 
 

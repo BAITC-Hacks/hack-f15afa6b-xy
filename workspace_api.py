@@ -1,11 +1,13 @@
 """Operator workspace on the existing complaint and audit tables."""
+import base64
+import binascii
 import json
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, model_validator
 
 from auth import current_actor
@@ -29,6 +31,7 @@ class Intake(BaseModel):
     district: str | None = Field(default=None, max_length=100)
     channel: Literal["web", "phone", "telegram", "whatsapp"] = "web"
     sender_key: str | None = Field(default=None, max_length=100)
+    photo_data: str | None = Field(default=None, max_length=5_600_000)
 
     @model_validator(mode="after")
     def location_is_complete(self):
@@ -37,6 +40,27 @@ class Intake(BaseModel):
         if self.location_accuracy_m is not None and self.latitude is None:
             raise ValueError("Точность требует координаты")
         return self
+
+
+def decode_photo(value):
+    if not value:
+        return None
+    try:
+        header, encoded = value.split(",", 1)
+        if header not in {"data:image/jpeg;base64", "data:image/png;base64", "data:image/webp;base64"}:
+            raise ValueError
+        declared = header[5:-7]
+        content = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        raise HTTPException(422, "Не удалось прочитать фото") from None
+    detected = ("image/jpeg" if content.startswith(b"\xff\xd8\xff") else
+                "image/png" if content.startswith(b"\x89PNG\r\n\x1a\n") else
+                "image/webp" if content.startswith(b"RIFF") and content[8:12] == b"WEBP" else None)
+    if declared not in {"image/jpeg", "image/png", "image/webp"} or detected != declared:
+        raise HTTPException(422, "Допустимы фото JPEG, PNG или WebP")
+    if len(content) > 4 * 1024 * 1024:
+        raise HTTPException(422, "Фото должно быть не больше 4 МБ")
+    return detected, content
 
 
 class Decision(BaseModel):
@@ -86,6 +110,9 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             raise HTTPException(404, "Обращение не найдено")
         item = dict(row)
         item["city_name"] = CITY_BY_CODE.get(item.get("city_code"), {}).get("name_ru")
+        item["has_photo"] = bool(conn.execute(
+            "SELECT 1 FROM complaint_photos WHERE complaint_id = ?", (cid,)
+        ).fetchone())
         return item
 
     def incident_list(conn):
@@ -208,11 +235,41 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             service = SERVICE_NAMES.get(c["service_id"]) if c["decision_status"] == "confirmed" and c["region_id"] == "KZ-ALA" else None
             return {"id": c["id"], "registered_at": c["received_at"] or c["ingested_at"], "status": status,
                     "service_name": service, "incident": dict(incident) if incident else None, "updates": updates,
-                    "city": c.get("city_name"),
+                    "city": c.get("city_name"), "has_photo": c["has_photo"],
                     "location": ({"latitude": c["latitude"], "longitude": c["longitude"]}
                                  if c["latitude"] is not None and c["longitude"] is not None else None),
                     "resolved_at": c["resolved_at"], "resolution_text": c["resolution_text"] if c["resolved_at"] else None,
                     "data_origin": "synthetic", "delivery": "demo_only"}
+
+    @router.get("/public/complaints")
+    def public_complaints():
+        with get_connection() as conn:
+            rows = conn.execute("""SELECT c.id, substr(c.text, 1, 1000) AS text, c.region_id,
+                    c.city_code, c.address, c.district, c.latitude, c.longitude,
+                    CASE WHEN c.resolved_at IS NOT NULL THEN 'resolved' ELSE c.decision_status END AS status,
+                    COALESCE(c.received_at, c.ingested_at) AS registered_at,
+                    EXISTS(SELECT 1 FROM complaint_photos p WHERE p.complaint_id = c.id) AS has_photo
+                FROM complaints c
+                WHERE c.data_origin = 'synthetic' AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL
+                ORDER BY COALESCE(c.received_at, c.ingested_at) DESC""").fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            item["city"] = CITY_BY_CODE.get(item.pop("city_code"), {}).get("name_ru")
+            item["has_photo"] = bool(item["has_photo"])
+            items.append(item)
+        return {"items": items, "count": len(items), "data_origin": "synthetic"}
+
+    @router.get("/public/complaints/{cid}/photo")
+    def public_photo(cid: str):
+        with get_connection() as conn:
+            row = conn.execute("""SELECT p.mime_type, p.content FROM complaint_photos p
+                JOIN complaints c ON c.id = p.complaint_id
+                WHERE p.complaint_id = ? AND c.data_origin = 'synthetic'""", (cid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Фото не найдено")
+        return Response(row["content"], media_type=row["mime_type"],
+                        headers={"Cache-Control": "public, max-age=3600"})
 
     @router.post("/intake", status_code=201)
     def intake(req: Intake):
@@ -221,6 +278,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         city = CITY_BY_CODE.get(req.city_code) if req.city_code else None
         if req.city_code and (not city or city["region_id"] != req.region_id):
             raise HTTPException(422, "Город не соответствует выбранному региону")
+        photo = decode_photo(req.photo_data)
         cid = "PULSE-" + uuid.uuid4().hex[:6].upper()
         now = datetime.now(timezone.utc).isoformat()
         with get_connection() as conn:
@@ -235,9 +293,13 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                  round(req.longitude, 6) if req.longitude is not None else None,
                  round(req.location_accuracy_m, 1) if req.location_accuracy_m is not None else None,
                  req.district, req.channel, req.sender_key))
+            if photo:
+                conn.execute("INSERT INTO complaint_photos VALUES (?, ?, ?, ?)",
+                             (cid, photo[0], photo[1], now))
             event(conn, cid, "intake", {"channel": req.channel, "city_code": req.city_code,
                                         "text_len": len(req.text),
-                                        "has_location": req.latitude is not None}, "citizen_demo")
+                                        "has_location": req.latitude is not None,
+                                        "has_photo": bool(photo)}, "citizen_demo")
         return {"id": cid, "data_origin": "synthetic", "decision_status": "pending"}
 
     @router.post("/complaints/{cid}/triage")

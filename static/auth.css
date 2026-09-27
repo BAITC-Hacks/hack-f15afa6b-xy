@@ -28,6 +28,7 @@
 .auth-submit{width:100%;margin-top:24px;border:1px solid var(--green);border-radius:7px;background:var(--green);color:white;padding:12px;font-size:12px;font-weight:650}
 .auth-submit:hover:not(:disabled){background:#105e50}
 .auth-submit[aria-busy="true"]{cursor:wait}
+.public-map-link{display:block;margin-top:18px;text-align:center;color:var(--green);font-size:11px;font-weight:650}
 .auth-message{margin-top:17px;border-radius:7px;background:#fcefeb;border:1px solid #f0d4d0;color:#9a403b;padding:10px 12px;font-size:11px;line-height:1.55}
 .auth-message.success{background:var(--green-light);border-color:#cee5d5;color:#356d54}
 .auth-footnote{border-top:1px solid var(--line);padding-top:18px;margin-top:25px;color:#66717b;font-size:10px;line-height:1.6}

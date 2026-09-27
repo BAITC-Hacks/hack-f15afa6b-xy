@@ -502,6 +502,11 @@ def index():
     return FileResponse(idx) if idx.exists() else legacy()
 
 
+@app.get("/map")
+def public_map():
+    return FileResponse(static_dir / "public-map.html")
+
+
 @app.get("/legacy")
 def legacy():
     idx = static_dir / "index.html"

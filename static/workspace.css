@@ -283,6 +283,8 @@ progress::-webkit-progress-value{background:#85ac91;border-radius:6px}
 .citizen-layout form{padding:30px}
 .citizen-layout h2{margin-bottom:22px}
 .citizen-layout textarea,.citizen-layout select{font-size:12px}
+.photo-help{margin-top:7px}
+.case-photo{display:block;width:100%;max-height:360px;object-fit:cover;border-radius:10px;margin:15px 0;border:1px solid var(--line);background:#eef2ef}
 .deflection{background:#edf4ea;border:1px solid #d8e4d0;border-radius:12px;padding:30px}
 .deflection h2{font-size:23px;line-height:1.4;color:#3b603e;margin-bottom:13px}
 .deflection p{font-size:12px;margin:16px 0}

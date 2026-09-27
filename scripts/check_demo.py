@@ -3,6 +3,7 @@
 import json
 import sqlite3
 import tempfile
+import urllib.request
 from pathlib import Path
 
 from check_clarification import start_server, stop_server
@@ -45,7 +46,8 @@ def run():
 
             cid = intake("Добрый день, на Абая 44 с утра нет воды, весь дом без воды, когда включат?",
                          city_code="750000000", latitude=43.2389494, longitude=76.9451234,
-                         location_accuracy_m=9.44)
+                         location_accuracy_m=9.44,
+                         photo_data="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X9ZxAAAAAElFTkSuQmCC")
             detail = call(f"/api/workspace/complaints/{cid}/triage", {})
             ai = detail["triage"]
             assert ai["category"] == "water_supply" and ai["category_confidence"] == .94
@@ -63,8 +65,14 @@ def run():
             tracked = call(f"/api/workspace/tracking/{cid.lower()}")
             assert tracked["id"] == cid and tracked["status"] == "pending"
             assert tracked["location"] == {"latitude": 43.238949, "longitude": 76.945123}
-            assert tracked["service_name"] is None and tracked["incident"] is None and tracked["updates"] == []
-            print("PASS 2: RU intake → 94% demo confidence → 17 candidates → Aidana 2/5; no auto-decision")
+            assert tracked["has_photo"] and tracked["service_name"] is None and tracked["incident"] is None and tracked["updates"] == []
+            public = call("/api/workspace/public/complaints")
+            public_case = next(item for item in public["items"] if item["id"] == cid)
+            assert public_case["has_photo"] and public_case["city"] == "Алматы"
+            assert not {"sender_key", "assigned_operator", "service_id"} & public_case.keys()
+            with urllib.request.urlopen(url + f"/api/workspace/public/complaints/{cid}/photo") as response:
+                assert response.headers.get_content_type() == "image/png" and response.read().startswith(b"\x89PNG")
+            print("PASS 2: geolocated intake with photo appears safely on the public map; triage remains operator-controlled")
 
             decision = {"topic": "water_supply", "priority": "normal", "operator_id": "op-aidana", "incident_id": "INC-204"}
             call(f"/api/workspace/complaints/{cid}/decide", decision)
@@ -140,6 +148,8 @@ def run():
             call("/api/workspace/intake", {"text": " ", "region_id": "KZ-ALA"}, 422)
             call("/api/workspace/intake", {"text": "тест", "region_id": "invalid"}, 422)
             call("/api/workspace/intake", {"text": "тест", "region_id": "KZ-ALA", "latitude": 43.2}, 422)
+            call("/api/workspace/intake", {"text": "тест", "region_id": "KZ-ALA",
+                                           "photo_data": "data:image/png;base64,bm90LWEtcG5n"}, 422)
             call("/api/workspace/complaints/missing/triage", {}, 404)
             call(f"/api/workspace/complaints/{kk}/decide", {"topic": "invalid", "priority": "normal"}, 422)
             call("/api/workspace/incidents/INC-204/subscribe", {"subscriber_key": "synthetic-browser-1"})

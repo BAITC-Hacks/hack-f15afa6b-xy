@@ -91,9 +91,12 @@ def run() -> None:
 
             assert anonymous.request(base_url + "/api/auth/me")[0] == 401
             assert anonymous.request(base_url + "/api/workspace/queue")[0] == 401
+            assert anonymous.request(base_url + "/map")[0] == 200
+            status, public_map, _ = anonymous.request(base_url + "/api/workspace/public/complaints")
+            assert status == 200 and public_map == {"items": [], "count": 0, "data_origin": "synthetic"}
             status, config, _ = anonymous.request(base_url + "/api/auth/config")
             assert status == 200 and config["signup_available"] and config["first_account"]
-            print("PASS 1: health and account bootstrap are public; operator data is protected")
+            print("PASS 1: public map is anonymous; operator data remains protected")
 
             valid_password = "correct horse battery staple"
             invalid_signups = (

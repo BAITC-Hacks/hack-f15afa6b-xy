@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#172925"><link rel="icon" href="data:,">
+  <title>Pulse 109 — Карта обращений</title>
+  <link rel="stylesheet" href="/static/workspace.css">
+  <link rel="stylesheet" href="/static/public-map.css">
+</head>
+<body class="public-body">
+  <a class="skip" href="#public-map">К карте обращений</a>
+  <header class="public-header">
+    <a class="public-brand" href="/map"><span class="brandmark" aria-hidden="true">⌁</span><span>pulse<b>109</b></span></a>
+    <a class="button" href="/">Вход для операторов</a>
+  </header>
+  <main class="public-main">
+    <div class="public-heading">
+      <div><p class="eyebrow">ОТКРЫТАЯ КАРТА · СИНТЕТИЧЕСКОЕ ДЕМО</p><h1>Что происходит в городе</h1><p>Выберите метку или карточку, чтобы увидеть проблему и прикреплённое фото.</p></div>
+      <strong><span id="public-count">—</span><small>обращений с геопозицией</small></strong>
+    </div>
+    <section class="public-layout" aria-label="Карта и обращения">
+      <div class="public-map-shell"><div id="public-map" class="issue-map public-map" aria-label="Интерактивная карта обращений"></div><span class="map-tip">Карта обращений Pulse 109</span></div>
+      <aside class="public-feed" aria-labelledby="feed-title">
+        <div class="public-feed-head"><div><p class="eyebrow">ОБРАЩЕНИЯ</p><h2 id="feed-title">Последние сигналы</h2></div><span class="live"><i></i> Демо</span></div>
+        <div id="public-status" class="public-status" role="status">Загружаем обращения…</div>
+        <div id="public-cards" class="public-cards"></div>
+      </aside>
+    </section>
+  </main>
+  <footer class="public-footer">Публично показаны только синтетические демо-обращения с выбранной точкой. Персональные данные не публикуются.</footer>
+  <script type="module" src="/static/public-map.js"></script>
+</body>
+</html>

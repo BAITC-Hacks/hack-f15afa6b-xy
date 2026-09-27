@@ -134,6 +134,40 @@ async function mountViewer(element) {
   new maplibregl.Marker({color:'#157665'}).setLngLat([longitude,latitude]).setPopup(popup).addTo(map);
 }
 
+function publicPopup(item) {
+  const card=document.createElement('article');card.className='public-popup';
+  const title=document.createElement('strong');title.textContent=item.id;
+  const text=document.createElement('p');text.textContent=item.text;
+  card.append(title,text);
+  if(item.has_photo) {
+    const image=document.createElement('img');image.src=`/api/workspace/public/complaints/${encodeURIComponent(item.id)}/photo`;
+    image.alt=`Фото проблемы к обращению ${item.id}`;image.loading='lazy';card.append(image);
+  }
+  return card;
+}
+
+export async function mountPublicMap(element, items, onSelect=()=>{}) {
+  const maplibregl=await loadLibrary();
+  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:[67.5,48],zoom:4,pitch:12,renderWorldCopies:false});
+  const bounds=new maplibregl.LngLatBounds(), markers=new Map();
+  map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
+  map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
+  items.forEach(item=>{
+    const point=[item.longitude,item.latitude];
+    const marker=new maplibregl.Marker({color:item.status==='resolved'?'#6c7c76':item.status==='confirmed'?'#157665':'#c27a2c'})
+      .setLngLat(point).setPopup(new maplibregl.Popup({offset:28}).setDOMContent(publicPopup(item))).addTo(map);
+    marker.getElement().title=`${item.id}: ${item.text}`;
+    marker.getElement().addEventListener('click',()=>onSelect(item));
+    markers.set(item.id,{marker,point});bounds.extend(point);
+  });
+  if(items.length) map.once('load',()=>map.fitBounds(bounds,{padding:70,maxZoom:14,duration:0}));
+  return id=>{
+    const selected=markers.get(id);if(!selected) return;
+    map.flyTo({center:selected.point,zoom:Math.max(map.getZoom(),14),duration:550});
+    if(!selected.marker.getPopup().isOpen()) selected.marker.togglePopup();
+  };
+}
+
 export function mountMaps(root=document) {
   root.querySelectorAll('[data-map-mode]:not([data-mounted])').forEach(element=>{
     const mount=element.dataset.mapMode==='picker'?mountPicker(element):mountViewer(element);

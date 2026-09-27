@@ -5,6 +5,14 @@ import {radarView,signalView,incidentView,stamp} from './incidents.js';
 import {authFetch,bootstrapAuth} from './auth.js';
 import {mountMaps,resetLocationPicker} from './map.js';
 
+async function photoData(input) {
+  const file=input.files[0];
+  if(!file) return null;
+  if(!['image/jpeg','image/png','image/webp'].includes(file.type)) throw new Error('Выберите фото JPEG, PNG или WebP');
+  if(file.size>4*1024*1024) throw new Error('Фото должно быть не больше 4 МБ');
+  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Не удалось прочитать фото'));reader.readAsDataURL(file);});
+}
+
 const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null};
 Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
@@ -326,13 +334,14 @@ document.addEventListener('submit',async e=>{
     const data=new FormData(form), text=data.get('text').trim();
     if(!text) throw new Error('Опишите проблему');
     const number=name=>data.get(name)?Number(data.get(name)):null;
-    const result=await api('/api/workspace/intake',{text,address:data.get('address')?.trim()||null,city_code:data.get('city_code'),district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m')});
+    if(!data.get('latitude')||!data.get('longitude')) throw new Error('Выберите место проблемы на карте');
+    const result=await api('/api/workspace/intake',{text,address:data.get('address')?.trim()||null,city_code:data.get('city_code'),district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m'),photo_data:await photoData(form.elements.photo)});
     state.trackingId=result.id;
     try {localStorage.setItem('pulse109-last-receipt',result.id);} catch { /* The receipt is usable without storage. */ }
     document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`)}</div>`;
     document.querySelector('#tracking-id').value=result.id;
     await trackCase(result.id);
-    form.querySelector('textarea').value='';form.elements.address.value='';resetLocationPicker(form);await refresh(false);
+    form.querySelector('textarea').value='';form.elements.address.value='';form.elements.photo.value='';resetLocationPicker(form);await refresh(false);
   } catch(err) {toast(err.message,true);} finally {submit.disabled=false;}
 });
 window.addEventListener('hashchange',()=>{trackingVersion++;state.tracking=null;state.group='';state.search='';render();main.focus();if(state.page==='routing') loadHealth().catch(err=>toast(err.message,true));});

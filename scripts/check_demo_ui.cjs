@@ -103,12 +103,16 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     await page.getByRole('button',{name:'✓ Подписка сохранена в демо',exact:true}).waitFor();
     await page.getByLabel('Что произошло?',{exact:true}).fill('Абай 90 үйде су жоқ. <img src=x onerror="alert(1)">');
     await page.getByLabel('Язык обращения',{exact:true}).selectOption('kk');
+    await page.locator('#citizen-photo').setInputFiles({name:'problem.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X9ZxAAAAAElFTkSuQmCC','base64')});
+    await page.locator('input[name="latitude"]').evaluate(node=>node.value='43.238949');
+    await page.locator('input[name="longitude"]').evaluate(node=>node.value='76.945123');
     assert.match(await page.getByLabel('Что произошло?',{exact:true}).inputValue(),/Абай 90/);
     await page.getByRole('button',{name:'Зарегистрировать обращение',exact:true}).click();
     await page.locator('#receipt').getByText('✓ Обращение зарегистрировано',{exact:true}).waitFor();
     await page.locator('.tracking-card').waitFor();
     const citizenId=await page.locator('.tracking-card h3').innerText();
     assert.match(await page.locator('#tracking-result').innerText(),/Ожидает решения оператора/);
+    assert.equal(await page.locator('#tracking-result .case-photo').count(),1);
     assert.equal(await page.locator('#receipt [data-action="open"]').count(),0);
     await page.reload();
     await page.locator('#tracking-id').waitFor();
@@ -164,9 +168,17 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     assert.equal(await page.locator('#case-dialog').isVisible(),false);
     assert.deepEqual(errors,[]);
     console.log('PASS UI 7: five breakpoints, mobile dialog, Escape, no console/runtime errors');
+
+    await page.goto(base+'/map');
+    await page.locator(`.public-card[data-case-id="${citizenId}"]`).waitFor();
+    assert.equal(await page.locator('.public-card').count(),1);
+    assert.equal(await page.locator('.public-card img').count(),1);
+    await page.locator('.public-card').click();
+    assert.equal(await page.locator('.public-card.selected').getAttribute('data-case-id'),citizenId);
+    console.log('PASS UI 8: anonymous public map shows the submitted problem card and photo');
   } catch(err) {
     console.error('UI failure:',await page.locator('#tracking-result').allTextContents(),errors);
     throw err;
   } finally {await browser.close();}
-  console.log('ALL 7 DEMO UI CHECKS PASSED');
+  console.log('ALL 8 DEMO UI CHECKS PASSED');
 })().catch(e=>{console.error(e);process.exitCode=1;});
