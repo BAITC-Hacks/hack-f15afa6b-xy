@@ -1,4 +1,4 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView} from './views.js?v=20260927-13';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260927-14';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260927-2';
 import {caseView} from './case.js?v=20260927-12';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
@@ -18,7 +18,7 @@ async function mediaData(input) {
   return images.includes(file.type)?{photo_data:data,video_data:null}:{photo_data:null,video_data:data};
 }
 
-const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null};
+const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[]};
 Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
@@ -40,10 +40,26 @@ function toast(text, error=false) {
   node.textContent=text; node.className=error?'error':''; node.hidden=false;
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>node.hidden=true,6000);
 }
+let subscriberId;
 function subscriberKey() {
-  let key=sessionStorage.getItem('pulse-demo-subscriber');
-  if(!key) {key=crypto.randomUUID();sessionStorage.setItem('pulse-demo-subscriber',key);}
-  return key;
+  if(subscriberId) return subscriberId;
+  try {
+    subscriberId=localStorage.getItem('pulse109-subscriber')||sessionStorage.getItem('pulse-demo-subscriber');
+    if(!subscriberId) subscriberId=crypto.randomUUID();
+    localStorage.setItem('pulse109-subscriber',subscriberId);sessionStorage.removeItem('pulse-demo-subscriber');
+  } catch {subscriberId=crypto.randomUUID();}
+  return subscriberId;
+}
+async function loadSubscriptions() {
+  const result=await api(`/api/workspace/public/subscriptions/${encodeURIComponent(subscriberKey())}`);
+  let seen={};try {seen=JSON.parse(localStorage.getItem('pulse109-subscriptions-seen')||'{}');} catch { /* New updates still load without storage. */ }
+  state.subscriptions=result.items.map(item=>({...item,changed:!!seen[item.id]&&seen[item.id]!==item.last_updated}));
+  const node=document.querySelector('#subscriptions-list');if(node) node.innerHTML=subscriptionsView(state.subscriptions);
+  try {localStorage.setItem('pulse109-subscriptions-seen',JSON.stringify(Object.fromEntries(result.items.map(item=>[item.id,item.last_updated]))));} catch { /* no-op */ }
+}
+async function subscribeCase(id) {
+  const result=await api(`/api/workspace/public/complaints/${encodeURIComponent(id)}/subscribe`,{subscriber_key:subscriberKey()});
+  await loadSubscriptions();return result;
 }
 function showSimilar(items) {
   const notice=document.querySelector('#citizen-notice');
@@ -57,6 +73,7 @@ async function registerIntake(form,payload) {
   document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`)}</div>`;
   document.querySelector('#tracking-id').value=result.id;
   document.querySelector('#citizen-notice').hidden=true;
+  try {await subscribeCase(result.id);} catch {toast('Обращение создано, но подписку на обновления не удалось включить.',true);}
   await trackCase(result.id);
   form.querySelector('textarea').value='';form.elements.address.value='';form.elements.media.value='';resetLocationPicker(form);await refresh(false);
 }
@@ -75,6 +92,7 @@ function render() {
   main.innerHTML=views[state.page](state);
   mountMaps(main);
   if(state.page==='map') mountPublicIssueExplorer(main);
+  if(state.page==='citizen') loadSubscriptions().catch(err=>{const node=document.querySelector('#subscriptions-list');if(node) node.textContent=err.message;});
 }
 async function refresh(renderPage=true) {
   const version=++loadVersion;
@@ -257,10 +275,11 @@ async function handleAction(node) {
     return;
   }
   if(action==='subscribe-case') {
-    await api(`/api/workspace/public/complaints/${encodeURIComponent(node.dataset.id)}/subscribe`,{subscriber_key:subscriberKey()});
-    node.textContent='✓ Подписка сохранена в демо';node.dataset.action='subscribed';toast('Демо-подписка сохранена. Новое обращение не создано.');return;
+    await subscribeCase(node.dataset.id);
+    node.textContent='✓ Обновления включены';node.dataset.action='subscribed';toast('Подписка сохранена. Новое обращение не создано.');return;
   }
-  if(action==='subscribed') {toast('Подписка уже сохранена в демо');return;}
+  if(action==='subscribed') {toast('Подписка уже сохранена');return;}
+  if(action==='refresh-subscriptions') {await loadSubscriptions();toast('Подписки обновлены');return;}
   if(action==='create-anyway') {
     const form=document.querySelector('#citizen-form');
     if(!form||!pendingIntake) throw new Error('Данные формы изменились. Проверьте обращение ещё раз.');

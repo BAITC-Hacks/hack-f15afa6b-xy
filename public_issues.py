@@ -3,7 +3,7 @@ import hashlib
 from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Path as ApiPath, Response
 from pydantic import BaseModel, Field, model_validator
 
 from cities import CITIES, CITY_BY_CODE
@@ -176,7 +176,20 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
             conn.execute("INSERT OR IGNORE INTO complaint_subscriptions VALUES (?, ?, ?)",
                          (cid, req.subscriber_key, datetime.now(timezone.utc).isoformat()))
             count = conn.execute("SELECT COUNT(*) FROM complaint_subscriptions WHERE complaint_id = ?", (cid,)).fetchone()[0]
-        return {"subscribed": True, "subscribers": count, "delivery": "demo_only"}
+        return {"subscribed": True, "subscribers": count, "delivery": "in_app"}
+
+    @router.get("/public/subscriptions/{subscriber_key}")
+    def subscriptions(subscriber_key: str = ApiPath(min_length=8, max_length=100)):
+        with get_connection() as conn:
+            subscribed = {row["complaint_id"]: row["created_at"] for row in conn.execute(
+                "SELECT complaint_id, created_at FROM complaint_subscriptions WHERE subscriber_key = ?",
+                (subscriber_key,),
+            )}
+        # ponytail: reuse the privacy-filtered public feed until it needs pagination.
+        items = [{**item, "subscribed_at": subscribed[item["id"]]}
+                 for item in public_complaints()["items"] if item["id"] in subscribed]
+        items.sort(key=lambda item: item["last_updated"], reverse=True)
+        return {"items": items, "count": len(items), "delivery": "in_app"}
 
     @router.get("/public/complaints/{cid}/photo")
     def public_photo(cid: str):

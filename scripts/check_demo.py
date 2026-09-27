@@ -85,6 +85,8 @@ def run():
             subscribed = call(f"/api/workspace/public/complaints/{cid}/subscribe", {"subscriber_key": "demo-user-123"})
             subscribed_again = call(f"/api/workspace/public/complaints/{cid}/subscribe", {"subscriber_key": "demo-user-123"})
             assert subscribed["subscribers"] == subscribed_again["subscribers"] == 1
+            subscriptions = call("/api/workspace/public/subscriptions/demo-user-123")
+            assert subscriptions["delivery"] == "in_app" and subscriptions["items"][0]["id"] == cid
             with urllib.request.urlopen(url + f"/api/workspace/public/complaints/{cid}/photo") as response:
                 assert response.headers.get_content_type() == "image/png" and response.read().startswith(b"\x89PNG")
             print("PASS 2: safe public location, duplicate suggestion, idempotent subscription and photo")
@@ -183,6 +185,8 @@ def run():
             before = call(f"/api/complaints/{cid}")
             tracked = call(f"/api/workspace/tracking/{cid}")
             assert tracked["status"] == "confirmed" and tracked["service_name"] == "Алматинский Су"
+            timeline_types = [item["type"] for item in tracked["timeline"]]
+            assert timeline_types[0] == "registered" and "operator_confirmed" in timeline_types
             assert tracked["incident"]["id"] == "INC-204" and "members" not in tracked["incident"]
             assert tracked["updates"][-1]["text"] == "Ваше обращение зарегистрировано."
             assert tracked["delivery"] == "demo_only" and tracked["data_origin"] == "synthetic"
