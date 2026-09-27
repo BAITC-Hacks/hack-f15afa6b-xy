@@ -18,6 +18,8 @@ from urllib.request import Request, urlopen
 from fastapi import APIRouter, HTTPException, Request as FastAPIRequest
 from pydantic import BaseModel, Field
 
+from cities import CITIES
+
 
 MAX_AUDIO_BYTES = 2 * 1024 * 1024
 MAX_TTS_AUDIO_BYTES = 2 * 1024 * 1024
@@ -57,6 +59,12 @@ NUMBER_SEQUENCE = re.compile(
     r")(?:[ -]+(?:" + "|".join(sorted(map(re.escape, NUMBER_WORDS), key=len, reverse=True)) + r"))*\b",
     re.IGNORECASE,
 )
+CITY_ALIASES = {
+    "нур султан": "710000000", "нурсултан": "710000000",
+    "алма ата": "750000000", "алмаата": "750000000",
+}
+CITY_CUES = {"адрес", "в", "во", "г", "город", "городе", "города",
+             "кала", "каласы", "каласында"}
 
 
 def normalize_address_numbers(text: str) -> str:
@@ -76,6 +84,55 @@ def normalize_address_numbers(text: str) -> str:
         return str(total + current)
 
     return NUMBER_SEQUENCE.sub(replace, text)
+
+
+def normalize_city_text(text: str) -> str:
+    table = str.maketrans("ёқғңөұүіһ", "екгноууих")
+    return re.sub(r"[^a-zа-я0-9]+", " ", text.lower().translate(table)).strip()
+
+
+def one_edit_apart(left: str, right: str) -> bool:
+    if abs(len(left) - len(right)) > 1:
+        return False
+    i = j = edits = 0
+    while i < len(left) and j < len(right):
+        if left[i] == right[j]:
+            i += 1
+            j += 1
+            continue
+        edits += 1
+        if edits > 1:
+            return False
+        if len(left) >= len(right):
+            i += 1
+        if len(right) >= len(left):
+            j += 1
+    return edits + (i < len(left) or j < len(right)) <= 1
+
+
+def detect_spoken_city(text: str) -> dict | None:
+    value = normalize_city_text(text)
+    tokens = value.split()
+    by_code = {city["code"]: city for city in CITIES}
+    variants = []
+    for city in CITIES:
+        for name in {city["name_ru"], city["name_kk"]}:
+            variants.append((normalize_city_text(name), city))
+    variants.extend((alias, by_code[code]) for alias, code in CITY_ALIASES.items())
+    variants.sort(key=lambda item: len(item[0]), reverse=True)
+    for variant, city in variants:
+        if value == variant or value.startswith(variant + " ") or value.startswith("адрес " + variant + " "):
+            return city
+    for index, token in enumerate(tokens):
+        if token not in CITY_CUES:
+            continue
+        tail = tokens[index + 1:index + 4]
+        for variant, city in variants:
+            count = len(variant.split())
+            candidate = " ".join(tail[:count])
+            if candidate and (candidate == variant or one_edit_apart(candidate, variant)):
+                return city
+    return None
 
 
 class VoiceRequest(BaseModel):
@@ -235,10 +292,13 @@ def build_voice_router() -> APIRouter:
             raise HTTPException(503, "Голосовая модель не распознала речь")
         assistant_prompt = f"{req.language}_{'address' if req.field == 'problem' else 'review'}"
         text = normalize_address_numbers(text.strip()) if req.field == "address" else text.strip()
+        city = detect_spoken_city(text) if req.field == "address" else None
         return {"text": text, "field": req.field,
                 "next_field": "address" if req.field == "problem" else "review",
                 "assistant_message": VOICE_PROMPTS[assistant_prompt][1],
                 "assistant_prompt": assistant_prompt,
+                "detected_city": ({"code": city["code"], "name_ru": city["name_ru"],
+                                   "region_id": city["region_id"]} if city else None),
                 "language": req.language, "model": result.get("model"),
                 "stt_latency_ms": result.get("latency_ms"), "total_latency_ms": total_latency,
                 "audio_stored": False}

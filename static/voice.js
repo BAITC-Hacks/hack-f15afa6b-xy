@@ -119,6 +119,24 @@ export function mergeTranscript(input,text) {
   return true;
 }
 
+export async function applyDetectedCity(city) {
+  if(!city) return false;
+  const region=document.querySelector('#citizen-region'),select=document.querySelector('#citizen-city');
+  if(!region||!select) return false;
+  const form=select.closest('form'),map=form?.querySelector('[data-map-mode="picker"][data-mounted]');
+  let timer,listener;
+  const ready=map?new Promise(resolve=>{
+    const finish=()=>{clearTimeout(timer);form.removeEventListener('pulse-city-ready',listener);resolve();};
+    listener=event=>{if(event.detail?.code===city.code) finish();};
+    form.addEventListener('pulse-city-ready',listener);timer=setTimeout(finish,2000);
+  }):Promise.resolve();
+  if(region.value!==city.region_id) {region.value=city.region_id;region.dispatchEvent(new Event('change',{bubbles:true}));}
+  select.value=city.code;
+  if(select.value!==city.code) return false;
+  select.dispatchEvent(new Event('change',{bubbles:true}));
+  await ready;return true;
+}
+
 function setControls(mode) {
   document.querySelectorAll('[data-action="voice-record"]').forEach(button=>{
     button.hidden=mode==='listening';button.disabled=mode!=='idle';
@@ -164,7 +182,7 @@ async function finish(api,toast) {
       throw new Error('Расшифровка сохранена. Вернитесь к форме, чтобы вставить её.');
     }
     try {sessionStorage.removeItem(`pulse109-voice-${result.field}`);} catch { /* no-op */ }
-    if(result.field==='address') document.querySelector('[data-address-search]')?.click();
+    if(result.field==='address') {await applyDetectedCity(result.detected_city);document.querySelector('[data-address-search]')?.click();}
     status(result.assistant_message);
     await speakPrompt(result.assistant_message,result.language,result.assistant_prompt,api);
     document.querySelector(`[data-action="voice-record"][data-field="${result.next_field}"]`)?.focus();

@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 from smoke import find_free_port, http_request, wait_for_server
-from voice_api import cached_prompt, normalize_address_numbers
+from voice_api import cached_prompt, detect_spoken_city, normalize_address_numbers
 
 
 class FakeVoice(BaseHTTPRequestHandler):
@@ -48,7 +48,7 @@ class FakeVoice(BaseHTTPRequestHandler):
             self.wfile.write(audio)
             return
         text = ("На Абая сорок четыре с утра нет воды" if body["field"] == "problem"
-                else "Абай көшесі қырық төртінші үй")
+                else "Астана қаласы Абай көшесі қырық төртінші үй")
         self.send_json(200, {"text": text, "model": "fixture-rukk", "device": "cpu",
                              "latency_ms": 12, "audio_stored": False})
 
@@ -94,6 +94,9 @@ def stop(proc):
 def run():
     assert normalize_address_numbers("Абая сорок четыре, дом двадцать шесть") == "Абая 44, дом 26"
     assert normalize_address_numbers("Абай көшесі екі жүз қырық төртінші үй") == "Абай көшесі 244 үй"
+    assert detect_spoken_city("город Ассана, улица Дала 35")["code"] == "710000000"
+    assert detect_spoken_city("Нур-Султан, проспект Кабанбай батыра")["code"] == "710000000"
+    assert detect_spoken_city("улица Абая 44") is None
     stt = ThreadingHTTPServer(("127.0.0.1", 0), FakeVoice)
     stt.service = "stt"
     tts = ThreadingHTTPServer(("127.0.0.1", 0), FakeVoice)
@@ -139,7 +142,9 @@ def run():
             address = call("/api/voice/transcribe", {
                 "audio_data": wav_data_url(), "language": "kk", "field": "address",
             })
-            assert address["text"] == "Абай көшесі 44 үй" and address["next_field"] == "review"
+            assert address["text"] == "Астана қаласы Абай көшесі 44 үй"
+            assert address["detected_city"] == {"code": "710000000", "name_ru": "Астана", "region_id": "KZ-AST"}
+            assert address["next_field"] == "review"
             call("/api/voice/transcribe", {
                 "audio_data": "data:audio/wav;base64,bm90LXdhdg==", "language": "ru", "field": "problem",
             }, 422)

@@ -117,7 +117,10 @@ async function mountPicker(element) {
   form.querySelector('[data-location-clear]').addEventListener('click',()=>resetLocationPicker(form));
   form.querySelector('[data-address-search]').addEventListener('click',()=>searchAddress(form,map,marker));
   form.elements.address.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();searchAddress(form,map,marker);}});
-  form.elements.city_code.addEventListener('change',()=>setCity(form,map).catch(error=>setStatus(form,error.message)));
+  form.elements.city_code.addEventListener('change',async()=>{
+    try {await setCity(form,map);form.dispatchEvent(new CustomEvent('pulse-city-ready',{detail:{code:form.elements.city_code.value}}));}
+    catch(error) {setStatus(form,error.message);}
+  });
   setCity(form,map,false).catch(error=>setStatus(form,error.message));
 }
 

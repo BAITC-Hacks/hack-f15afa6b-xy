@@ -1,5 +1,5 @@
-import {beginVoiceTurn,finishVoiceTurn,mergeTranscript,speakPrompt,voicePrompts} from './voice.js?v=20260927-16';
-import {mountMaps,resetLocationPicker} from './map.js?v=20260927-12';
+import {applyDetectedCity,beginVoiceTurn,finishVoiceTurn,mergeTranscript,speakPrompt,voicePrompts} from './voice.js?v=20260927-17';
+import {mountMaps,resetLocationPicker} from './map.js?v=20260927-13';
 
 const form=document.querySelector('#voice-live-form');
 const control=document.querySelector('#voice-control');
@@ -55,7 +55,7 @@ async function finishTurn() {
     const result=await finishVoiceTurn();if(!result) return;
     const input=document.querySelector(field==='problem'?'#citizen-text':'#citizen-address');
     mergeTranscript(input,result.text);message('citizen',result.text);
-    if(field==='address') document.querySelector('[data-address-search]')?.click();
+    if(field==='address') {await applyDetectedCity(result.detected_city);document.querySelector('[data-address-search]')?.click();}
     if(field==='problem') await beginTurn('address');
     else {
       stage='review';message('agent',result.assistant_message);setMode('speaking');
