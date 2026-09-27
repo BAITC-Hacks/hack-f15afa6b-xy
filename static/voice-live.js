@@ -1,4 +1,4 @@
-import {applyDetectedCity,beginVoiceTurn,finishVoiceTurn,mergeTranscript,speakPrompt,voicePrompts} from './voice.js?v=20260927-17';
+import {applyDetectedCity,beginVoiceTurn,finishVoiceTurn,mergeTranscript,previewTranscript,settleTranscriptPreview,speakPrompt,voicePrompts} from './voice.js?v=20260927-18';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260927-13';
 
 const form=document.querySelector('#voice-live-form');
@@ -48,13 +48,16 @@ function setMode(next,text='') {
   control.classList.toggle('listening',listening);control.disabled=['prompting','transcribing','speaking'].includes(next);
   reset.disabled=control.disabled||listening;language.disabled=control.disabled||listening;
   const labels={idle:'● Начать разговор',prompting:'Агент говорит…',listening:'■ Готово, закончить ответ',transcribing:'Распознаю ответ…',speaking:'Агент говорит…',review:'↻ Перезаписать ответы',retry:'● Повторить ответ'};
-  control.textContent=labels[next];liveStatus.textContent=text||({listening:'Слушаю вас · запись завершится через 30 секунд',transcribing:'Перевожу речь в текст…',review:'Проверьте заполненную форму и точку на карте',retry:'Ответ не потерян — можно повторить запись'}[next]||'Агент готов помочь');
+  control.textContent=labels[next];liveStatus.textContent=text||({listening:'Слушаю вас · закончу запись после короткой паузы',transcribing:'Перевожу речь в текст…',review:'Проверьте заполненную форму и точку на карте',retry:'Ответ не потерян — можно повторить запись'}[next]||'Агент готов помочь');
 }
 
 async function beginTurn(field) {
   stage=field;message('agent',voicePrompts[language.value][field]);
   try {
-    await beginVoiceTurn({field,language:language.value,api,onState:state=>setMode(state),onTimeout:finishTurn});
+    await beginVoiceTurn({field,language:language.value,api,onState:state=>setMode(state),onSpeech:()=>setMode('listening','Слышу вас · закончу после паузы'),onPartial:text=>{
+      previewTranscript(document.querySelector(field==='problem'?'#citizen-text':'#citizen-address'),text);
+      liveStatus.textContent='Живая расшифровка обновляет черновик…';
+    },onSilence:finishTurn,onTimeout:finishTurn});
   } catch(error) {setMode('retry',error.message);toast(error.message);}
 }
 
@@ -64,6 +67,7 @@ async function finishTurn() {
   try {
     const result=await finishVoiceTurn();if(!result) return;
     const input=document.querySelector(field==='problem'?'#citizen-text':'#citizen-address');
+    settleTranscriptPreview(input);
     mergeTranscript(input,result.text);message('citizen',result.text);
     if(field==='address') {await applyDetectedCity(result.detected_city);document.querySelector('[data-address-search]')?.click();}
     if(field==='problem') {
@@ -81,13 +85,17 @@ async function finishTurn() {
       stage='review';message('agent',result.assistant_message);setMode('speaking');
       await speakPrompt(result.assistant_message,result.language,result.assistant_prompt,api);setMode('review');
     }
-  } catch(error) {stage=field;setMode('retry',error.message);toast(error.message);}
+  } catch(error) {
+    settleTranscriptPreview(document.querySelector(field==='problem'?'#citizen-text':'#citizen-address'),true);
+    stage=field;setMode('retry',error.message);toast(error.message);
+  }
   finally {finishing=false;}
 }
 
 function resetDialogue(clearFields=true) {
   conversation.replaceChildren();message('agent','Здравствуйте! Я задам два коротких вопроса и заполню обращение вместе с вами.');
   if(clearFields) {
+    settleTranscriptPreview(form.elements.text);settleTranscriptPreview(form.elements.address);
     form.elements.text.value='';form.elements.address.value='';form.elements.media.value='';
     document.querySelector('#voice-ai-insight').hidden=true;
     document.querySelector('[data-geocode-results]').replaceChildren();resetLocationPicker(form);

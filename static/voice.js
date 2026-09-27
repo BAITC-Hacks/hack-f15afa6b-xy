@@ -1,4 +1,5 @@
 let recording=null, playback=null, processing=false;
+const voiceThreshold=.008, silenceMs=1400, previewMs=4500;
 
 export const voicePrompts={
   ru:{problem:'Расскажите, что произошло. Говорите до тридцати секунд.',address:'Теперь назовите адрес или ближайший ориентир.',review:'Проверьте текст, точку на карте и приложите фото или видео.'},
@@ -84,7 +85,29 @@ function dataUrl(blob) {
   return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(blob);});
 }
 
-export async function beginVoiceTurn({field,language,api,onState=()=>{},onTimeout=()=>{}}) {
+export function voiceActivity(samples,state,now) {
+  let energy=0;for(const sample of samples) energy+=sample*sample;
+  const rms=Math.sqrt(energy/samples.length),speaking=rms>=voiceThreshold;
+  const heard=state.heard||speaking,lastVoiceAt=speaking?now:state.lastVoiceAt;
+  return {rms,speaking,heard,lastVoiceAt,shouldStop:heard&&!speaking&&now-lastVoiceAt>=silenceMs};
+}
+
+async function previewVoice(current) {
+  if(recording!==current||current.previewPromise||!current.activity.heard) return;
+  const chunks=current.chunks.slice(),sampleCount=chunks.reduce((sum,chunk)=>sum+chunk.length,0);
+  if(sampleCount<current.context.sampleRate*2) return;
+  current.previewPromise=(async()=>{
+    try {
+      const samples=prepareSpeech(flatten(chunks),current.context.sampleRate);
+      const result=await current.api('/api/voice/transcribe',{audio_data:await dataUrl(wav(samples)),language:current.language,field:current.field});
+      if(recording===current&&result.text) current.onPartial(result.text);
+    } catch { /* A partial transcript is optional; the final pass still runs. */ }
+  })();
+  await current.previewPromise;
+  if(recording===current) current.previewPromise=null;
+}
+
+export async function beginVoiceTurn({field,language,api,onState=()=>{},onTimeout=()=>{},onPartial=()=>{},onSpeech=()=>{},onSilence=()=>{}}) {
   if(recording||processing) throw new Error('Дождитесь завершения текущего ответа');
   if(!navigator.mediaDevices?.getUserMedia) throw new Error('Браузер не поддерживает запись с микрофона');
   onState('prompting');
@@ -92,22 +115,44 @@ export async function beginVoiceTurn({field,language,api,onState=()=>{},onTimeou
   const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
   const context=new AudioContext(), source=context.createMediaStreamSource(stream);
   const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];
+  const current={field,language,stream,context,source,processor,mute,chunks,api,onPartial,activity:{heard:false,lastVoiceAt:0},silenceTriggered:false,previewPromise:null};
+  recording=current;
   mute.gain.value=0;source.connect(processor);processor.connect(mute);mute.connect(context.destination);
-  processor.onaudioprocess=event=>chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-  recording={field,language,stream,context,source,processor,mute,chunks,api};
-  recording.timer=setTimeout(onTimeout,30000);onState('listening');
+  processor.onaudioprocess=event=>{
+    const samples=new Float32Array(event.inputBuffer.getChannelData(0));chunks.push(samples);
+    const previous=current.activity,currentState=voiceActivity(samples,previous,performance.now());current.activity=currentState;
+    if(currentState.speaking&&!previous.heard) onSpeech();
+    if(currentState.shouldStop&&!current.silenceTriggered) {current.silenceTriggered=true;queueMicrotask(onSilence);}
+  };
+  current.timer=setTimeout(onTimeout,30000);
+  current.previewTimer=setInterval(()=>previewVoice(current),previewMs);onState('listening');
 }
 
 export async function finishVoiceTurn(onState=()=>{}) {
   if(!recording||processing) return null;
-  const current=recording;recording=null;processing=true;clearTimeout(current.timer);onState('transcribing');
+  const current=recording;recording=null;processing=true;clearTimeout(current.timer);clearInterval(current.previewTimer);onState('transcribing');
   const sampleRate=current.context.sampleRate;
-  current.processor.disconnect();current.source.disconnect();current.mute.disconnect();
+  current.processor.onaudioprocess=null;current.processor.disconnect();current.source.disconnect();current.mute.disconnect();
   current.stream.getTracks().forEach(track=>track.stop());await current.context.close();
   try {
+    if(current.previewPromise) await current.previewPromise;
     const samples=prepareSpeech(flatten(current.chunks),sampleRate);
     return await current.api('/api/voice/transcribe',{audio_data:await dataUrl(wav(samples)),language:current.language,field:current.field});
   } finally {processing=false;}
+}
+
+export function previewTranscript(input,text) {
+  if(!input||!text) return false;
+  if(!('voiceOriginal' in input.dataset)) input.dataset.voiceOriginal=input.value;
+  const original=input.dataset.voiceOriginal.trim();input.value=original?`${original} ${text}`:text;
+  input.dataset.voicePreview='true';input.dispatchEvent(new Event('input',{bubbles:true}));return true;
+}
+
+export function settleTranscriptPreview(input,keep=false) {
+  if(!input?.dataset.voicePreview) return false;
+  if(!keep) input.value=input.dataset.voiceOriginal;
+  delete input.dataset.voiceOriginal;delete input.dataset.voicePreview;
+  input.dispatchEvent(new Event('input',{bubbles:true}));return true;
 }
 
 export function mergeTranscript(input,text) {
@@ -168,7 +213,9 @@ async function start(field,language,api,toast) {
     await beginVoiceTurn({field,language,api,onState:mode=>{
       status(mode==='prompting'?'Агент задаёт вопрос…':'Слушаю… Нажмите «Готово», когда закончите.');
       if(mode==='listening') setControls('listening');
-    },onTimeout:()=>finish(api,toast)});
+    },onSpeech:()=>status('Слышу вас… Остановлю запись после паузы.'),onPartial:text=>{
+      previewTranscript(target(field),text);status('Черновик обновляется во время разговора…');
+    },onSilence:()=>finish(api,toast),onTimeout:()=>finish(api,toast)});
   } catch(error) {setControls('idle');status('Готов к записи');throw error;}
 }
 
@@ -177,6 +224,7 @@ async function finish(api,toast) {
   try {
     const result=await finishVoiceTurn();if(!result) return;
     const input=target(result.field);
+    settleTranscriptPreview(input);
     if(!mergeTranscript(input,result.text)) {
       try {sessionStorage.setItem(`pulse109-voice-${result.field}`,result.text);} catch { /* no-op */ }
       throw new Error('Расшифровка сохранена. Вернитесь к форме, чтобы вставить её.');
@@ -187,6 +235,7 @@ async function finish(api,toast) {
     await speakPrompt(result.assistant_message,result.language,result.assistant_prompt,api);
     document.querySelector(`[data-action="voice-record"][data-field="${result.next_field}"]`)?.focus();
   } catch(error) {
+    for(const field of ['problem','address']) settleTranscriptPreview(target(field),true);
     status('Не удалось распознать запись. Можно повторить или ввести текст.');
     toast(error.message||'Не удалось распознать запись',true);
   } finally {setControls('idle');}
