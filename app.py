@@ -31,7 +31,17 @@ from decision import DecisionService
 from object_storage import object_storage
 from voice_api import build_voice_router
 
-BANNER_TEXT = "SYNTHETIC DEMO — MODELS NOT TRAINED"
+def banner_text():
+    mode = os.environ.get("P109_DECISION_PROVIDER", "mock")
+    checkpoint = os.environ.get("P109_LAYA_CHECKPOINT_ID")
+    if checkpoint and mode == "shadow":
+        return "SYNTHETIC DEMO — TRAINED MODEL · SHADOW ONLY"
+    if checkpoint and mode in {"laya", "hybrid"}:
+        return "SYNTHETIC DEMO — TRAINED MODEL · OPERATOR REVIEW REQUIRED"
+    return "SYNTHETIC DEMO — MODELS NOT TRAINED"
+
+
+BANNER_TEXT = banner_text()
 
 REGIONS = [
     {"id": f"KZ-{k}", "name_ru": ru, "name_kk": kk}

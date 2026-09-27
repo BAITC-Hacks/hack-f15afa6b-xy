@@ -189,6 +189,7 @@ def run():
                 assert health["status"] == "ok" and health["laya"]["status"] == "healthy"
                 assert health["training_status"] == "candidate_checkpoint_configured"
                 assert health["checkpoint_id"] == CHECKPOINT_ID
+                assert "TRAINED MODEL" in health["banner"]
 
                 high = intake("На Абая 44 с утра нет холодной воды во всём доме, телефон +7 777 123 45 67, ИИН 123456789012")
                 detail = call(f"/api/workspace/complaints/{high}/triage", {})
@@ -266,6 +267,7 @@ def run():
                 assert shadow_health["training_status"] == "shadow_evaluation"
                 assert shadow_health["checkpoint_id"] == CHECKPOINT_ID
                 assert shadow_health["laya"]["spam_threshold"] == .9
+                assert "TRAINED MODEL · SHADOW ONLY" in shadow_health["banner"]
 
                 def shadow_triage(text):
                     code, created = http_request(url + "/api/workspace/intake", "POST", {
