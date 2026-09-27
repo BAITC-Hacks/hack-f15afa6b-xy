@@ -288,6 +288,14 @@ document.addEventListener('change',async e=>{
   if(e.target.id==='show-ignored') {state.showIgnored=e.target.checked;render();}
   if(e.target.id==='incident-status') document.querySelector('#incident-next').required=e.target.value!=='Завершён';
   if(e.target.id==='queue-region') {state.region=e.target.value;render();}
+  if(e.target.id==='citizen-region') {
+    const citySelect=document.querySelector('#citizen-city');
+    const cities=state.cities.filter(city=>city.region_id===e.target.value).sort((a,b)=>a.name_ru.localeCompare(b.name_ru,'ru'));
+    citySelect.replaceChildren(...cities.map(city=>{
+      const option=new Option(city.name_ru,city.code);option.dataset.name=city.name_ru;option.dataset.region=city.region_id;return option;
+    }));
+    citySelect.dispatchEvent(new Event('change',{bubbles:true}));
+  }
   if(e.target.id==='citizen-city'||e.target.id==='citizen-district') {
     const form=document.querySelector('#citizen-form'), notice=document.querySelector('#citizen-notice');
     if(form&&notice) notice.hidden=form.elements.region_id.value!=='KZ-ALA'||form.elements.district.value!=='Алмалинский';

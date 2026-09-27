@@ -91,6 +91,12 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     console.log('PASS UI 4: dashboard, operator load and incident members update');
 
     await page.locator('[data-nav="citizen"]').click();
+    await page.locator('#citizen-city').waitFor();
+    assert.equal(await page.locator('#citizen-city option').count(),1);
+    await page.locator('#citizen-region').selectOption('KZ-AKM');
+    assert.equal(await page.locator('#citizen-city option').count(),11);
+    assert.match(await page.locator('#citizen-city').innerText(),/Атбасар/);
+    await page.locator('#citizen-region').selectOption('KZ-ALA');
     await page.getByLabel('Район (необязательно)',{exact:true}).fill('Алмалинский');
     await page.getByLabel('Район (необязательно)',{exact:true}).press('Tab');
     await action('subscribe').click();

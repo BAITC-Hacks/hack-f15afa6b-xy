@@ -45,7 +45,6 @@ function selectedCity(form) {
 
 async function setCity(form, map, reset=true) {
   const city=selectedCity(form);
-  form.elements.region_id.value=city.regionId;
   if(reset) {
     resetLocationPicker(form);form.elements.district.value='';
     form.elements.district.dispatchEvent(new Event('change',{bubbles:true}));
