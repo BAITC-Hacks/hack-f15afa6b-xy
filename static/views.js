@@ -86,7 +86,7 @@ export function trackingView(t) {
     <p class="micro">Статус из демо-базы. Внешняя доставка сообщений не подключена.</p></article>`;
 }
 function voiceAgent() {
-  return `<section class="voice-agent" aria-labelledby="voice-agent-title"><div class="voice-orb" aria-hidden="true"><i></i><i></i><i></i></div><div class="voice-copy"><span class="eyebrow">PULSE VOICE · RU / KK</span><h3 id="voice-agent-title">Заполнить голосом</h3><p>Помощник спросит о проблеме и адресе. Запись не сохраняется.</p><div class="voice-actions">${button('voice-record','● Рассказать о проблеме','primary','data-field="problem"')}${button('voice-record','● Назвать адрес','ghost','data-field="address"')}${button('voice-stop','Готово','voice-stop','hidden')}</div><p class="micro" data-voice-status role="status" aria-live="polite">Готов к записи · до 30 секунд</p></div></section>`;
+  return `<section class="voice-agent" aria-labelledby="voice-agent-title"><div class="voice-orb" aria-hidden="true"><i></i><i></i><i></i></div><div class="voice-copy"><span class="eyebrow">PULSE VOICE · RU / KK</span><h3 id="voice-agent-title">Заполнить голосом</h3><p>Помощник спросит о проблеме и адресе. Запись не сохраняется.</p><div class="voice-actions"><a class="button primary" href="/voice">Открыть Live-диалог ↗</a>${button('voice-record','● Быстрая запись','ghost','data-field="problem"')}${button('voice-record','● Назвать адрес','ghost','data-field="address"')}${button('voice-stop','Готово','voice-stop','hidden')}</div><p class="micro" data-voice-status role="status" aria-live="polite">Готов к записи · до 30 секунд</p></div></section>`;
 }
 export function citizenView(s) {
   const cities=[...s.cities].sort((a,b)=>a.name_ru.localeCompare(b.name_ru,'ru'));

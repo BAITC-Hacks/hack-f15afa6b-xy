@@ -92,11 +92,21 @@ def run() -> None:
             assert anonymous.request(base_url + "/api/auth/me")[0] == 401
             assert anonymous.request(base_url + "/api/workspace/queue")[0] == 401
             assert anonymous.request(base_url + "/map")[0] == 200
+            voice_status, voice_page, voice_headers = anonymous.request(base_url + "/voice")
+            assert voice_status == 200 and "Pulse Voice" in voice_page["raw"]
+            assert voice_headers["Permissions-Policy"] == "camera=(), microphone=(self), geolocation=(self)"
+            status, voice_health, _ = anonymous.request(base_url + "/api/voice/health")
+            assert status == 200 and voice_health["status"] == "disabled"
+            status, city_data, _ = anonymous.request(base_url + "/api/workspace/cities")
+            assert status == 200 and city_data["count"] > 80
             status, public_map, _ = anonymous.request(base_url + "/api/workspace/public/complaints")
-            assert status == 200 and public_map == {"items": [], "count": 0, "data_origin": "synthetic"}
+            assert status == 200 and public_map["count"] == len(public_map["items"])
+            assert public_map["data_origin"] == "synthetic" and all(
+                item["id"].startswith("syn-") for item in public_map["items"]
+            )
             status, config, _ = anonymous.request(base_url + "/api/auth/config")
             assert status == 200 and config["signup_available"] and config["first_account"]
-            print("PASS 1: public map is anonymous; operator data remains protected")
+            print("PASS 1: public map and voice intake are anonymous; operator data remains protected")
 
             valid_password = "correct horse battery staple"
             invalid_signups = (

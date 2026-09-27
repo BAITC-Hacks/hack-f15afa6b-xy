@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102a24"><link rel="icon" href="data:,">
+  <title>Pulse Voice — живое обращение</title>
+  <link rel="stylesheet" href="/static/workspace.css?v=20260927-14">
+  <link rel="stylesheet" href="/static/voice-live.css?v=20260927-1">
+</head>
+<body class="voice-live-body">
+  <a class="skip" href="#voice-main">К диалогу</a>
+  <header class="voice-live-header">
+    <a class="voice-live-brand" href="/"><span class="brandmark" aria-hidden="true">⌁</span><strong>pulse<span>109</span></strong></a>
+    <div><span class="live-health" data-voice-health>Проверяем голосовой сервис…</span><a class="button ghost" href="/#citizen">Обычная форма</a></div>
+  </header>
+  <main id="voice-main" class="voice-live-main">
+    <section class="voice-room" aria-labelledby="voice-title">
+      <div class="voice-room-heading"><p class="eyebrow">PULSE VOICE · LIVE</p><h1 id="voice-title">Расскажите — агент заполнит заявку</h1><p>Диалог идёт на русском или казахском. Аудиозапись не сохраняется.</p></div>
+      <div class="live-orb" data-live-orb aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+      <div id="voice-conversation" class="voice-conversation" aria-live="polite"></div>
+      <div class="voice-live-controls">
+        <label for="live-language">Язык диалога</label>
+        <select id="live-language" name="language" form="voice-live-form">
+          <option value="ru">Русский</option><option value="kk">Қазақша</option><option value="mixed">Қазақша + Русский</option>
+        </select>
+        <button id="voice-control" class="live-control" type="button"><span aria-hidden="true">●</span> Начать разговор</button>
+        <button id="voice-reset" class="button ghost" type="button">Начать заново</button>
+      </div>
+      <p id="voice-live-status" class="voice-live-status" role="status" aria-live="polite">Агент готов помочь</p>
+    </section>
+
+    <aside class="voice-draft" aria-labelledby="draft-title">
+      <div class="draft-heading"><div><p class="eyebrow">ЗАЯВКА ЗАПОЛНЯЕТСЯ СЕЙЧАС</p><h2 id="draft-title">Черновик обращения</h2></div><span class="draft-state">Сохранится после отправки</span></div>
+      <form id="voice-live-form">
+        <label for="citizen-text">Что произошло?</label>
+        <textarea id="citizen-text" name="text" rows="5" maxlength="10000" required placeholder="Ответ появится здесь после первого вопроса"></textarea>
+
+        <div class="draft-grid">
+          <div><label for="citizen-region">Область или регион</label><select id="citizen-region" name="region_id" required></select></div>
+          <div><label for="citizen-city">Город</label><select id="citizen-city" name="city_code" required></select></div>
+        </div>
+        <input id="citizen-district" name="district" type="hidden">
+
+        <label for="citizen-address">Адрес или ориентир</label>
+        <div class="address-search"><input id="citizen-address" name="address" maxlength="200" autocomplete="street-address" placeholder="Ответ появится здесь после второго вопроса"><button type="button" class="button" data-address-search>Найти</button></div>
+        <div class="geocode-results" data-geocode-results aria-live="polite"></div>
+
+        <fieldset class="location-field"><legend>Точка на карте</legend><div class="map-shell"><div id="citizen-map" class="issue-map issue-map-picker" data-map-mode="picker" aria-label="Выберите место обращения на карте"></div><span class="map-tip" data-city-label>Алматы · интерактивная карта</span></div><div class="location-status"><span data-location-status role="status">Назовите адрес или выберите точку</span><button type="button" class="button ghost small" data-location-clear>Сбросить</button></div><input type="hidden" name="latitude"><input type="hidden" name="longitude"><input type="hidden" name="location_accuracy_m"></fieldset>
+
+        <label for="citizen-media">Фото или видео проблемы</label>
+        <input id="citizen-media" name="media" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" aria-describedby="media-help"><p id="media-help" class="micro photo-help">Фото до 4 МБ · видео MP4/WebM до 12 МБ</p>
+        <button id="voice-submit" class="button primary wide" type="submit">Проверить и отправить обращение</button>
+        <div id="voice-receipt" role="status" aria-live="polite"></div>
+      </form>
+    </aside>
+  </main>
+  <div id="voice-toast" role="alert" hidden></div>
+  <script type="module" src="/static/voice-live.js?v=20260927-1"></script>
+</body>
+</html>

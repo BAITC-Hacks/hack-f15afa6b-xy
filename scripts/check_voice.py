@@ -69,7 +69,8 @@ def start_pulse(root, db, stt_url, tts_url):
     env = os.environ.copy()
     env.update({"DATABASE_PATH": str(db), "PYTHONPATH": str(root), "P109_AUTH_DISABLED": "1",
                 "P109_STT_BASE_URL": stt_url, "P109_STT_TIMEOUT": "1",
-                "P109_TTS_BASE_URL": tts_url, "P109_TTS_TIMEOUT": "1"})
+                "P109_TTS_BASE_URL": tts_url, "P109_TTS_TIMEOUT": "1",
+                "P109_VOICE_REQUESTS_PER_MINUTE": "5"})
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -138,6 +139,9 @@ def run():
             assert address["assistant_prompt"] == "kk_review"
             print("PASS 3: problem → address → review dialogue validates WAV and keeps no audio")
 
+            call("/api/voice/speak", {"prompt": "ru_problem"}, 429)
+            print("PASS 4: public voice inference is rate limited per client")
+
             video = b"\x1aE\xdf\xa3pulse109-demo"
             video_data = "data:video/webm;base64," + base64.b64encode(video).decode()
             created = call("/api/workspace/intake", {
@@ -152,18 +156,18 @@ def run():
             assert detail["complaint"]["has_video"] and tracked["has_video"] and public_case["has_video"]
             with urlopen(Request(url + f"/api/workspace/public/complaints/{created['id']}/video")) as response:
                 assert response.headers.get_content_type() == "video/webm" and response.read() == video
-            print("PASS 4: voice transcript and WebM evidence create a normal mapped complaint")
+            print("PASS 5: voice transcript and WebM evidence create a normal mapped complaint")
 
             call("/api/workspace/intake", {
                 "text": "test", "region_id": "KZ-ALA", "photo_data": "x", "video_data": "x",
             }, 422)
-            print("PASS 5: intake accepts one bounded photo or video, never both")
+            print("PASS 6: intake accepts one bounded photo or video, never both")
         finally:
             stop(proc)
     for server in (stt, tts):
         server.shutdown()
         server.server_close()
-    print("ALL 5 VOICE AGENT CHECKS PASSED")
+    print("ALL 6 VOICE AGENT CHECKS PASSED")
 
 
 if __name__ == "__main__":

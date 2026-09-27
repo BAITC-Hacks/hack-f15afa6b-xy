@@ -6,12 +6,14 @@ import base64
 import binascii
 import json
 import os
+import threading
 import time
+from collections import deque
 from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request as FastAPIRequest
 from pydantic import BaseModel, Field
 
 
@@ -63,11 +65,30 @@ def build_voice_router() -> APIRouter:
     tts_timeout = float(os.environ.get("P109_TTS_TIMEOUT", "35"))
     stt_key = os.environ.get("P109_STT_API_KEY")
     tts_key = os.environ.get("P109_TTS_API_KEY")
+    try:
+        requests_per_minute = int(os.environ.get("P109_VOICE_REQUESTS_PER_MINUTE", "30"))
+    except ValueError:
+        raise ValueError("P109_VOICE_REQUESTS_PER_MINUTE must be an integer") from None
+    if not 1 <= requests_per_minute <= 600:
+        raise ValueError("P109_VOICE_REQUESTS_PER_MINUTE must be between 1 and 600")
+    attempts: dict[str, deque[float]] = {}
+    attempts_lock = threading.Lock()
     for name, value in (("P109_STT_BASE_URL", stt_url), ("P109_TTS_BASE_URL", tts_url)):
         if value and not value.startswith(("http://", "https://")):
             raise ValueError(f"{name} must start with http:// or https://")
     if stt_timeout <= 0 or tts_timeout <= 0:
         raise ValueError("Voice service timeouts must be positive")
+
+    def limit(request: FastAPIRequest):
+        key = request.client.host if request.client else "unknown"
+        cutoff = time.monotonic() - 60
+        with attempts_lock:
+            recent = attempts.setdefault(key, deque())
+            while recent and recent[0] < cutoff:
+                recent.popleft()
+            if len(recent) >= requests_per_minute:
+                raise HTTPException(429, "Слишком много голосовых запросов. Подождите минуту")
+            recent.append(time.monotonic())
 
     def request_json(base_url: str, timeout: float, api_key: str | None,
                      path: str, payload: dict | None = None) -> tuple[dict, int]:
@@ -136,7 +157,8 @@ def build_voice_router() -> APIRouter:
         return result
 
     @router.post("/transcribe")
-    def transcribe(req: VoiceRequest):
+    def transcribe(req: VoiceRequest, request: FastAPIRequest):
+        limit(request)
         decode_wav_data(req.audio_data)
         if not stt_url:
             raise HTTPException(503, "Голосовая модель не запущена")
@@ -156,7 +178,8 @@ def build_voice_router() -> APIRouter:
                 "audio_stored": False}
 
     @router.post("/speak")
-    def speak(req: SpeechRequest):
+    def speak(req: SpeechRequest, request: FastAPIRequest):
+        limit(request)
         prompt = VOICE_PROMPTS.get(req.prompt)
         if prompt is None:
             raise HTTPException(422, "Неизвестная реплика голосового помощника")

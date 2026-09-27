@@ -208,12 +208,18 @@ def _is_public(request: Request) -> bool:
         "/api/health",
         "/api/regions",
         "/api/topics",
+        "/api/voice/health",
+        "/api/workspace/cities",
         "/api/auth/config",
         "/api/auth/login",
         "/api/auth/signup",
     }:
         return True
-    if method == "POST" and path in {"/api/intake", "/api/workspace/intake"}:
+    if method == "GET" and path in {"/api/workspace/city-map", "/api/workspace/geocode"}:
+        return True
+    if method == "POST" and path in {
+        "/api/intake", "/api/workspace/intake", "/api/voice/transcribe", "/api/voice/speak"
+    }:
         return True
     if method == "GET" and re.fullmatch(r"/api/workspace/tracking/[^/]+", path):
         return True
@@ -230,7 +236,7 @@ def _security_headers(response, path: str = ""):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=(self)"
     if path.startswith("/api/auth"):
         response.headers["Cache-Control"] = "no-store"
     return response
