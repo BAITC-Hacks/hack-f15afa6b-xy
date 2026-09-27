@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from auth import current_actor, init_auth, install_auth
 from data_coverage import CoverageUnavailable, load_coverage
 from clarification import build_clarification_router, get_received_clarifications
+from copilot import QwenCopilot
 from queue_api import build_queue_router
 from demo_data import init_workspace
 from playbooks import faq_closed
@@ -204,6 +205,7 @@ def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str
 
 
 decision_service = DecisionService(mock_classify, TOPIC_SERVICE_MAP, TOPICS)
+copilot = QwenCopilot.from_env()
 app.include_router(build_voice_router(decision_service.classify, TOPICS))
 @app.get("/api/health")
 def health_check():
@@ -214,6 +216,7 @@ def health_check():
         "mode": decision_service.mode,
         **model,
         "laya": decision_service.health(),
+        "copilot": copilot.status() if copilot else {"configured": False, "mode": "deterministic_fallback"},
         "object_storage": object_storage().status(),
         "banner": BANNER_TEXT,
     }
@@ -504,7 +507,8 @@ def get_reports(format: str = Query("pdf")):
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.include_router(build_workspace_router(get_connection, mock_classify, TOPIC_SERVICE_MAP, VALID_REGION_IDS,
-                                         {t["id"]: t["name_ru"] for t in TOPICS}, decision_service))
+                                         {t["id"]: t["name_ru"] for t in TOPICS}, decision_service,
+                                         copilot))
 app.include_router(build_incident_router(get_connection, mock_classify, TOPIC_SERVICE_MAP))
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")

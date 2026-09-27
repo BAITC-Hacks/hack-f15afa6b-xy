@@ -33,6 +33,9 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     await page.getByRole('heading',{name:'17 похожих обращений',exact:true}).waitFor();
     assert.match(await page.locator('#case-dialog').innerText(),/94%[\s\S]*Айдана К.[\s\S]*Слоты 2\/5 · 60\/150 баллов/);
     const cid=await page.locator('#case-title').innerText();
+    await action('ask-copilot').click();
+    await page.getByRole('button',{name:'Обновить',exact:true}).waitFor();
+    assert.match(await page.locator('.copilot').innerText(),/Self-hosted Qwen не настроен/);
     if(process.argv[3]) await page.screenshot({path:path.join(process.argv[3],'pulse109-case.png')});
     await action('confirm').click();
     await apply();
@@ -43,7 +46,7 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     await action('save-reply').click();
     await page.locator('.timeline').getByText('Ответ сохранён в демо',{exact:true}).nth(1).waitFor();
     await close();
-    console.log('PASS UI 1: 30 active Almaty cases; triage, 17 matches, one-click decision and saved reply');
+    console.log('PASS UI 1: triage, Copilot fallback, 17 matches, one-click decision and saved reply');
 
     await open('PULSE-2420');
     assert.match(await page.locator('#case-dialog').innerText(),/Риск 87%[\s\S]*5 одинаковых/);

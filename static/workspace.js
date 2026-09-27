@@ -1,6 +1,6 @@
 import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260928-1';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260927-2';
-import {caseView} from './case.js?v=20260927-12';
+import {caseView} from './case.js?v=20260928-1';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
 import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260927-13';
@@ -313,10 +313,23 @@ async function handleAction(node) {
     await api(`/api/complaints/${encodeURIComponent(c.id)}/resume`,{});
     await refresh();if(dialog.open && version===caseVersion) await openCase(c.id);toast('Уточнение сохранено; анализ обновлён');return;
   }
+  if(action==='ask-copilot') {
+    const version=caseVersion;
+    const result=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/copilot`,{});
+    if(version!==caseVersion||!dialog.open) return;
+    d.copilot=result;rerenderCase();
+    toast(result.available?'Qwen подготовил рекомендацию':'Показан безопасный шаблон: Qwen недоступен');return;
+  }
+  if(action==='copilot-helpful'||action==='copilot-unhelpful') {
+    await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/copilot/feedback`,{
+      result_id:d.copilot.result_id,helpful:action==='copilot-helpful',
+    });
+    d.copilot.feedbackSaved=true;rerenderCase();toast('Оценка сохранена для улучшения Copilot');return;
+  }
   if(['insert-reply','edit-reply','reject-reply'].includes(action)) {
     const field=document.querySelector('#reply-text');
     if(!field) {toast('Сначала дождитесь уточнения гражданина');return;}
-    field.value=action==='reject-reply'?'':d.suggested_response;
+    field.value=action==='reject-reply'?'':d.copilot?.suggested_reply||d.suggested_response;
     field.focus(); if(action==='edit-reply') field.select();
     if(action==='reject-reply') toast('Шаблон отклонён. Можно написать свой ответ.');return;
   }

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 from auth import current_actor
 from cities import CITY_BY_CODE, attach_city_routes, normalized_address_query
 from clarification import VALID_CLARIFICATION_REASONS, get_received_clarifications
+from copilot import attach_copilot_routes
 from demo_data import seed_workspace
 from object_storage import ObjectStorageError, object_storage
 from playbooks import attach_playbook_routes
@@ -163,7 +164,7 @@ def suggested_response(c):
 
 
 def build_workspace_router(get_connection, classifier, topic_services, valid_regions, topic_names=None,
-                           decision_service=None):
+                           decision_service=None, copilot=None):
     router = APIRouter(prefix="/api/workspace")
     storage = object_storage()
     attach_city_routes(router)
@@ -558,6 +559,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                 "ai_evidence": ai_evidence(),
                 "note": "Счётчики синтетической SQLite. Экономия времени не измерялась."}
 
+    attach_copilot_routes(router, get_connection, complaint, detail, suggested_response, event, copilot)
     attach_playbook_routes(router, get_connection, {
         "complaint": complaint, "detail": detail, "analysis": analysis, "routing": routing_for,
         "operators": operators_with_load, "checked_incident": checked_incident, "writable": writable,
