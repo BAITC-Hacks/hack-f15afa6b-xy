@@ -144,6 +144,16 @@ def run():
                 }, 409)
                 print("PASS 3: audit stores only model metadata; feedback must match the latest result")
 
+                request_count = len(FakeQwen.requests)
+                kk = call("/api/workspace/intake", {
+                    "text": "Бүкіл үйде таңертеңнен бері су жоқ", "region_id": "KZ-ALA", "language": "kk",
+                }, 201)["id"]
+                call(f"/api/workspace/complaints/{kk}/triage", {})
+                kk_fallback = call(f"/api/workspace/complaints/{kk}/copilot", {})
+                assert not kk_fallback["available"] and kk_fallback["suggested_reply"].startswith("Өтінішіңіз")
+                assert len(FakeQwen.requests) == request_count and "quality gate" in kk_fallback["fallback_reason"]
+                print("PASS 4: KK stays behind the quality gate with a natural Kazakh fallback")
+
                 bad = call("/api/workspace/intake", {
                     "text": "malformed: непонятная проблема", "region_id": "KZ-ALA", "language": "ru",
                 }, 201)["id"]
@@ -151,13 +161,13 @@ def run():
                 fallback = call(f"/api/workspace/complaints/{bad}/copilot", {})
                 assert not fallback["available"] and fallback["mode"] == "deterministic_fallback"
                 assert fallback["suggested_reply"] and fallback["fallback_reason"]
-                print("PASS 4: malformed model output falls back without blocking the operator")
+                print("PASS 5: malformed model output falls back without blocking the operator")
             finally:
                 stop(process)
     finally:
         qwen_server.shutdown()
         qwen_server.server_close()
-    print("ALL 4 COPILOT CHECKS PASSED")
+    print("ALL 5 COPILOT CHECKS PASSED")
 
 
 if __name__ == "__main__":

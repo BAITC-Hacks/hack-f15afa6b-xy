@@ -225,6 +225,9 @@ def attach_copilot_routes(router, get_connection, complaint, detail, suggested_r
             }
             if not copilot:
                 return {**fallback, "fallback_reason": "Self-hosted Qwen не настроен"}
+            if c["language"] != "ru":
+                return {**fallback, "fallback_reason":
+                        "Qwen для казахского и смешанного текста остаётся за quality gate до дообучения"}
             context = {
                 "language": c["language"],
                 "complaint": sanitize_text(c["text"], c.get("address")),
