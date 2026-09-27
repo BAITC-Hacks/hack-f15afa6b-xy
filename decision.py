@@ -48,6 +48,7 @@ class BooleanDecision(BaseModel):
     value: bool
     confidence: float = Field(ge=0, le=1)
     probability_true: float = Field(ge=0, le=1)
+    threshold: float | None = Field(default=None, ge=0, le=1)
 
 
 class TriageContract(BaseModel):
@@ -163,10 +164,13 @@ def laya_triage_questions(criteria: dict[str, str]) -> dict[str, dict[str, Any]]
 
 class LayaDecisionProvider(DecisionProvider):
     def __init__(self, client: LayaClient, topics: list[dict[str, str]], gate: DecisionGate,
-                 checkpoint_id: str | None = None):
+                 checkpoint_id: str | None = None, spam_threshold: float = .9):
+        if not 0 <= spam_threshold <= 1:
+            raise ValueError("Spam threshold must be between 0 and 1")
         self.client = client
         self.gate = gate
         self.checkpoint_id = checkpoint_id
+        self.spam_threshold = spam_threshold
         self.criteria = {topic["id"]: CATEGORY_GUIDANCE.get(
             topic["id"], f"{topic['name_ru']} / {topic['name_kk']}") for topic in topics}
         self.allowed = set(self.criteria)
@@ -207,9 +211,10 @@ class LayaDecisionProvider(DecisionProvider):
             category=ChoiceDecision(value=category, confidence=confidence, alternatives=alternatives),
             needs_clarification=BooleanDecision(value=needs, confidence=max(needs_probability, 1 - needs_probability),
                                                 probability_true=needs_probability),
-            spam_suspected=BooleanDecision(value=spam_probability >= 0.5,
+            spam_suspected=BooleanDecision(value=spam_probability >= self.spam_threshold,
                                            confidence=max(spam_probability, 1 - spam_probability),
-                                           probability_true=spam_probability),
+                                           probability_true=spam_probability,
+                                           threshold=self.spam_threshold),
             urgency=ChoiceDecision(value=urgency, confidence=urgency_confidence),
             language=complaint.get("language") or "unknown", provider="laya",
             provider_version=version, decision=self.gate.choose(confidence, needs),
@@ -257,7 +262,8 @@ class DecisionService:
             float(os.environ.get("P109_LAYA_TIMEOUT", "8")),
             os.environ.get("P109_LAYA_MODEL", "multilingual"),
             os.environ.get("P109_LAYA_API_KEY"),
-        ), topics, self.gate, os.environ.get("P109_LAYA_CHECKPOINT_ID") or None)
+        ), topics, self.gate, os.environ.get("P109_LAYA_CHECKPOINT_ID") or None,
+            float(os.environ.get("P109_LAYA_SPAM_THRESHOLD", ".9")))
         self.enable_verification = os.environ.get("P109_ENABLE_VERIFICATION", "1").lower() in {"1", "true", "yes", "on"}
         self.demo_fallback = os.environ.get("P109_LAYA_DEMO_FALLBACK", "0").lower() in {"1", "true", "yes", "on"}
 
@@ -287,6 +293,7 @@ class DecisionService:
                             "confidence": laya.category.confidence,
                             "urgency": laya.urgency.value,
                             "urgency_confidence": laya.urgency.confidence,
+                            "spam_suspected": laya.spam_suspected.model_dump(),
                             "decision": laya.decision,
                             "checkpoint_id": laya.provider_version,
                         },
@@ -441,7 +448,7 @@ class DecisionService:
     def health(self) -> dict[str, Any]:
         if self.mode not in {"shadow", "laya", "hybrid"}:
             return {"status": "disabled"}
-        return self.laya.health()
+        return {**self.laya.health(), "spam_threshold": self.laya.spam_threshold}
 
     def model_metadata(self, provider: str | None = None) -> dict[str, Any]:
         provider = provider or self.mode

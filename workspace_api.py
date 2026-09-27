@@ -167,7 +167,11 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         risk = risk_for(c, rows)
         spam = ai.get("spam_suspected") or {}
         if spam.get("value") and not c.get("safety_reviewed"):
-            risk["reasons"].append(f"Laya: подозрение на спам {round(100 * spam['probability_true'])}%")
+            threshold = spam.get("threshold", .5)
+            risk["reasons"].append(
+                f"Laya: подозрение на спам {round(100 * spam['probability_true'])}% "
+                f"(порог {round(100 * threshold)}%)"
+            )
             risk["score"] = max(risk["score"], spam["probability_true"])
             risk["kind"] = "deterministic_plus_laya_signal"
         ops = operators if operators is not None else operators_with_load(conn)

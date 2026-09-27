@@ -74,6 +74,8 @@ class FakeLaya(BaseHTTPRequestHandler):
             answers["category_confirmed"] = {"type": "noul", "noul": probability,
                                                "confidence": max(probability, 1 - probability)}
         else:
+            spam_probability = (.89 if "borderline-spam" in text else
+                                .92 if "рекламу" in text.lower() else .02)
             category = "sewerage" if "disagreement" in text else "water_supply"
             confidence = (.77 if "disagreement" in text else .31 if "low-confidence" in text else
                           .57 if "возле люка" in text else .72 if "medium-yes" in text or "verify-slow" in text else .94)
@@ -88,8 +90,8 @@ class FakeLaya(BaseHTTPRequestHandler):
                              "answer_confidence": confidence},
                 "needs_clarification": {"type": "noul", "noul": .91 if "needs-clarification" in text else .08,
                                         "confidence": .91 if "needs-clarification" in text else .92},
-                "spam_suspected": {"type": "noul", "noul": .92 if "рекламу" in text.lower() else .02,
-                                   "confidence": .92 if "рекламу" in text.lower() else .98},
+                "spam_suspected": {"type": "noul", "noul": spam_probability,
+                                   "confidence": max(spam_probability, 1 - spam_probability)},
                 "urgency": {"type": "choice", "choice": "urgent" if "опасно" in text else "normal",
                             "probabilities": {"normal": .07 if "опасно" in text else .9,
                                               "urgent": .93 if "опасно" in text else .1}, "confidence": .93 if "опасно" in text else .9},
@@ -116,6 +118,7 @@ def start_pulse(root: Path, db: Path, laya_url: str, mode="laya"):
         "P109_DECISION_PROVIDER": mode, "P109_LAYA_BASE_URL": laya_url,
         "P109_LAYA_MODEL": "multilingual", "P109_LAYA_TIMEOUT": ".08",
         "P109_LAYA_CHECKPOINT_ID": CHECKPOINT_ID,
+        "P109_LAYA_SPAM_THRESHOLD": ".9",
         "P109_ENABLE_VERIFICATION": "1", "P109_LAYA_DEMO_FALLBACK": "1",
     })
     proc = subprocess.Popen(
@@ -230,8 +233,15 @@ def run():
                 spam = intake("Купите рекламу, быстрый заработок")
                 spam_detail = call(f"/api/workspace/complaints/{spam}/triage", {})
                 assert "spam_suspected" in spam_detail["flags"] and not spam_detail["complaint"]["quarantined"]
-                assert any("Laya" in reason for reason in spam_detail["risk"]["reasons"])
-                print("PASS 6: Laya spam is one review signal and never auto-quarantines")
+                assert spam_detail["triage"]["spam_suspected"] == {
+                    "value": True, "confidence": .92, "probability_true": .92, "threshold": .9,
+                }
+                assert any("порог 90%" in reason for reason in spam_detail["risk"]["reasons"])
+                borderline = intake("borderline-spam: пограничное сообщение")
+                borderline_detail = call(f"/api/workspace/complaints/{borderline}/triage", {})
+                assert "spam_suspected" not in borderline_detail["flags"]
+                assert borderline_detail["triage"]["spam_suspected"]["threshold"] == .9
+                print("PASS 6: calibrated Laya spam threshold adds review only at 90%+; no auto-quarantine")
 
                 fallback = intake("invalid-json, но на Абая нет холодной воды")
                 fallback_detail = call(f"/api/workspace/complaints/{fallback}/triage", {})
@@ -255,6 +265,7 @@ def run():
                 shadow_health = http_request(url + "/api/health")[1]
                 assert shadow_health["training_status"] == "shadow_evaluation"
                 assert shadow_health["checkpoint_id"] == CHECKPOINT_ID
+                assert shadow_health["laya"]["spam_threshold"] == .9
 
                 def shadow_triage(text):
                     code, created = http_request(url + "/api/workspace/intake", "POST", {
@@ -278,6 +289,11 @@ def run():
                     "urgency_agreement": True, "decision_agreement": True,
                 }
                 assert "convaiinnovations" not in json.dumps(triage)
+
+                _, shadow_spam = shadow_triage("Купите рекламу, быстрый заработок")
+                assert shadow_spam["triage"]["source_decisions"]["laya"]["spam_suspected"] == {
+                    "value": True, "confidence": .92, "probability_true": .92, "threshold": .9,
+                }
 
                 _, disagreement = shadow_triage("disagreement: нет холодной воды")
                 triage = disagreement["triage"]
