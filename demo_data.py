@@ -54,6 +54,10 @@ def init_workspace(conn):
     preview_columns = {r[1] for r in conn.execute("PRAGMA table_info(playbook_previews)")}
     if "actor" not in preview_columns:
         conn.execute("ALTER TABLE playbook_previews ADD COLUMN actor TEXT")
+    for table in ("complaint_photos", "complaint_videos"):
+        columns = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if "object_key" not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN object_key TEXT")
 
 
 def seed_workspace(conn, topic_services):

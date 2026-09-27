@@ -14,6 +14,7 @@ from auth import current_actor
 from cities import CITY_BY_CODE, attach_city_routes, normalized_address_query
 from clarification import VALID_CLARIFICATION_REASONS, get_received_clarifications
 from demo_data import seed_workspace
+from object_storage import ObjectStorageError, object_storage
 from playbooks import attach_playbook_routes
 from public_issues import attach_public_issue_routes
 from triage import (analyze, address_in, operators_with_load, queue_state, related_cases,
@@ -126,6 +127,7 @@ def suggested_response(c):
 def build_workspace_router(get_connection, classifier, topic_services, valid_regions, topic_names=None,
                            decision_service=None):
     router = APIRouter(prefix="/api/workspace")
+    storage = object_storage()
     attach_city_routes(router)
     attach_public_issue_routes(router, get_connection, classifier, topic_services, valid_regions,
                                topic_names or {})
@@ -285,28 +287,47 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         video = decode_video(req.video_data)
         cid = "PULSE-" + uuid.uuid4().hex[:6].upper()
         now = datetime.now(timezone.utc).isoformat()
-        with get_connection() as conn:
-            conn.execute("""INSERT INTO complaints
-                (id, data_origin, source_system, text, region_id, received_at, ingested_at,
-                 language, address, city_code, latitude, longitude, location_accuracy_m, district, channel, sender_key)
-                VALUES (?, 'synthetic', 'operator_demo_intake', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (cid, req.text.strip(), req.region_id, now, now, req.language,
-                 req.address.strip() if req.address else address_in(req.text),
-                 req.city_code,
-                 round(req.latitude, 6) if req.latitude is not None else None,
-                 round(req.longitude, 6) if req.longitude is not None else None,
-                 round(req.location_accuracy_m, 1) if req.location_accuracy_m is not None else None,
-                 req.district, req.channel, req.sender_key))
-            if photo:
-                conn.execute("INSERT INTO complaint_photos VALUES (?, ?, ?, ?)",
-                             (cid, photo[0], photo[1], now))
-            if video:
-                conn.execute("INSERT INTO complaint_videos VALUES (?, ?, ?, ?)",
-                             (cid, video[0], video[1], now))
-            event(conn, cid, "intake", {"channel": req.channel, "city_code": req.city_code,
-                                        "text_len": len(req.text),
-                                        "has_location": req.latitude is not None,
-                                        "has_photo": bool(photo), "has_video": bool(video)}, "citizen_demo")
+        uploaded = []
+        try:
+            with get_connection() as conn:
+                conn.execute("""INSERT INTO complaints
+                    (id, data_origin, source_system, text, region_id, received_at, ingested_at,
+                     language, address, city_code, latitude, longitude, location_accuracy_m, district, channel, sender_key)
+                    VALUES (?, 'synthetic', 'operator_demo_intake', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (cid, req.text.strip(), req.region_id, now, now, req.language,
+                     req.address.strip() if req.address else address_in(req.text),
+                     req.city_code,
+                     round(req.latitude, 6) if req.latitude is not None else None,
+                     round(req.longitude, 6) if req.longitude is not None else None,
+                     round(req.location_accuracy_m, 1) if req.location_accuracy_m is not None else None,
+                     req.district, req.channel, req.sender_key))
+                if photo:
+                    key = storage.put_media(cid, "photo", photo[0], photo[1])
+                    uploaded.append(key)
+                    conn.execute("""INSERT INTO complaint_photos
+                        (complaint_id, mime_type, content, created_at, object_key) VALUES (?, ?, ?, ?, ?)""",
+                                 (cid, photo[0], b"" if key else photo[1], now, key))
+                if video:
+                    key = storage.put_media(cid, "video", video[0], video[1])
+                    uploaded.append(key)
+                    conn.execute("""INSERT INTO complaint_videos
+                        (complaint_id, mime_type, content, created_at, object_key) VALUES (?, ?, ?, ?, ?)""",
+                                 (cid, video[0], b"" if key else video[1], now, key))
+                event(conn, cid, "intake", {"channel": req.channel, "city_code": req.city_code,
+                                            "text_len": len(req.text),
+                                            "has_location": req.latitude is not None,
+                                            "has_photo": bool(photo), "has_video": bool(video),
+                                            "media_backend": ("s3" if any(uploaded) else
+                                                              "sqlite" if photo or video else None)}, "citizen_demo")
+        except Exception as error:
+            for key in filter(None, uploaded):
+                try:
+                    storage.delete(key)
+                except ObjectStorageError:
+                    pass
+            if isinstance(error, ObjectStorageError):
+                raise HTTPException(503, "Не удалось сохранить вложение. Повторите отправку") from error
+            raise
         return {"id": cid, "data_origin": "synthetic", "decision_status": "pending"}
 
     @router.post("/complaints/{cid}/triage")

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, model_validator
 
 from cities import CITIES, CITY_BY_CODE
+from object_storage import ObjectStorageError, object_storage
 from triage import SERVICE_NAMES, analyze, address_in, risk_for, symptom, tokens
 
 
@@ -71,6 +72,7 @@ def public_location(item):
 
 def attach_public_issue_routes(router: APIRouter, get_connection, classifier, topic_services,
                                valid_regions, topic_names):
+    storage = object_storage()
     def category(item):
         return item.get("topic") or item.get("proposed_topic") or analyze(
             item, classifier, topic_services
@@ -179,21 +181,29 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
     @router.get("/public/complaints/{cid}/photo")
     def public_photo(cid: str):
         with get_connection() as conn:
-            row = conn.execute("""SELECT p.mime_type, p.content FROM complaint_photos p
+            row = conn.execute("""SELECT p.mime_type, p.content, p.object_key FROM complaint_photos p
                 JOIN complaints c ON c.id = p.complaint_id
                 WHERE p.complaint_id = ? AND c.data_origin = 'synthetic'""", (cid,)).fetchone()
         if not row:
             raise HTTPException(404, "Фото не найдено")
-        return Response(row["content"], media_type=row["mime_type"],
+        try:
+            content = storage.get_media(row["object_key"]) if row["object_key"] else row["content"]
+        except ObjectStorageError as error:
+            raise HTTPException(503, "Фото временно недоступно") from error
+        return Response(content, media_type=row["mime_type"],
                         headers={"Cache-Control": "public, max-age=3600"})
 
     @router.get("/public/complaints/{cid}/video")
     def public_video(cid: str):
         with get_connection() as conn:
-            row = conn.execute("""SELECT v.mime_type, v.content FROM complaint_videos v
+            row = conn.execute("""SELECT v.mime_type, v.content, v.object_key FROM complaint_videos v
                 JOIN complaints c ON c.id = v.complaint_id
                 WHERE v.complaint_id = ? AND c.data_origin = 'synthetic'""", (cid,)).fetchone()
         if not row:
             raise HTTPException(404, "Видео не найдено")
-        return Response(row["content"], media_type=row["mime_type"],
+        try:
+            content = storage.get_media(row["object_key"]) if row["object_key"] else row["content"]
+        except ObjectStorageError as error:
+            raise HTTPException(503, "Видео временно недоступно") from error
+        return Response(content, media_type=row["mime_type"],
                         headers={"Cache-Control": "public, max-age=3600"})

@@ -45,6 +45,8 @@ jobs:
           python scripts/run_laya_gpu_experiments.py --self-check
           python scripts/promote_laya_checkpoint.py --self-check
           python scripts/serve_pulse_laya.py --self-check
+      - name: Verify private object storage adapter
+        run: python scripts/check_object_storage.py
       - name: Verify coverage evidence boundaries
         run: python scripts/check_coverage.py
       - name: Verify local audit with synthetic inputs

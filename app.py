@@ -28,6 +28,7 @@ from incidents import init_incidents
 from radar import build_incident_router
 from support_api import init_support, build_support_router
 from decision import DecisionService
+from object_storage import object_storage
 from voice_api import build_voice_router
 
 BANNER_TEXT = "SYNTHETIC DEMO — MODELS NOT TRAINED"
@@ -203,6 +204,7 @@ def health_check():
         "mode": decision_service.mode,
         **model,
         "laya": decision_service.health(),
+        "object_storage": object_storage().status(),
         "banner": BANNER_TEXT,
     }
 
