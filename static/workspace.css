@@ -289,6 +289,12 @@ progress::-webkit-progress-value{background:#85ac91;border-radius:6px}
 .deflection h2{font-size:23px;line-height:1.4;color:#3b603e;margin-bottom:13px}
 .deflection p{font-size:12px;margin:16px 0}
 .deflection small{font-size:10px;color:#7b8e73;display:block;line-height:1.8;margin-top:14px}
+.duplicate-list{display:grid;gap:10px;margin:18px 0}
+.duplicate-card{padding:14px;border:1px solid #d3e2d7;border-radius:10px;background:#fff}
+.duplicate-card>div{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.duplicate-card>div strong{font-size:10px}
+.duplicate-card p{margin:10px 0;font-size:11px;line-height:1.5}
+.duplicate-card small{margin:0 0 10px}
 .receipt{margin-top:20px;background:#eaf5ef;padding:16px;border-radius:8px;font-size:12px}
 .receipt strong{display:block;color:var(--green)}
 .receipt p{margin:10px 0;font-size:11px}

@@ -148,23 +148,46 @@ function publicPopup(item) {
 
 export async function mountPublicMap(element, items, onSelect=()=>{}) {
   const maplibregl=await loadLibrary();
+  element._pulseMap?.remove();element.replaceChildren();
   const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:[67.5,48],zoom:4,pitch:12,renderWorldCopies:false});
-  const bounds=new maplibregl.LngLatBounds(), markers=new Map();
+  let currentItems=items, byId=new Map(items.map(item=>[item.id,item]));
+  element._pulseMap=map;
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
   map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
-  items.forEach(item=>{
-    const point=[item.longitude,item.latitude];
-    const marker=new maplibregl.Marker({color:item.status==='resolved'?'#6c7c76':item.status==='confirmed'?'#157665':'#c27a2c'})
-      .setLngLat(point).setPopup(new maplibregl.Popup({offset:28}).setDOMContent(publicPopup(item))).addTo(map);
-    marker.getElement().title=`${item.id}: ${item.text}`;
-    marker.getElement().addEventListener('click',()=>onSelect(item));
-    markers.set(item.id,{marker,point});bounds.extend(point);
+  const collection=()=>({type:'FeatureCollection',features:currentItems.map(item=>({type:'Feature',geometry:{type:'Point',coordinates:[item.longitude,item.latitude]},properties:{id:item.id,status:item.status}}))});
+  const fit=(duration=0)=>{
+    if(!currentItems.length) {map.flyTo({center:[67.5,48],zoom:4,duration});return;}
+    const bounds=new maplibregl.LngLatBounds();currentItems.forEach(item=>bounds.extend([item.longitude,item.latitude]));
+    map.fitBounds(bounds,{padding:70,maxZoom:14,duration});
+  };
+  const show=item=>{
+    map.flyTo({center:[item.longitude,item.latitude],zoom:Math.max(map.getZoom(),14),duration:550});
+    new maplibregl.Popup({offset:18}).setLngLat([item.longitude,item.latitude]).setDOMContent(publicPopup(item)).addTo(map);
+  };
+  map.on('load',()=>{
+    map.addSource('public-cases',{type:'geojson',data:collection(),cluster:true,clusterMaxZoom:13,clusterRadius:48});
+    map.addLayer({id:'public-clusters',type:'circle',source:'public-cases',filter:['has','point_count'],paint:{'circle-color':'#176d58','circle-radius':['step',['get','point_count'],20,10,25,50,31],'circle-stroke-color':'#fff','circle-stroke-width':3,'circle-opacity':.9}});
+    map.addLayer({id:'public-cluster-count',type:'symbol',source:'public-cases',filter:['has','point_count'],layout:{'text-field':['get','point_count_abbreviated'],'text-size':12},paint:{'text-color':'#fff'}});
+    map.addLayer({id:'public-points',type:'circle',source:'public-cases',filter:['!',['has','point_count']],paint:{'circle-color':['match',['get','status'],'resolved','#6c7c76','confirmed','#157665','#c27a2c'],'circle-radius':9,'circle-stroke-color':'#fff','circle-stroke-width':3}});
+    element.dataset.clustered='true';
+    map.on('click','public-clusters',async event=>{
+      const feature=event.features[0], source=map.getSource('public-cases');
+      map.easeTo({center:feature.geometry.coordinates,zoom:await source.getClusterExpansionZoom(feature.properties.cluster_id)});
+    });
+    map.on('click','public-points',event=>{const item=byId.get(event.features[0].properties.id);if(item){show(item);onSelect(item);}});
+    ['public-clusters','public-points'].forEach(layer=>{
+      map.on('mouseenter',layer,()=>map.getCanvas().style.cursor='pointer');
+      map.on('mouseleave',layer,()=>map.getCanvas().style.cursor='');
+    });
+    fit();
   });
-  if(items.length) map.once('load',()=>map.fitBounds(bounds,{padding:70,maxZoom:14,duration:0}));
-  return id=>{
-    const selected=markers.get(id);if(!selected) return;
-    map.flyTo({center:selected.point,zoom:Math.max(map.getZoom(),14),duration:550});
-    if(!selected.marker.getPopup().isOpen()) selected.marker.togglePopup();
+  return {
+    focus(id) {const item=byId.get(id);if(item) show(item);},
+    setItems(next) {
+      currentItems=next;byId=new Map(next.map(item=>[item.id,item]));
+      map.getSource('public-cases')?.setData(collection());
+      if(map.loaded()) fit(300);
+    },
   };
 }
 

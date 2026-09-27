@@ -1,5 +1,5 @@
-import {esc,button,badge,heading,empty,topicName} from './views.js';
-import {authFetch} from './auth.js';
+import {esc,button,badge,heading,empty,topicName} from './views.js?v=20260927-2';
+import {authFetch} from './auth.js?v=20260927-2';
 
 export function routingHealthView(s) {
   const h=s.routingHealth;

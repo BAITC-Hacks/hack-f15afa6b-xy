@@ -1,9 +1,9 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView} from './views.js';
-import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js';
-import {caseView} from './case.js';
-import {radarView,signalView,incidentView,stamp} from './incidents.js';
-import {authFetch,bootstrapAuth} from './auth.js';
-import {mountMaps,resetLocationPicker} from './map.js';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView} from './views.js?v=20260927-2';
+import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260927-2';
+import {caseView} from './case.js?v=20260927-2';
+import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
+import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
+import {mountMaps,resetLocationPicker} from './map.js?v=20260927-2';
 
 async function photoData(input) {
   const file=input.files[0];
@@ -18,7 +18,7 @@ Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
 const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent=document.querySelector('#playbook-content');
-let loadVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer;
+let loadVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer, pendingIntake=null;
 const commandDialog=document.querySelector('#command-dialog');
 Object.assign(state,{routingHealth:null,healthRegion:'',regions:[],cities:[]});
 const titles={routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
@@ -34,6 +34,26 @@ function toast(text, error=false) {
   const node=document.querySelector('#toast');
   node.textContent=text; node.className=error?'error':''; node.hidden=false;
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>node.hidden=true,6000);
+}
+function subscriberKey() {
+  let key=sessionStorage.getItem('pulse-demo-subscriber');
+  if(!key) {key=crypto.randomUUID();sessionStorage.setItem('pulse-demo-subscriber',key);}
+  return key;
+}
+function showSimilar(items) {
+  const notice=document.querySelector('#citizen-notice');
+  notice.innerHTML=`<div class="deflection"><span class="eyebrow">ВОЗМОЖНО, УЖЕ СООБЩИЛИ</span><span class="incident-symbol" aria-hidden="true">≈</span><h2>Нашли похожие обращения рядом</h2><p>Подпишитесь на существующее обращение или создайте отдельное, если проблема отличается.</p><div class="duplicate-list">${items.map(item=>`<article class="duplicate-card"><div>${badge(item.status==='confirmed'?'Принято в работу':'На рассмотрении',item.status==='confirmed'?'green':'amber')}<strong>${esc(item.id)}</strong></div><p>${esc(item.text)}</p><small>${esc(item.reason)}${item.subscribers?` · ${item.subscribers} подписок`:''}</small>${button('subscribe-case','Это та же проблема · подписаться','primary wide',`data-id="${esc(item.id)}"`)}</article>`).join('')}</div>${button('create-anyway','Проблема другая · создать отдельно','ghost wide')}<small>Совпадение рассчитано по категории, характеру проблемы и месту. Решение остаётся за вами.</small></div>`;
+  notice.hidden=false;notice.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+async function registerIntake(form,payload) {
+  const result=await api('/api/workspace/intake',payload);
+  state.trackingId=result.id;pendingIntake=null;
+  try {localStorage.setItem('pulse109-last-receipt',result.id);} catch { /* The receipt is usable without storage. */ }
+  document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`)}</div>`;
+  document.querySelector('#tracking-id').value=result.id;
+  document.querySelector('#citizen-notice').hidden=true;
+  await trackCase(result.id);
+  form.querySelector('textarea').value='';form.elements.address.value='';form.elements.photo.value='';resetLocationPicker(form);await refresh(false);
 }
 function render() {
   state.page=titles[location.hash.slice(1)]?location.hash.slice(1):'queue';
@@ -229,14 +249,16 @@ async function handleAction(node) {
     } catch(err) {const field=document.querySelector('#signal-error');if(field) field.textContent=err.message;else toast(err.message,true);}
     return;
   }
-  if(action==='subscribe') {
-    let subscriber=sessionStorage.getItem('pulse-demo-subscriber');
-    if(!subscriber) {subscriber=crypto.randomUUID();sessionStorage.setItem('pulse-demo-subscriber',subscriber);}
-    await api(`/api/workspace/incidents/${encodeURIComponent(node.dataset.id)}/subscribe`,{subscriber_key:subscriber});
+  if(action==='subscribe-case') {
+    await api(`/api/workspace/public/complaints/${encodeURIComponent(node.dataset.id)}/subscribe`,{subscriber_key:subscriberKey()});
     node.textContent='✓ Подписка сохранена в демо';node.dataset.action='subscribed';toast('Демо-подписка сохранена. Новое обращение не создано.');return;
   }
   if(action==='subscribed') {toast('Подписка уже сохранена в демо');return;}
-  if(action==='anyway') {document.querySelector('#citizen-text').focus();return;}
+  if(action==='create-anyway') {
+    const form=document.querySelector('#citizen-form');
+    if(!form||!pendingIntake) throw new Error('Данные формы изменились. Проверьте обращение ещё раз.');
+    await registerIntake(form,pendingIntake);return;
+  }
   if(action==='track') {await trackCase(node.dataset.id);document.querySelector('#tracking-result')?.scrollIntoView({block:'nearest'});return;}
   if(action==='reload-case') {const draft=document.querySelector('#reply-text')?.value;await openCase(c.id);if(draft && document.querySelector('#reply-text')) document.querySelector('#reply-text').value=draft;return;}
   if(action==='category') {
@@ -284,6 +306,7 @@ document.addEventListener('click',async e=>{
   try {await handleAction(node);} catch(err) {toast(err.message,true);} finally {if(node.isConnected && node.getAttribute('aria-disabled')!=='true') node.disabled=false;}
 });
 document.addEventListener('input',e=>{
+  if(pendingIntake&&e.target.closest('#citizen-form')) {pendingIntake=null;document.querySelector('#citizen-notice').hidden=true;}
   if(e.target.id==='command-search') {document.querySelector('#command-options').innerHTML=commandList(caseCommands(state.detail),e.target.value);return;}
   if(e.target.id!=='search') return;
   state.search=e.target.value;
@@ -292,6 +315,7 @@ document.addEventListener('input',e=>{
   input.setSelectionRange(position,position);
 });
 document.addEventListener('change',async e=>{
+  if(pendingIntake&&e.target.closest('#citizen-form')) {pendingIntake=null;document.querySelector('#citizen-notice').hidden=true;}
   if(e.target.id==='health-region') {state.healthRegion=e.target.value;try {await loadHealth();} catch(err) {toast(err.message,true);}}
   if(e.target.id==='show-ignored') {state.showIgnored=e.target.checked;render();}
   if(e.target.id==='incident-status') document.querySelector('#incident-next').required=e.target.value!=='Завершён';
@@ -303,10 +327,6 @@ document.addEventListener('change',async e=>{
       const option=new Option(city.name_ru,city.code);option.dataset.name=city.name_ru;option.dataset.region=city.region_id;return option;
     }));
     citySelect.dispatchEvent(new Event('change',{bubbles:true}));
-  }
-  if(e.target.id==='citizen-city'||e.target.id==='citizen-district') {
-    const form=document.querySelector('#citizen-form'), notice=document.querySelector('#citizen-notice');
-    if(form&&notice) notice.hidden=form.elements.region_id.value!=='KZ-ALA'||form.elements.district.value!=='Алмалинский';
   }
   if(e.target.id==='manual-category' && e.target.value) {
     state.detail.manual=true;
@@ -335,13 +355,10 @@ document.addEventListener('submit',async e=>{
     if(!text) throw new Error('Опишите проблему');
     const number=name=>data.get(name)?Number(data.get(name)):null;
     if(!data.get('latitude')||!data.get('longitude')) throw new Error('Выберите место проблемы на карте');
-    const result=await api('/api/workspace/intake',{text,address:data.get('address')?.trim()||null,city_code:data.get('city_code'),district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m'),photo_data:await photoData(form.elements.photo)});
-    state.trackingId=result.id;
-    try {localStorage.setItem('pulse109-last-receipt',result.id);} catch { /* The receipt is usable without storage. */ }
-    document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`)}</div>`;
-    document.querySelector('#tracking-id').value=result.id;
-    await trackCase(result.id);
-    form.querySelector('textarea').value='';form.elements.address.value='';form.elements.photo.value='';resetLocationPicker(form);await refresh(false);
+    const payload={text,address:data.get('address')?.trim()||null,city_code:data.get('city_code'),district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m'),photo_data:await photoData(form.elements.photo)};
+    const {photo_data,...probe}=payload, similar=await api('/api/workspace/public/similar',probe);
+    if(similar.items.length) {pendingIntake=payload;showSimilar(similar.items);return;}
+    await registerIntake(form,payload);
   } catch(err) {toast(err.message,true);} finally {submit.disabled=false;}
 });
 window.addEventListener('hashchange',()=>{trackingVersion++;state.tracking=null;state.group='';state.search='';render();main.focus();if(state.page==='routing') loadHealth().catch(err=>toast(err.message,true));});

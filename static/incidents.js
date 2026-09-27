@@ -1,4 +1,4 @@
-import {esc,button,badge,heading,empty,topicName} from './views.js';
+import {esc,button,badge,heading,empty,topicName} from './views.js?v=20260927-2';
 
 export const stamp=value=>value?new Date(value).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Almaty'}):'Не указано';
 const localInput=value=>{

@@ -7,7 +7,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
 from auth import current_actor
@@ -15,6 +15,7 @@ from cities import CITY_BY_CODE, attach_city_routes, normalized_address_query
 from clarification import VALID_CLARIFICATION_REASONS, get_received_clarifications
 from demo_data import seed_workspace
 from playbooks import attach_playbook_routes
+from public_issues import attach_public_issue_routes
 from triage import (analyze, address_in, operators_with_load, queue_state, related_cases,
                     risk_for, route, SERVICE_NAMES, moment)
 
@@ -103,6 +104,8 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                            decision_service=None):
     router = APIRouter(prefix="/api/workspace")
     attach_city_routes(router)
+    attach_public_issue_routes(router, get_connection, classifier, topic_services, valid_regions,
+                               topic_names or {})
 
     def complaint(conn, cid):
         row = conn.execute("SELECT * FROM complaints WHERE id = ?", (cid,)).fetchone()
@@ -240,36 +243,6 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                                  if c["latitude"] is not None and c["longitude"] is not None else None),
                     "resolved_at": c["resolved_at"], "resolution_text": c["resolution_text"] if c["resolved_at"] else None,
                     "data_origin": "synthetic", "delivery": "demo_only"}
-
-    @router.get("/public/complaints")
-    def public_complaints():
-        with get_connection() as conn:
-            rows = conn.execute("""SELECT c.id, substr(c.text, 1, 1000) AS text, c.region_id,
-                    c.city_code, c.address, c.district, c.latitude, c.longitude,
-                    CASE WHEN c.resolved_at IS NOT NULL THEN 'resolved' ELSE c.decision_status END AS status,
-                    COALESCE(c.received_at, c.ingested_at) AS registered_at,
-                    EXISTS(SELECT 1 FROM complaint_photos p WHERE p.complaint_id = c.id) AS has_photo
-                FROM complaints c
-                WHERE c.data_origin = 'synthetic' AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL
-                ORDER BY COALESCE(c.received_at, c.ingested_at) DESC""").fetchall()
-        items = []
-        for row in rows:
-            item = dict(row)
-            item["city"] = CITY_BY_CODE.get(item.pop("city_code"), {}).get("name_ru")
-            item["has_photo"] = bool(item["has_photo"])
-            items.append(item)
-        return {"items": items, "count": len(items), "data_origin": "synthetic"}
-
-    @router.get("/public/complaints/{cid}/photo")
-    def public_photo(cid: str):
-        with get_connection() as conn:
-            row = conn.execute("""SELECT p.mime_type, p.content FROM complaint_photos p
-                JOIN complaints c ON c.id = p.complaint_id
-                WHERE p.complaint_id = ? AND c.data_origin = 'synthetic'""", (cid,)).fetchone()
-        if not row:
-            raise HTTPException(404, "Фото не найдено")
-        return Response(row["content"], media_type=row["mime_type"],
-                        headers={"Cache-Control": "public, max-age=3600"})
 
     @router.post("/intake", status_code=201)
     def intake(req: Intake):

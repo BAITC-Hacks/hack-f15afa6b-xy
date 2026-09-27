@@ -4,8 +4,8 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#172925"><link rel="icon" href="data:,">
   <title>Pulse 109 — Карта обращений</title>
-  <link rel="stylesheet" href="/static/workspace.css">
-  <link rel="stylesheet" href="/static/public-map.css">
+  <link rel="stylesheet" href="/static/workspace.css?v=20260927-2">
+  <link rel="stylesheet" href="/static/public-map.css?v=20260927-2">
 </head>
 <body class="public-body">
   <a class="skip" href="#public-map">К карте обращений</a>
@@ -22,12 +22,18 @@
       <div class="public-map-shell"><div id="public-map" class="issue-map public-map" aria-label="Интерактивная карта обращений"></div><span class="map-tip">Карта обращений Pulse 109</span></div>
       <aside class="public-feed" aria-labelledby="feed-title">
         <div class="public-feed-head"><div><p class="eyebrow">ОБРАЩЕНИЯ</p><h2 id="feed-title">Последние сигналы</h2></div><span class="live"><i></i> Демо</span></div>
+        <form id="public-filters" class="public-filters" aria-label="Фильтры обращений">
+          <label><span>Поиск</span><input name="search" type="search" placeholder="Адрес, номер, проблема"></label>
+          <label><span>Город</span><select name="city"><option value="">Все города</option></select></label>
+          <label><span>Категория</span><select name="topic"><option value="">Все категории</option></select></label>
+          <label><span>Статус</span><select name="status"><option value="">Все статусы</option><option value="pending">На рассмотрении</option><option value="confirmed">Принято в работу</option><option value="resolved">Решено</option></select></label>
+        </form>
         <div id="public-status" class="public-status" role="status">Загружаем обращения…</div>
         <div id="public-cards" class="public-cards"></div>
       </aside>
     </section>
   </main>
   <footer class="public-footer">Публично показаны только синтетические демо-обращения с выбранной точкой. Персональные данные не публикуются.</footer>
-  <script type="module" src="/static/public-map.js"></script>
+  <script type="module" src="/static/public-map.js?v=20260927-2"></script>
 </body>
 </html>

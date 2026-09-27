@@ -1,5 +1,5 @@
-import {esc, pct, badge, button, topicName, groups, channels, time, locationMap} from './views.js';
-import {routingAlternatives} from './support.js';
+import {esc, pct, badge, button, topicName, groups, channels, time, locationMap} from './views.js?v=20260927-2';
+import {routingAlternatives} from './support.js?v=20260927-2';
 const eventNames={intake:'Обращение зарегистрировано',classification_proposed:'AI предложил решение',operator_confirmed:'Оператор подтвердил решение',incident_linked:'Связано с инцидентом',incident_rejected:'Отмечено как отдельная проблема',quarantined:'Отправлено в карантин',safety_cleared:'Возвращено в обычную очередь',clarification_requested:'Запрошено уточнение',clarification_received:'Получено уточнение',clarification_resolved:'Возвращено в обработку',reply_saved:'Ответ сохранён в демо',playbook_executed:'Сценарий подтверждён и выполнен',case_resolved:'Типовой вопрос закрыт',case_reopened:'Обращение возвращено в работу'};
 function actorName(actor) {return actor==='citizen_demo'?'Гражданин':actor==='operator_demo'||actor?.startsWith('usr-')?'Оператор':'Демо-система';}
 export function caseView(d, topics) {

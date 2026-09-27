@@ -16,6 +16,10 @@
 .public-feed-head{padding:24px 22px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)}
 .public-feed-head .eyebrow{margin-bottom:5px}
 .public-feed-head .live{font-size:9px;color:#57705f}
+.public-filters{padding:13px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;border-bottom:1px solid var(--line);background:#fbfcfb}
+.public-filters label:first-child{grid-column:1/-1}
+.public-filters label span{display:block;margin-bottom:4px;color:var(--muted);font-size:8px;font-weight:650;text-transform:uppercase;letter-spacing:.4px}
+.public-filters input,.public-filters select{width:100%;min-width:0;padding:8px 9px;border:1px solid #dce4df;border-radius:7px;background:#fff;color:var(--ink);font-size:9px}
 .public-status{padding:13px 22px;background:#f7faf8;color:var(--muted);font-size:10px;line-height:1.5}
 .public-status.error{color:var(--red)}
 .public-cards{overflow:auto;padding:10px;display:grid;gap:8px}

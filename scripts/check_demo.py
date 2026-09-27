@@ -69,10 +69,22 @@ def run():
             public = call("/api/workspace/public/complaints")
             public_case = next(item for item in public["items"] if item["id"] == cid)
             assert public_case["has_photo"] and public_case["city"] == "Алматы"
-            assert not {"sender_key", "assigned_operator", "service_id"} & public_case.keys()
+            assert public_case["topic"] == "water_supply" and public_case["topic_name"]
+            assert public_case["latitude"] == 43.239 and public_case["longitude"] == 76.945
+            assert public_case["location_precision_m"] == 100
+            assert not {"address", "sender_key", "assigned_operator", "service_id"} & public_case.keys()
+            similar = call("/api/workspace/public/similar", {
+                "text": "На Абая 44 нет воды во всём доме", "region_id": "KZ-ALA",
+                "city_code": "750000000", "district": "Алмалинский", "address": "Абая 44",
+                "latitude": 43.23895, "longitude": 76.94512,
+            })
+            assert similar["items"][0]["id"] == cid and similar["items"][0]["distance_m"] <= 1
+            subscribed = call(f"/api/workspace/public/complaints/{cid}/subscribe", {"subscriber_key": "demo-user-123"})
+            subscribed_again = call(f"/api/workspace/public/complaints/{cid}/subscribe", {"subscriber_key": "demo-user-123"})
+            assert subscribed["subscribers"] == subscribed_again["subscribers"] == 1
             with urllib.request.urlopen(url + f"/api/workspace/public/complaints/{cid}/photo") as response:
                 assert response.headers.get_content_type() == "image/png" and response.read().startswith(b"\x89PNG")
-            print("PASS 2: geolocated intake with photo appears safely on the public map; triage remains operator-controlled")
+            print("PASS 2: safe public location, duplicate suggestion, idempotent subscription and photo")
 
             decision = {"topic": "water_supply", "priority": "normal", "operator_id": "op-aidana", "incident_id": "INC-204"}
             call(f"/api/workspace/complaints/{cid}/decide", decision)
