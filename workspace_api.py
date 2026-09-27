@@ -1,10 +1,12 @@
 """Operator workspace on the existing complaint and audit tables."""
 import base64
 import binascii
+import hashlib
 import json
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -19,6 +21,42 @@ from playbooks import attach_playbook_routes
 from public_issues import attach_public_issue_routes
 from triage import (analyze, address_in, operators_with_load, queue_state, related_cases,
                     risk_for, route, SERVICE_NAMES, moment)
+
+
+def ai_evidence():
+    evidence_dir = Path(__file__).with_name("training") / "evidence"
+    files = {
+        "laya": evidence_dir / "laya-gpu-hardcases-shadow-20260926.json",
+        "rejected": evidence_dir / "laya-gpu-phase0-rejected-20260926.json",
+        "stt": evidence_dir / "voice-stt-gpu-20260927.json",
+        "tts": evidence_dir / "voice-tts-ab-20260927.json",
+    }
+    try:
+        documents = {name: json.loads(path.read_text(encoding="utf-8")) for name, path in files.items()}
+        laya, stt, tts = documents["laya"], documents["stt"], documents["tts"]
+        metrics = laya["experiment"]["aggregate_test_metrics"]
+        speech = {item["language"]: item for item in stt["evaluation"]["results"]}
+        omnivoice = [item for item in tts["roundtrip_evaluation"]["results"]
+                     if item["engine"] == "omnivoice"]
+        return {
+            "available": True, "stage": laya["promotion"]["stage"],
+            "checkpoint_id": laya["promotion"]["version"], "model": laya["source"]["base_model"],
+            "dataset_records": laya["dataset"]["records"], "trained_runs": len(laya["experiment"]["runs"]),
+            "rejected_runs": len(documents["rejected"]["runs"]),
+            "hardware": {"provider": laya["compute"]["provider"], "gpu_count": laya["compute"]["gpus"],
+                         "gpu_model": laya["compute"]["gpu_model"]},
+            "category_accuracy": {"baseline": metrics["baseline_category_accuracy"]["mean"],
+                                  "trained": metrics["trained_category_accuracy"]["mean"]},
+            "category_macro_f1": metrics["trained_category_macro_f1"]["mean"],
+            "calibrated_ece": metrics["checkpoint_calibrated_ece"]["mean"],
+            "stt": {"model": stt["model"]["id"], "runs_per_language": stt["evaluation"]["runs_per_language"],
+                    "ru_median_ms": speech["ru"]["median_ms"], "kk_median_ms": speech["kk"]["median_ms"]},
+            "tts": {"engine": "OmniVoice", "ru_kk_roundtrip_cer": max(item["character_error_rate"] for item in omnivoice)},
+            "evidence_sha256": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in files.items()},
+            "claim_boundary": laya["claim_boundary"], "next_gate": laya["activation"]["next_gate"],
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        return {"available": False}
 
 
 class Intake(BaseModel):
@@ -517,6 +555,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                                  "operator_override_percent": round(100 * overrides / len(decisions)) if decisions else None,
                                  "language_agreement_percent": language_agreement,
                                  "most_corrected": corrected.most_common(1)[0][0] if corrected else None},
+                "ai_evidence": ai_evidence(),
                 "note": "Счётчики синтетической SQLite. Экономия времени не измерялась."}
 
     attach_playbook_routes(router, get_connection, {

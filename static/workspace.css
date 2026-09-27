@@ -269,6 +269,7 @@ dialog::backdrop{background:#162a2659;backdrop-filter:blur(3px)}
 .impact-card strong{font-size:32px;min-width:65px;color:#416b4b;font-weight:500;letter-spacing:-1px}
 .impact-card span{font-size:11px;line-height:1.8;color:#657e63}
 .impact-card>p{font-size:10px;color:#7b8b76;margin-top:20px}
+.ai-evidence{grid-column:1/-1}.ai-evidence .dashboard-metrics{grid-template-columns:repeat(4,1fr);margin:24px 0}.evidence-meta{display:grid;gap:8px;padding:18px;background:#f5f8f6;border-radius:9px;font-size:10px}.evidence-meta code{font:9px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;color:#315f49}
 .operator-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
 .operator-card h2{margin:20px 0 8px}
 .operator-card p{font-size:11px;color:var(--muted)}
@@ -450,6 +451,7 @@ dialog{width:calc(100vw - 16px);max-height:calc(100dvh - 20px)}
 .case-footer>div{gap:3px}
 .case-footer .ghost{padding-inline:7px}
 .dashboard-metrics{grid-template-columns:repeat(2,1fr);gap:12px}
+.ai-evidence .dashboard-metrics{grid-template-columns:repeat(2,1fr)}
 .metric-card{padding:18px}
 .metric-card strong{font-size:27px}
 .metric-card p{font-size:11px}

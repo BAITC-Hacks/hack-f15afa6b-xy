@@ -103,6 +103,10 @@ def run():
             assert "operator_confirmed" in [e["event_type"] for e in result["events"]]
             metrics = call("/api/workspace/metrics")
             assert metrics["linked"] == 18 and metrics["total"] == 51
+            evidence = metrics["ai_evidence"]
+            assert evidence["stage"] == "shadow" and evidence["hardware"]["gpu_count"] == 2
+            assert evidence["category_accuracy"] == {"baseline": .375, "trained": .703125}
+            assert len(evidence["evidence_sha256"]["laya"]) == 64
             assert next(x for x in call("/api/workspace/operators")["items"] if x["id"] == "op-aidana")["current_load"] == 3
             call(f"/api/complaints/{cid}/confirm", {"topic": "roads", "service_id": "srv_roads", "priority": "normal"}, 409)
             print("PASS 3: atomic confirm + link + assign; counters/load update, double-submit rejected")
