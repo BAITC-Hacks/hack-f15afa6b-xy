@@ -172,5 +172,43 @@
     "local_directory": "/Users/eliasansariy/Documents/Codex/2026-09-24/new-chat/outputs/pulse109-tts-ab-20260927",
     "audio_tracked_in_git": false,
     "contains_personal_data": false
+  },
+  "integration_verification": {
+    "verified_at": "2026-09-27T12:22:42Z",
+    "status": "PASS",
+    "implementation_commits": [
+      "61b586c feat: add private OmniVoice speech bridge",
+      "6ea34c7 feat: play OmniVoice prompts in citizen intake"
+    ],
+    "behavior": {
+      "pulse_endpoint": "POST /api/voice/speak",
+      "gpu_endpoint": "POST /v1/speech",
+      "allowed_prompts": 9,
+      "browser_fallback": true,
+      "audio_stored": false
+    },
+    "real_gpu_bridge_results": [
+      {
+        "prompt": "ru_problem",
+        "model": "k2-fsa/OmniVoice@c5fdb5ccb189668d56333f77ba2629f4cd7535f4",
+        "tts_latency_ms": 3441,
+        "sample_rate": 24000,
+        "duration_seconds": 3.64
+      },
+      {
+        "prompt": "kk_problem",
+        "model": "k2-fsa/OmniVoice@c5fdb5ccb189668d56333f77ba2629f4cd7535f4",
+        "tts_latency_ms": 1732,
+        "sample_rate": 24000,
+        "duration_seconds": 3.67
+      }
+    ],
+    "checks": [
+      "OmniVoice request validation and WAV encoding: PASS",
+      "voice integration checks: 5/5 PASS",
+      "application smoke checks: 14/14 PASS",
+      "JavaScript syntax checks: PASS",
+      "NVIDIA Brev final status: STOPPED"
+    ]
   }
 }
