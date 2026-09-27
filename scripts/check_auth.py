@@ -108,6 +108,11 @@ def run() -> None:
             assert public_map["data_origin"] == "synthetic" and all(
                 item["id"].startswith("syn-") for item in public_map["items"]
             )
+            status, subscriptions, _ = anonymous.request(
+                base_url + "/api/workspace/public/subscriptions/test-user"
+            )
+            assert status == 200 and subscriptions["delivery"] == "in_app"
+            assert anonymous.request(base_url + "/api/workspace/public/complaints/missing/video")[0] == 404
             status, config, _ = anonymous.request(base_url + "/api/auth/config")
             assert status == 200 and config["signup_available"] and config["first_account"]
             print("PASS 1: public map and voice intake are anonymous; operator data remains protected")
