@@ -145,7 +145,7 @@ def train(args) -> dict:
                 labels = torch.arange(len(batch), device=device)
                 logits = first @ second.T / args.temperature
                 loss = (functional.cross_entropy(logits, labels) + functional.cross_entropy(logits.T, labels)) / 2
-            scaler.scale(loss).backward(); scaler.step(optimizer); scaler.update(); losses.append(float(loss))
+            scaler.scale(loss).backward(); scaler.step(optimizer); scaler.update(); losses.append(float(loss.detach()))
         validation = retrieval_metrics(model, tokenizer, validation_rows, device)
         history.append({"epoch": epoch + 1, "mean_loss": round(sum(losses) / len(losses), 6), **validation})
     trained_hash = state_hash(model)

@@ -389,11 +389,13 @@ def find_similar(complaint_id: str, limit: int = Query(5, ge=1, le=20)):
             if clarifications:
                 topic, _, _ = mock_classify(target["text"] + "\n\n" + "\n".join(clarifications))
             topic = topic or target["proposed_topic"]
-        rows = [dict(row) for row in conn.execute(
-            "SELECT id,data_origin,text,COALESCE(topic,proposed_topic) topic,decision_status,resolution_text "
-            "FROM complaints WHERE id != ? AND resolution_text IS NOT NULL "
-            "ORDER BY resolved_at DESC,ingested_at DESC LIMIT 100", (complaint_id,)
-        ).fetchall()]
+        sql = ("SELECT id,data_origin,text,COALESCE(topic,proposed_topic) topic,decision_status,resolution_text "
+               "FROM complaints WHERE id != ? AND resolution_text IS NOT NULL")
+        values: list[Any] = [complaint_id]
+        if topic:
+            sql += " AND COALESCE(topic,proposed_topic) = ?"
+            values.append(topic)
+        rows = [dict(row) for row in conn.execute(sql + " ORDER BY resolved_at DESC,ingested_at DESC LIMIT 100", values).fetchall()]
     ranked, mode, checkpoint_id = rank_candidates(target["text"], topic, rows, similarity_client, limit)
     candidates = [{"complaint_id": row["id"], "excerpt": row["text"][:140] + ("..." if len(row["text"]) > 140 else ""),
                    "origin": row["data_origin"], "topic": row["topic"], "decision_status": row["decision_status"],

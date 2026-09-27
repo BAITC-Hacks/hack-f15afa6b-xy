@@ -1,0 +1,144 @@
+{
+  "schema_version": "pulse109-similarity-evidence-v1",
+  "status": "verified",
+  "created_at": "2026-09-27T21:39:22.195656+00:00",
+  "training_commit": "744dd5ab6a63e22ecdb3639cdea5bb90295f5d52",
+  "base_model": "intfloat/multilingual-e5-small",
+  "base_revision": "fd1525a9fd15316a2d503bf26ab031a61d056e98",
+  "data_status": "synthetic_only",
+  "train_pairs": 640,
+  "hardware": {
+    "pytorch": "2.14.0+cu130",
+    "cuda": "13.0",
+    "gpus": [
+      "Tesla T4"
+    ]
+  },
+  "runs": [
+    {
+      "name": "seed-17",
+      "seed": 17,
+      "epochs": 2,
+      "manifest_sha256": "78afaf46964e6e42222eece4ce01723c4d925a65f6a0ecc5d3b16254de189025",
+      "metrics_sha256": "22946858f6d821816a03263372198d3a9913845dc529ba217b9f3f322b101b45",
+      "checkpoint_sha256": "4aa195e90e0c258d7fc84d529c44890444578d7dfd627b1ec047d0f108fec8ca",
+      "validation": {
+        "queries": 320,
+        "recall_at_5": 0.3333,
+        "ndcg_at_10": 0.898,
+        "mrr": 1.0
+      },
+      "test": {
+        "queries": 160,
+        "recall_at_5": 0.3333,
+        "ndcg_at_10": 0.9318,
+        "mrr": 1.0
+      },
+      "cross_language_test": {
+        "queries": 160,
+        "recall_at_5": 0.625,
+        "ndcg_at_10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "name": "seed-29",
+      "seed": 29,
+      "epochs": 2,
+      "manifest_sha256": "3ff2e1adaf5ef267957aa75f373a5da648c63cc33b965016cb8c26c41a88e153",
+      "metrics_sha256": "0892ef059bea70e2582c46ba0df816e8ecc10df0a36df2b2797c00f55f330e3e",
+      "checkpoint_sha256": "36d8bbfc9b516972601d0bb2b14f109f3ff2b9db081cc0e473f46830d1dce1d1",
+      "validation": {
+        "queries": 320,
+        "recall_at_5": 0.3333,
+        "ndcg_at_10": 0.9145,
+        "mrr": 1.0
+      },
+      "test": {
+        "queries": 160,
+        "recall_at_5": 0.3333,
+        "ndcg_at_10": 0.9489,
+        "mrr": 1.0
+      },
+      "cross_language_test": {
+        "queries": 160,
+        "recall_at_5": 0.625,
+        "ndcg_at_10": 0.9995,
+        "mrr": 1.0
+      }
+    },
+    {
+      "name": "seed-29-best",
+      "seed": 29,
+      "epochs": 1,
+      "manifest_sha256": "a7d6d12ed85aba1d6dad11c5ee8aba1226ace45cfa1ba6cf081d6a885cb34516",
+      "metrics_sha256": "22c34a307e0c5b894d1e8593986b0aeb5705af79c314ddbfc3af0f9072979551",
+      "checkpoint_sha256": "8df810a25f82e17aaa47ef07479c1be50f11efb4521b6b73c594b448acdc755e",
+      "validation": {
+        "queries": 320,
+        "recall_at_5": 0.331,
+        "ndcg_at_10": 0.9567,
+        "mrr": 1.0
+      },
+      "test": {
+        "queries": 160,
+        "recall_at_5": 0.3333,
+        "ndcg_at_10": 0.9662,
+        "mrr": 1.0
+      },
+      "cross_language_test": {
+        "queries": 160,
+        "recall_at_5": 0.625,
+        "ndcg_at_10": 0.9994,
+        "mrr": 1.0
+      }
+    }
+  ],
+  "selection": {
+    "criterion": "highest validation nDCG@10; test labels excluded from selection",
+    "selected_run": "seed-29-best",
+    "checkpoint_sha256": "8df810a25f82e17aaa47ef07479c1be50f11efb4521b6b73c594b448acdc755e"
+  },
+  "baseline": {
+    "validation": {
+      "queries": 320,
+      "recall_at_5": 0.2696,
+      "ndcg_at_10": 0.7356,
+      "mrr": 0.9584
+    },
+    "test": {
+      "queries": 160,
+      "recall_at_5": 0.2721,
+      "ndcg_at_10": 0.7302,
+      "mrr": 0.9583
+    },
+    "cross_language_test": {
+      "queries": 160,
+      "recall_at_5": 0.357,
+      "ndcg_at_10": 0.5788,
+      "mrr": 0.974
+    }
+  },
+  "trained": {
+    "validation": {
+      "queries": 320,
+      "recall_at_5": 0.331,
+      "ndcg_at_10": 0.9567,
+      "mrr": 1.0
+    },
+    "test": {
+      "queries": 160,
+      "recall_at_5": 0.3333,
+      "ndcg_at_10": 0.9662,
+      "mrr": 1.0
+    },
+    "cross_language_test": {
+      "queries": 160,
+      "recall_at_5": 0.625,
+      "ndcg_at_10": 0.9994,
+      "mrr": 1.0
+    }
+  },
+  "weight_change_proof": true,
+  "claim_boundary": "Synthetic-only repeated GPU fine-tuning proves the ML pipeline and cross-language retrieval behavior, not production accuracy on citizen complaints. Production activation requires approved human qrels."
+}
