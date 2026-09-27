@@ -79,7 +79,7 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
 
     await page.locator('[data-nav="dashboard"]').click();
     await page.getByRole('heading',{name:'Каждое решение меняет картину'}).waitFor();
-    assert.match(await page.locator('main').innerText(),/Обращения в инцидентах\s*18/);
+    assert.match(await page.locator('#main').innerText(),/Обращения в инцидентах\s*18/);
     await page.locator('[data-nav="operators"]').click();
     await page.locator('.operator-card').first().waitFor();
     assert.equal(await page.locator('.operator-card').count(),7);
@@ -91,6 +91,8 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     console.log('PASS UI 4: dashboard, operator load and incident members update');
 
     await page.locator('[data-nav="citizen"]').click();
+    await page.getByLabel('Район (необязательно)',{exact:true}).fill('Алмалинский');
+    await page.getByLabel('Район (необязательно)',{exact:true}).press('Tab');
     await action('subscribe').click();
     await page.getByRole('button',{name:'✓ Подписка сохранена в демо',exact:true}).waitFor();
     await page.getByLabel('Что произошло?',{exact:true}).fill('Абай 90 үйде су жоқ. <img src=x onerror="alert(1)">');

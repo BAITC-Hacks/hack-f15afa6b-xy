@@ -12,7 +12,7 @@ const main=document.querySelector('#main'), dialog=document.querySelector('#case
 const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent=document.querySelector('#playbook-content');
 let loadVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer;
 const commandDialog=document.querySelector('#command-dialog');
-Object.assign(state,{routingHealth:null,healthRegion:'',regions:[]});
+Object.assign(state,{routingHealth:null,healthRegion:'',regions:[],cities:[]});
 const titles={routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
 async function api(path, data) {
   let response;
@@ -318,7 +318,7 @@ document.addEventListener('submit',async e=>{
     const data=new FormData(form), text=data.get('text').trim();
     if(!text) throw new Error('Опишите проблему');
     const number=name=>data.get(name)?Number(data.get(name)):null;
-    const result=await api('/api/workspace/intake',{text,address:data.get('address')?.trim()||null,district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m')});
+    const result=await api('/api/workspace/intake',{text,address:data.get('address')?.trim()||null,city_code:data.get('city_code'),district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m')});
     state.trackingId=result.id;
     try {localStorage.setItem('pulse109-last-receipt',result.id);} catch { /* The receipt is usable without storage. */ }
     document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`)}</div>`;
@@ -337,7 +337,7 @@ document.addEventListener('keydown',e=>{
 playbookDialog.addEventListener('cancel',()=>previewVersion++);
 document.querySelector('#today').textContent=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',timeZone:'Asia/Almaty'});
 async function start() {
-  try {await api('/api/workspace/seed',{});state.topics=(await api('/api/topics')).topics;state.regions=(await api('/api/regions')).regions;await refresh();if(state.page==='routing') await loadHealth();}
+  try {await api('/api/workspace/seed',{});state.topics=(await api('/api/topics')).topics;state.regions=(await api('/api/regions')).regions;state.cities=(await api('/api/workspace/cities')).items;await refresh();if(state.page==='routing') await loadHealth();}
   catch(err) {main.innerHTML=`<div class="empty" role="alert"><h1>Не удалось загрузить очередь</h1><p>${esc(err.message)}</p>${button('retry','Повторить','primary')}</div>`;}
 }
 document.addEventListener('click',e=>{if(e.target.closest('[data-action="retry"]')) start();});

@@ -6,11 +6,13 @@ import tempfile
 from pathlib import Path
 
 from check_clarification import start_server, stop_server
+from cities import CITIES
 from smoke import find_free_port, http_request
 from workspace_api import normalized_address_query
 
 
 def run():
+    assert len(CITIES) == 90 and len({city["code"] for city in CITIES}) == 90
     assert normalized_address_query("жетысу 1, дом 26") == "микрорайон жетысу 1, 26, Алматы"
     assert normalized_address_query("Кабанбай батыра 10", "Астана") == "Кабанбай батыра 10, Астана"
     assert normalized_address_query("Тауке хана 5", "Шымкент") == "Тауке хана 5, Шымкент"
@@ -33,12 +35,17 @@ def run():
         try:
             call("/api/workspace/seed", {})
             call("/api/workspace/seed", {})
+            cities = call("/api/workspace/cities")
+            assert cities["count"] == 90 and cities["updated_at"] == "2026-09-18"
+            call("/api/workspace/intake", {"text": "Проверка города", "region_id": "KZ-ALA",
+                                           "city_code": "710000000"}, 422)
             queue = call("/api/workspace/queue")
             assert len(queue["items"]) == 50, "Seed must be idempotent and retain 20 originals"
-            print("PASS 1: 50 synthetic complaints; idempotent seed preserves original records")
+            print("PASS 1: 50 synthetic complaints; idempotent seed and 90-city KATO directory")
 
             cid = intake("Добрый день, на Абая 44 с утра нет воды, весь дом без воды, когда включат?",
-                         latitude=43.2389494, longitude=76.9451234, location_accuracy_m=9.44)
+                         city_code="750000000", latitude=43.2389494, longitude=76.9451234,
+                         location_accuracy_m=9.44)
             detail = call(f"/api/workspace/complaints/{cid}/triage", {})
             ai = detail["triage"]
             assert ai["category"] == "water_supply" and ai["category_confidence"] == .94
@@ -65,6 +72,7 @@ def run():
             result = call(f"/api/complaints/{cid}")
             assert result["complaint"]["incident_id"] == "INC-204"
             assert result["complaint"]["assigned_operator"] == "op-aidana"
+            assert result["complaint"]["city_code"] == "750000000"
             assert result["complaint"]["related_to"] and result["complaint"]["duplicate_of"] is None
             assert result["complaint"]["text"].startswith("Добрый день")
             assert "operator_confirmed" in [e["event_type"] for e in result["events"]]

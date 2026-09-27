@@ -9,7 +9,7 @@ DEMO_DISTRICT = "Алмалинский"
 def init_workspace(conn):
     columns = {r[1] for r in conn.execute("PRAGMA table_info(complaints)")}
     for name, definition in {
-        "address": "TEXT", "district": "TEXT", "channel": "TEXT DEFAULT 'web'",
+        "address": "TEXT", "city_code": "TEXT", "district": "TEXT", "channel": "TEXT DEFAULT 'web'",
         "latitude": "REAL", "longitude": "REAL", "location_accuracy_m": "REAL",
         "sender_key": "TEXT", "assigned_operator": "TEXT", "first_response_at": "TEXT", "related_to": "TEXT",
         "quarantined": "INTEGER NOT NULL DEFAULT 0", "safety_reviewed": "INTEGER NOT NULL DEFAULT 0",

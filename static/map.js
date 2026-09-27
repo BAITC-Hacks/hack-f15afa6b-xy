@@ -3,11 +3,7 @@ const MAPLIBRE_CSS = 'https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css';
 const MAPLIBRE_JS_INTEGRITY = 'sha384-GfxBM9x46BaAFxtCq39Fxir8fNZ4VDnwgfi6Kzi5/F1tAFsm0amuuV8kd+Pxzuf/';
 const MAPLIBRE_CSS_INTEGRITY = 'sha384-Nq6PQ+9vJPvw7U/VfDELyrWoGQMsy0gi6QShhaSrGzkpF5KkM40csg2leky+YMTd';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
-const CITIES = {
-  'KZ-ALA':{name:'Алматы',center:[76.945,43.238],bounds:[[76.55,42.95],[77.45,43.55]]},
-  'KZ-AST':{name:'Астана',center:[71.4304,51.1282],bounds:[[70.9,50.8],[72,51.4]]},
-  'KZ-SHY':{name:'Шымкент',center:[69.5901,42.3417],bounds:[[69.2,42.1],[70,42.6]]},
-};
+const DEFAULT_CITY={code:'750000000',name:'Алматы',center:[76.945,43.238],bounds:[[76.55,42.95],[77.45,43.55]]};
 
 let libraryPromise;
 
@@ -42,16 +38,29 @@ function setLocation(form, map, marker, point, accuracy=null) {
   setStatus(form,accuracy?`Точка выбрана · точность около ${Math.round(accuracy)} м`:'Точка выбрана · метку можно перетащить');
 }
 
-function setCity(form, map, reset=true) {
-  const city=CITIES[form.elements.region_id.value]||CITIES['KZ-ALA'];
+function selectedCity(form) {
+  const option=form.elements.city_code.selectedOptions[0];
+  return {code:option.value,name:option.dataset.name,regionId:option.dataset.region};
+}
+
+async function setCity(form, map, reset=true) {
+  const city=selectedCity(form);
+  form.elements.region_id.value=city.regionId;
   if(reset) {
     resetLocationPicker(form);form.elements.district.value='';
     form.elements.district.dispatchEvent(new Event('change',{bubbles:true}));
   }
   form.querySelector('[data-city-label]').textContent=`${city.name} · интерактивная карта`;
   form.querySelector('[data-map-mode="picker"]').setAttribute('aria-label',`Выберите место обращения на карте ${city.name}`);
-  map.setMaxBounds(city.bounds);
-  map.flyTo({center:city.center,zoom:12.4,duration:600});
+  setStatus(form,`Загружаем карту города ${city.name}…`);
+  map.setMaxBounds(null);
+  const response=await fetch(`/api/workspace/city-map?city_code=${encodeURIComponent(city.code)}`,{headers:{Accept:'application/json'}});
+  const data=await response.json().catch(()=>({detail:'Не удалось загрузить карту города'}));
+  if(!response.ok) throw new Error(data.detail||'Не удалось загрузить карту города');
+  if(selectedCity(form).code!==city.code) return;
+  map.setMaxBounds(data.bounds);
+  map.fitBounds(data.bounds,{padding:50,maxZoom:12.4,duration:600});
+  setStatus(form,'Введите адрес или выберите точку на карте');
 }
 
 function selectResult(form, map, marker, result, button) {
@@ -70,10 +79,10 @@ async function searchAddress(form, map, marker) {
   const input=form.elements.address, button=form.querySelector('[data-address-search]');
   const results=form.querySelector('[data-geocode-results]'), query=input.value.trim();
   if(query.length<3) {setStatus(form,'Введите адрес подробнее');input.focus();return;}
-  const regionId=form.elements.region_id.value, city=CITIES[regionId];
+  const city=selectedCity(form);
   button.disabled=true;button.textContent='Ищем…';results.textContent='';setStatus(form,`Ищем адрес в городе ${city.name}…`);
   try {
-    const response=await fetch(`/api/workspace/geocode?q=${encodeURIComponent(query)}&region_id=${encodeURIComponent(regionId)}`,{headers:{Accept:'application/json'}});
+    const response=await fetch(`/api/workspace/geocode?q=${encodeURIComponent(query)}&city_code=${encodeURIComponent(city.code)}`,{headers:{Accept:'application/json'}});
     const data=await response.json().catch(()=>({detail:'Не удалось выполнить поиск'}));
     if(!response.ok) throw new Error(data.detail||'Не удалось выполнить поиск');
     if(!data.items.length) {setStatus(form,'Адрес не найден · уточните написание или поставьте точку вручную');return;}
@@ -94,8 +103,7 @@ async function mountPicker(element) {
   if(!element.isConnected || element.dataset.mounted) return;
   element.dataset.mounted='true';
   const form=element.closest('form');
-  const city=CITIES[form.elements.region_id.value]||CITIES['KZ-ALA'];
-  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:city.center,zoom:12.4,pitch:18,maxBounds:city.bounds,renderWorldCopies:false});
+  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:DEFAULT_CITY.center,zoom:12.4,pitch:18,maxBounds:DEFAULT_CITY.bounds,renderWorldCopies:false});
   const marker=new maplibregl.Marker({color:'#157665',draggable:true});
   element._pulseMap=map;element._pulseMarker=marker;
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
@@ -110,7 +118,8 @@ async function mountPicker(element) {
   form.querySelector('[data-location-clear]').addEventListener('click',()=>resetLocationPicker(form));
   form.querySelector('[data-address-search]').addEventListener('click',()=>searchAddress(form,map,marker));
   form.elements.address.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();searchAddress(form,map,marker);}});
-  form.elements.region_id.addEventListener('change',()=>setCity(form,map));
+  form.elements.city_code.addEventListener('change',()=>setCity(form,map).catch(error=>setStatus(form,error.message)));
+  setCity(form,map,false).catch(error=>setStatus(form,error.message));
 }
 
 async function mountViewer(element) {

@@ -1,21 +1,15 @@
 """Operator workspace on the existing complaint and audit tables."""
 import json
-import os
-import re
-import threading
-import time
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Literal
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
 from auth import current_actor
+from cities import CITY_BY_CODE, attach_city_routes, normalized_address_query
 from clarification import VALID_CLARIFICATION_REASONS, get_received_clarifications
 from demo_data import seed_workspace
 from playbooks import attach_playbook_routes
@@ -26,6 +20,7 @@ from triage import (analyze, address_in, operators_with_load, queue_state, relat
 class Intake(BaseModel):
     text: str = Field(min_length=1, max_length=10000)
     region_id: str
+    city_code: str | None = Field(default=None, min_length=9, max_length=9, pattern=r"^\d{9}$")
     language: Literal["ru", "kk", "mixed", "unknown"] = "ru"
     address: str | None = Field(default=None, max_length=200)
     latitude: float | None = Field(default=None, ge=-90, le=90)
@@ -68,25 +63,6 @@ class Subscription(BaseModel):
     subscriber_key: str = Field(min_length=8, max_length=100)
 
 
-GEOCODE_CITIES = {
-    "KZ-ALA": {"name": "Алматы", "viewbox": "76.55,42.95,77.45,43.55", "bounds": (42.95, 43.55, 76.55, 77.45)},
-    "KZ-AST": {"name": "Астана", "viewbox": "70.90,50.80,72.00,51.40", "bounds": (50.80, 51.40, 70.90, 72.00)},
-    "KZ-SHY": {"name": "Шымкент", "viewbox": "69.20,42.10,70.00,42.60", "bounds": (42.10, 42.60, 69.20, 70.00)},
-}
-
-
-def normalized_address_query(value: str, city: str = "Алматы") -> str:
-    clean = " ".join(value.strip().split())
-    microdistrict = re.fullmatch(
-        r"(?:(?:мкр|микрорайон)\.?\s*)?(.+?[-\s]\d+)(?:\s*,\s*|\s+)(?:(?:дом|д|үй)\.?\s*)?(\d+[A-Za-zА-Яа-я/-]*)",
-        clean,
-        re.IGNORECASE,
-    )
-    if microdistrict:
-        clean = f"микрорайон {microdistrict.group(1)}, {microdistrict.group(2)}"
-    return clean if city.casefold() in clean.casefold() else clean + ", " + city
-
-
 def event(conn, cid, kind, payload, actor=None, event_id=None):
     now = datetime.now(timezone.utc).isoformat()
     conn.execute("INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -102,15 +78,15 @@ def suggested_response(c):
 def build_workspace_router(get_connection, classifier, topic_services, valid_regions, topic_names=None,
                            decision_service=None):
     router = APIRouter(prefix="/api/workspace")
-    geocode_cache = {}
-    geocode_lock = threading.Lock()
-    last_geocode_at = [0.0]
+    attach_city_routes(router)
 
     def complaint(conn, cid):
         row = conn.execute("SELECT * FROM complaints WHERE id = ?", (cid,)).fetchone()
         if not row:
             raise HTTPException(404, "Обращение не найдено")
-        return dict(row)
+        item = dict(row)
+        item["city_name"] = CITY_BY_CODE.get(item.get("city_code"), {}).get("name_ru")
+        return item
 
     def incident_list(conn):
         result = []
@@ -208,59 +184,6 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         with get_connection() as conn:
             return {"items": incident_list(conn)}
 
-    @router.get("/geocode")
-    def geocode(q: str = Query(min_length=3, max_length=200), region_id: str = "KZ-ALA"):
-        city = GEOCODE_CITIES.get(region_id)
-        if not city:
-            raise HTTPException(422, "Поиск по карте доступен для Алматы, Астаны и Шымкента")
-        query = normalized_address_query(q, city["name"])
-        key = region_id + ":" + query.casefold()
-        if key in geocode_cache:
-            return {"query": query, "items": geocode_cache[key], "cached": True}
-        with geocode_lock:
-            if key in geocode_cache:
-                return {"query": query, "items": geocode_cache[key], "cached": True}
-            delay = 1 - (time.monotonic() - last_geocode_at[0])
-            if delay > 0:
-                time.sleep(delay)
-            params = urlencode({
-                "q": query, "format": "jsonv2", "limit": 5, "countrycodes": "kz",
-                "viewbox": city["viewbox"], "bounded": 1, "addressdetails": 1,
-                "accept-language": "ru,kk",
-            })
-            base_url = os.environ.get("P109_GEOCODER_URL", "https://nominatim.openstreetmap.org/search")
-            request = Request(base_url + "?" + params, headers={
-                "User-Agent": "Pulse109/0.1 (+https://github.com/Eliasans02/pulse109)",
-                "Accept": "application/json",
-            })
-            try:
-                with urlopen(request, timeout=6) as response:
-                    payload = json.load(response)
-            except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
-                raise HTTPException(503, "Поиск адреса временно недоступен. Выберите точку вручную.") from error
-            finally:
-                last_geocode_at[0] = time.monotonic()
-            items = []
-            south, north, west, east = city["bounds"]
-            for result in payload if isinstance(payload, list) else []:
-                try:
-                    latitude, longitude = float(result["lat"]), float(result["lon"])
-                    bounds = [float(value) for value in result.get("boundingbox", [])]
-                except (KeyError, TypeError, ValueError):
-                    continue
-                if south <= latitude <= north and west <= longitude <= east:
-                    address = result.get("address") if isinstance(result.get("address"), dict) else {}
-                    district = next((address.get(name) for name in ("city_district", "borough", "district")
-                                     if address.get(name)), None)
-                    if district:
-                        district = re.sub(r"\s+район$", "", str(district), flags=re.IGNORECASE)
-                    items.append({"label": str(result.get("display_name") or query)[:300],
-                                  "latitude": latitude, "longitude": longitude,
-                                  "district": district,
-                                  "bounds": bounds if len(bounds) == 4 else None})
-            geocode_cache[key] = items
-        return {"query": query, "items": items, "cached": False}
-
     @router.get("/tracking/{cid}")
     def tracking(cid: str):
         with get_connection() as conn:
@@ -285,6 +208,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             service = SERVICE_NAMES.get(c["service_id"]) if c["decision_status"] == "confirmed" and c["region_id"] == "KZ-ALA" else None
             return {"id": c["id"], "registered_at": c["received_at"] or c["ingested_at"], "status": status,
                     "service_name": service, "incident": dict(incident) if incident else None, "updates": updates,
+                    "city": c.get("city_name"),
                     "location": ({"latitude": c["latitude"], "longitude": c["longitude"]}
                                  if c["latitude"] is not None and c["longitude"] is not None else None),
                     "resolved_at": c["resolved_at"], "resolution_text": c["resolution_text"] if c["resolved_at"] else None,
@@ -294,20 +218,25 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
     def intake(req: Intake):
         if not req.text.strip() or req.region_id not in valid_regions:
             raise HTTPException(422, "Укажите текст обращения и известный регион")
+        city = CITY_BY_CODE.get(req.city_code) if req.city_code else None
+        if req.city_code and (not city or city["region_id"] != req.region_id):
+            raise HTTPException(422, "Город не соответствует выбранному региону")
         cid = "PULSE-" + uuid.uuid4().hex[:6].upper()
         now = datetime.now(timezone.utc).isoformat()
         with get_connection() as conn:
             conn.execute("""INSERT INTO complaints
                 (id, data_origin, source_system, text, region_id, received_at, ingested_at,
-                 language, address, latitude, longitude, location_accuracy_m, district, channel, sender_key)
-                VALUES (?, 'synthetic', 'operator_demo_intake', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 language, address, city_code, latitude, longitude, location_accuracy_m, district, channel, sender_key)
+                VALUES (?, 'synthetic', 'operator_demo_intake', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (cid, req.text.strip(), req.region_id, now, now, req.language,
                  req.address.strip() if req.address else address_in(req.text),
+                 req.city_code,
                  round(req.latitude, 6) if req.latitude is not None else None,
                  round(req.longitude, 6) if req.longitude is not None else None,
                  round(req.location_accuracy_m, 1) if req.location_accuracy_m is not None else None,
                  req.district, req.channel, req.sender_key))
-            event(conn, cid, "intake", {"channel": req.channel, "text_len": len(req.text),
+            event(conn, cid, "intake", {"channel": req.channel, "city_code": req.city_code,
+                                        "text_len": len(req.text),
                                         "has_location": req.latitude is not None}, "citizen_demo")
         return {"id": cid, "data_origin": "synthetic", "decision_status": "pending"}
 
