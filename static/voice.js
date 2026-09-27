@@ -1,12 +1,12 @@
-let recording=null;
+let recording=null, playback=null;
 
 const prompts={
-  ru:{problem:'Расскажите, что произошло. Говорите до тридцати секунд.',address:'Назовите адрес или ближайший ориентир.'},
-  kk:{problem:'Не болғанын айтып беріңіз. Отыз секундқа дейін сөйлеңіз.',address:'Мекенжайды немесе жақын жердегі нысанды айтыңыз.'},
-  mixed:{problem:'Расскажите о проблеме. Мәселе туралы айтып беріңіз.',address:'Назовите адрес. Мекенжайды айтыңыз.'},
+  ru:{problem:'Расскажите, что произошло. Говорите до тридцати секунд.',address:'Теперь назовите адрес или ближайший ориентир.',review:'Проверьте текст, точку на карте и приложите фото или видео.'},
+  kk:{problem:'Не болғанын айтып беріңіз. Отыз секундқа дейін сөйлеңіз.',address:'Енді мекенжайды немесе жақын жердегі нысанды айтыңыз.',review:'Мәтінді, картадағы орынды тексеріп, фото немесе видео тіркеңіз.'},
+  mixed:{problem:'Расскажите о проблеме. Мәселе туралы айтып беріңіз.',address:'Теперь назовите адрес. Енді мекенжайды айтыңыз.',review:'Проверьте данные. Мәліметтерді тексеріңіз.'},
 };
 
-function speak(text,language) {
+function browserSpeak(text,language) {
   if(!('speechSynthesis' in window)) return Promise.resolve();
   speechSynthesis.cancel();
   return new Promise(resolve=>{
@@ -15,6 +15,23 @@ function speak(text,language) {
     utterance.rate=.95;utterance.onend=resolve;utterance.onerror=resolve;
     speechSynthesis.speak(utterance);
   });
+}
+
+async function speak(text,language,prompt,api) {
+  if(playback) {playback.pause();playback=null;}
+  try {
+    const result=await api('/api/voice/speak',{prompt});
+    if(!result.audio_data?.startsWith('data:audio/wav;base64,')) throw new Error('Invalid audio');
+    const audio=new Audio(result.audio_data);playback=audio;
+    await new Promise((resolve,reject)=>{
+      audio.onended=resolve;audio.onerror=()=>reject(new Error('Audio playback failed'));
+      audio.play().catch(reject);
+    });
+    playback=null;
+  } catch {
+    playback=null;
+    await browserSpeak(text,language);
+  }
 }
 
 function flatten(chunks) {
@@ -58,7 +75,8 @@ function setListening(active) {
 async function start(field,language,api,toast) {
   if(recording) return;
   if(!navigator.mediaDevices?.getUserMedia) throw new Error('Браузер не поддерживает запись с микрофона');
-  await speak(prompts[language][field],language);
+  const status=document.querySelector('[data-voice-status]');if(status) status.textContent='Готовлю голосовую подсказку…';
+  await speak(prompts[language][field],language,`${language}_${field}`,api);
   const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
   const context=new AudioContext(), source=context.createMediaStreamSource(stream);
   const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];
@@ -82,7 +100,7 @@ async function finish() {
     input.value=result.text;input.dispatchEvent(new Event('input',{bubbles:true}));
     if(current.field==='address') document.querySelector('[data-address-search]')?.click();
     if(status) status.textContent=result.assistant_message;
-    await speak(result.assistant_message,current.language);
+    await speak(result.assistant_message,current.language,result.assistant_prompt,current.api);
     document.querySelector(`[data-action="voice-record"][data-field="${result.next_field}"]`)?.focus();
   } catch(error) {
     if(status) status.textContent='Не удалось распознать запись. Можно повторить или ввести текст.';

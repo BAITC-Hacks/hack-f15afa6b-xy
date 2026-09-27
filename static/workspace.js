@@ -5,7 +5,7 @@ import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927
 import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260927-12';
 import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260927-12';
-import {handleVoiceAction} from './voice.js?v=20260927-12';
+import {handleVoiceAction} from './voice.js?v=20260927-13';
 
 async function mediaData(input) {
   const file=input.files[0];
