@@ -288,7 +288,10 @@ document.addEventListener('change',async e=>{
   if(e.target.id==='show-ignored') {state.showIgnored=e.target.checked;render();}
   if(e.target.id==='incident-status') document.querySelector('#incident-next').required=e.target.value!=='Завершён';
   if(e.target.id==='queue-region') {state.region=e.target.value;render();}
-  if(e.target.id==='citizen-district') document.querySelector('#citizen-notice').hidden=e.target.value!=='Алмалинский';
+  if(e.target.id==='citizen-city'||e.target.id==='citizen-district') {
+    const form=document.querySelector('#citizen-form'), notice=document.querySelector('#citizen-notice');
+    if(form&&notice) notice.hidden=form.elements.region_id.value!=='KZ-ALA'||form.elements.district.value!=='Алмалинский';
+  }
   if(e.target.id==='manual-category' && e.target.value) {
     state.detail.manual=true;
     if(!state.detail.selectedPriority) state.detail.selectedPriority='normal';
@@ -315,7 +318,7 @@ document.addEventListener('submit',async e=>{
     const data=new FormData(form), text=data.get('text').trim();
     if(!text) throw new Error('Опишите проблему');
     const number=name=>data.get(name)?Number(data.get(name)):null;
-    const result=await api('/api/workspace/intake',{text,address:data.get('address')?.trim()||null,district:data.get('district'),language:data.get('language'),region_id:'KZ-ALA',channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m')});
+    const result=await api('/api/workspace/intake',{text,address:data.get('address')?.trim()||null,district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m')});
     state.trackingId=result.id;
     try {localStorage.setItem('pulse109-last-receipt',result.id);} catch { /* The receipt is usable without storage. */ }
     document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`)}</div>`;

@@ -12,6 +12,8 @@ from workspace_api import normalized_address_query
 
 def run():
     assert normalized_address_query("жетысу 1, дом 26") == "микрорайон жетысу 1, 26, Алматы"
+    assert normalized_address_query("Кабанбай батыра 10", "Астана") == "Кабанбай батыра 10, Астана"
+    assert normalized_address_query("Тауке хана 5", "Шымкент") == "Тауке хана 5, Шымкент"
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory() as tmp:
         db = Path(tmp) / "demo.db"

@@ -68,7 +68,14 @@ class Subscription(BaseModel):
     subscriber_key: str = Field(min_length=8, max_length=100)
 
 
-def normalized_address_query(value: str) -> str:
+GEOCODE_CITIES = {
+    "KZ-ALA": {"name": "Алматы", "viewbox": "76.55,42.95,77.45,43.55", "bounds": (42.95, 43.55, 76.55, 77.45)},
+    "KZ-AST": {"name": "Астана", "viewbox": "70.90,50.80,72.00,51.40", "bounds": (50.80, 51.40, 70.90, 72.00)},
+    "KZ-SHY": {"name": "Шымкент", "viewbox": "69.20,42.10,70.00,42.60", "bounds": (42.10, 42.60, 69.20, 70.00)},
+}
+
+
+def normalized_address_query(value: str, city: str = "Алматы") -> str:
     clean = " ".join(value.strip().split())
     microdistrict = re.fullmatch(
         r"(?:(?:мкр|микрорайон)\.?\s*)?(.+?[-\s]\d+)(?:\s*,\s*|\s+)(?:(?:дом|д|үй)\.?\s*)?(\d+[A-Za-zА-Яа-я/-]*)",
@@ -77,7 +84,7 @@ def normalized_address_query(value: str) -> str:
     )
     if microdistrict:
         clean = f"микрорайон {microdistrict.group(1)}, {microdistrict.group(2)}"
-    return clean if re.search(r"\bалмат[ыа]\b", clean, re.IGNORECASE) else clean + ", Алматы"
+    return clean if city.casefold() in clean.casefold() else clean + ", " + city
 
 
 def event(conn, cid, kind, payload, actor=None, event_id=None):
@@ -202,9 +209,12 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             return {"items": incident_list(conn)}
 
     @router.get("/geocode")
-    def geocode(q: str = Query(min_length=3, max_length=200)):
-        query = normalized_address_query(q)
-        key = query.casefold()
+    def geocode(q: str = Query(min_length=3, max_length=200), region_id: str = "KZ-ALA"):
+        city = GEOCODE_CITIES.get(region_id)
+        if not city:
+            raise HTTPException(422, "Поиск по карте доступен для Алматы, Астаны и Шымкента")
+        query = normalized_address_query(q, city["name"])
+        key = region_id + ":" + query.casefold()
         if key in geocode_cache:
             return {"query": query, "items": geocode_cache[key], "cached": True}
         with geocode_lock:
@@ -215,7 +225,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                 time.sleep(delay)
             params = urlencode({
                 "q": query, "format": "jsonv2", "limit": 5, "countrycodes": "kz",
-                "viewbox": "76.55,42.95,77.45,43.55", "bounded": 1,
+                "viewbox": city["viewbox"], "bounded": 1, "addressdetails": 1,
                 "accept-language": "ru,kk",
             })
             base_url = os.environ.get("P109_GEOCODER_URL", "https://nominatim.openstreetmap.org/search")
@@ -231,15 +241,22 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             finally:
                 last_geocode_at[0] = time.monotonic()
             items = []
+            south, north, west, east = city["bounds"]
             for result in payload if isinstance(payload, list) else []:
                 try:
                     latitude, longitude = float(result["lat"]), float(result["lon"])
                     bounds = [float(value) for value in result.get("boundingbox", [])]
                 except (KeyError, TypeError, ValueError):
                     continue
-                if 42.95 <= latitude <= 43.55 and 76.55 <= longitude <= 77.45:
+                if south <= latitude <= north and west <= longitude <= east:
+                    address = result.get("address") if isinstance(result.get("address"), dict) else {}
+                    district = next((address.get(name) for name in ("city_district", "borough", "district")
+                                     if address.get(name)), None)
+                    if district:
+                        district = re.sub(r"\s+район$", "", str(district), flags=re.IGNORECASE)
                     items.append({"label": str(result.get("display_name") or query)[:300],
                                   "latitude": latitude, "longitude": longitude,
+                                  "district": district,
                                   "bounds": bounds if len(bounds) == 4 else None})
             geocode_cache[key] = items
         return {"query": query, "items": items, "cached": False}
