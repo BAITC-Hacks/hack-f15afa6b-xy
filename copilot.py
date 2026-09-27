@@ -122,24 +122,25 @@ class QwenCopilot:
 
     def assist(self, context: dict) -> CopilotResult:
         schema = {
-            "summary": "1-3 short sentences",
-            "reasoning": "short factual explanation without hidden chain of thought",
-            "suggested_reply": "polite draft without invented promises or deadlines",
-            "clarification_question": "one question or null",
+            "summary": "one sentence, at most 200 characters",
+            "reasoning": "facts from context only, at most 240 characters",
+            "suggested_reply": "polite draft, at most 400 characters",
+            "clarification_question": "one question under 180 characters or null",
             "recommended_action": "clarify|prepare_reply|review_incident|manual_review",
         }
         messages = [
             {"role": "system", "content": (
                 "You are the Pulse 109 operator copilot for Kazakhstan. Use only the supplied facts. "
                 "Reply in the complaint language (Russian or Kazakh). Never promise a deadline, invent a service action, "
-                "or make the decision for the operator. Return one JSON object matching this schema exactly: "
+                "guess a cause, or make the decision for the operator. Keep the whole response under 1200 characters. "
+                "Return one JSON object and no markdown, matching this schema exactly: "
                 + json.dumps(schema, ensure_ascii=False)
             )},
             {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
         ]
         payload = json.dumps({
             "model": self.model, "messages": messages, "temperature": 0,
-            "max_tokens": 700, "response_format": {"type": "json_object"},
+            "max_tokens": 350, "response_format": {"type": "json_object"},
         }, ensure_ascii=False).encode("utf-8")
         request = Request(self.base_url + "/v1/chat/completions", data=payload, method="POST", headers={
             "Authorization": "Bearer " + self.api_key,
