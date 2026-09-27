@@ -35,9 +35,12 @@ def init_workspace(conn):
         CREATE TABLE IF NOT EXISTS playbook_previews (
             token TEXT PRIMARY KEY, complaint_id TEXT NOT NULL, playbook_id TEXT NOT NULL,
             request TEXT NOT NULL, fingerprint TEXT NOT NULL, created_at TEXT NOT NULL,
-            executed_at TEXT, result TEXT
+            executed_at TEXT, result TEXT, actor TEXT
         );
     """)
+    preview_columns = {r[1] for r in conn.execute("PRAGMA table_info(playbook_previews)")}
+    if "actor" not in preview_columns:
+        conn.execute("ALTER TABLE playbook_previews ADD COLUMN actor TEXT")
 
 
 def seed_workspace(conn, topic_services):

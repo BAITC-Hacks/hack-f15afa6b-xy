@@ -22,6 +22,7 @@ from smoke import find_free_port, http_request, wait_for_server
 def start_server(repo_root: Path, db_path: Path, port: int):
     env = os.environ.copy()
     env["DATABASE_PATH"] = str(db_path)
+    env["P109_AUTH_DISABLED"] = "1"
     env["PYTHONPATH"] = str(repo_root)
     base_url = f"http://127.0.0.1:{port}"
     proc = subprocess.Popen(
@@ -92,7 +93,7 @@ def run_check():
         requested = payload_of(clar, "clarification_requested")
         assert requested["payload"]["reason"] == "unknown_place"
         assert requested["payload"]["question"] == question
-        assert requested["event"]["actor"] == "operator_t2"
+        assert requested["event"]["actor"] == "operator_demo"
         assert requested["event"]["occurred_at"] and requested["event"]["recorded_at"]
         print("PASS 2: needs_clarification saved with reason, question, author and time; urgency intact")
 
@@ -148,7 +149,7 @@ def run_check():
         assert sup["complaint"]["proposed_priority"] == "urgent"
         received = payload_of(sup, "clarification_received")
         assert received["payload"]["text"] == kk_supplement, "Received text must be preserved exactly"
-        assert received["event"]["actor"] == "operator_t2"
+        assert received["event"]["actor"] == "operator_demo"
         print("PASS 7: KK supplement stored separately from the original with author and time")
 
         # 8. Explicit return to pending

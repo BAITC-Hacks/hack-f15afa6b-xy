@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from auth import current_actor
 from clarification import VALID_CLARIFICATION_REASONS, get_received_clarifications
 from demo_data import seed_workspace
 from playbooks import attach_playbook_routes
@@ -49,10 +50,10 @@ class Subscription(BaseModel):
     subscriber_key: str = Field(min_length=8, max_length=100)
 
 
-def event(conn, cid, kind, payload, actor="operator_demo", event_id=None):
+def event(conn, cid, kind, payload, actor=None, event_id=None):
     now = datetime.now(timezone.utc).isoformat()
     conn.execute("INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?)",
-                 (event_id or "evt-" + uuid.uuid4().hex, cid, kind, now, now, actor,
+                 (event_id or "evt-" + uuid.uuid4().hex, cid, kind, now, now, actor or current_actor(),
                   json.dumps(payload, ensure_ascii=False)))
 
 
@@ -378,6 +379,6 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         "operators": operators_with_load, "checked_incident": checked_incident, "writable": writable,
         "services": topic_services, "clarification_reasons": VALID_CLARIFICATION_REASONS,
         "topic_names": topic_names or {},
-        "suggested_response": suggested_response, "event": event, "actor": "operator_demo",
+        "suggested_response": suggested_response, "event": event,
     })
     return router

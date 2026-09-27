@@ -23,6 +23,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from auth import current_actor
 from incidents import ACTIVE_INCIDENT_STATUSES, attach_incident_routes, incident_detail, incident_event
 from triage import HIGH_CONFIDENCE, address_in, analyze, moment, symptom, tokens
 
@@ -233,13 +234,11 @@ def _is_ignored(conn, signal_id: str) -> bool:
 class ConfirmRequest(BaseModel):
     case_ids: list[str] = Field(min_length=1)
     incident_id: str | None = None
-    actor: str = "operator_demo"
 
 
 class IgnoreRequest(BaseModel):
     case_ids: list[str] = Field(min_length=1)
     ignored: bool
-    actor: str = "operator_demo"
 
 
 def _new_incident_id(conn) -> str:
@@ -325,6 +324,7 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
 
     @router.post("/radar/{signal_id}/confirm")
     def confirm_signal(signal_id: str, req: ConfirmRequest):
+        actor = current_actor()
         case_ids = sorted(set(req.case_ids))
         with get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -365,11 +365,11 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
             replayed = bool(target) and all(member["incident_id"] == target["id"] for member in members)
             if not replayed:
                 if target is None:
-                    target = create_incident(conn, signal, case_ids, req.actor)
+                    target = create_incident(conn, signal, case_ids, actor)
                 else:
                     incident_event(conn, target["id"], "radar_confirmed",
                                    f"Сигнал радара подтверждён человеком: {len(case_ids)} обращений.",
-                                   {"signal_id": signal_id, "case_ids": case_ids}, req.actor)
+                                   {"signal_id": signal_id, "case_ids": case_ids}, actor)
                 root = case_ids[0]
                 for member in members:
                     if member["incident_id"] == target["id"]:
@@ -380,11 +380,12 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
                         (target["id"], related, member["id"]))
                     audit(conn, member["id"], "incident_linked",
                           {"incident_id": target["id"], "related_to": related, "signal_id": signal_id,
-                           "previous_incident_id": member["incident_id"]}, req.actor)
+                           "previous_incident_id": member["incident_id"]}, actor)
             return {"incident": incident_detail(conn, target["id"]), "replayed": replayed}
 
     @router.post("/radar/{signal_id}/ignore")
     def ignore_signal(signal_id: str, req: IgnoreRequest):
+        actor = current_actor()
         case_ids = sorted(set(req.case_ids))
         now = datetime.now(timezone.utc).isoformat()
         with get_connection() as conn:
@@ -395,15 +396,15 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
                     "INSERT INTO radar_ignored VALUES (?, ?, ?, ?, NULL, NULL) "
                     "ON CONFLICT(signal_id) DO UPDATE SET signature = excluded.signature, "
                     "ignored_at = excluded.ignored_at, actor = excluded.actor, restored_at = NULL, restored_by = NULL",
-                    (signal_id, _hash_id(case_ids, prefix=""), now, req.actor))
+                    (signal_id, _hash_id(case_ids, prefix=""), now, actor))
                 event_type = "radar_ignored"
             else:
                 conn.execute("UPDATE radar_ignored SET restored_at = ?, restored_by = ? WHERE signal_id = ?",
-                             (now, req.actor, signal_id))
+                             (now, actor, signal_id))
                 event_type = "radar_restored"
             for cid in case_ids:
                 audit(conn, cid, event_type, {"signal_id": signal_id, "case_ids": case_ids, "ignored": req.ignored},
-                      req.actor)
+                      actor)
             return {"signal_id": signal_id, "ignored": req.ignored, "case_ids": case_ids, "at": now}
 
     attach_incident_routes(router, get_connection)

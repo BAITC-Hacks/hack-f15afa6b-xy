@@ -1,6 +1,7 @@
 import {esc, pct, badge, button, topicName, groups, channels, time} from './views.js';
 import {routingAlternatives} from './support.js';
 const eventNames={intake:'Обращение зарегистрировано',classification_proposed:'AI предложил решение',operator_confirmed:'Оператор подтвердил решение',incident_linked:'Связано с инцидентом',incident_rejected:'Отмечено как отдельная проблема',quarantined:'Отправлено в карантин',safety_cleared:'Возвращено в обычную очередь',clarification_requested:'Запрошено уточнение',clarification_received:'Получено уточнение',clarification_resolved:'Возвращено в обработку',reply_saved:'Ответ сохранён в демо',playbook_executed:'Сценарий подтверждён и выполнен',case_resolved:'Типовой вопрос закрыт',case_reopened:'Обращение возвращено в работу'};
+function actorName(actor) {return actor==='citizen_demo'?'Гражданин':actor==='operator_demo'||actor?.startsWith('usr-')?'Оператор':'Демо-система';}
 export function caseView(d, topics) {
   const c=d.complaint, ai=d.triage, inc=d.incident_candidate, op=d.routing.operator;
   const provider=ai.provider==='hybrid'?'Laya + classifier':ai.provider==='laya'?'Laya':ai.provider==='demo_fallback'?'DEMO FALLBACK':'Демо-правила';
@@ -9,7 +10,7 @@ export function caseView(d, topics) {
   const editable=pending && (ai.confidence_band!=='low' || d.manual);
   const events=(d.events||[]).filter(e=>e.event_type!=='classification_proposed').map(e=>{
     let payload={}; try {payload=JSON.parse(e.payload);} catch {}
-    return `<li><span class="timeline-dot"></span><div><strong>${esc(eventNames[e.event_type]||e.event_type)}</strong><small>${time(e.occurred_at)} · ${esc(e.actor==='operator_demo'?'Оператор':e.actor==='citizen_demo'?'Гражданин':'Демо-система')}</small>${payload.text||payload.question?`<p>${esc(payload.text||payload.question)}</p>`:''}</div></li>`;
+    return `<li><span class="timeline-dot"></span><div><strong>${esc(eventNames[e.event_type]||e.event_type)}</strong><small>${time(e.occurred_at)} · ${esc(actorName(e.actor))}</small>${payload.text||payload.question?`<p>${esc(payload.text||payload.question)}</p>`:''}</div></li>`;
   }).join('');
   return `<div class="case-header"><div><span class="eyebrow">ОБРАЩЕНИЕ</span><h2 id="case-title">${esc(c.id)}</h2></div><div class="case-chips">${badge(groups[d.group],d.group==='urgent'?'red':'neutral')}${badge(ai.unavailable?'AI недоступен':'✦ AI '+pct(ai.category_confidence),ai.unavailable?'amber':'green')}${d.sla_remaining!=null?badge(d.sla_remaining<0?'SLA просрочен':`SLA ${d.sla_remaining} мин`,d.sla_remaining<10?'red':'neutral'):''}${c.incident_id?badge(c.incident_id,'blue'):inc?badge('Возможный инцидент','blue'):''}</div>${button('close','×','icon-button','aria-label="Закрыть карточку"')}</div>
     <div id="presence"></div><div class="case-grid"><section class="conversation"><div class="section-top"><h3>Обращение и история</h3><span class="micro">${esc(channels[c.channel]||'Веб-форма')} · ${esc(c.language.toUpperCase())}</span></div>

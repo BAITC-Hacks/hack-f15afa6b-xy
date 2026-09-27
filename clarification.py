@@ -15,6 +15,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from auth import current_actor
 from playbooks import faq_closed
 
 VALID_CLARIFICATION_REASONS = {
@@ -29,12 +30,10 @@ VALID_CLARIFICATION_REASONS = {
 class ClarificationRequest(BaseModel):
     reason: str
     question: str = Field(..., min_length=1, max_length=1000)
-    actor: str = "operator_demo"
 
 
 class ClarificationResponse(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
-    actor: str = "operator_demo"
 
 
 def get_received_clarifications(conn, complaint_id: str) -> list[str]:
@@ -95,7 +94,7 @@ def build_clarification_router(get_connection: Callable[[], Any], banner_text: s
                     complaint_id,
                     now_iso,
                     now_iso,
-                    req.actor,
+                    current_actor(),
                     json.dumps({"reason": req.reason, "question": question}, ensure_ascii=False),
                 ),
             )
@@ -125,7 +124,7 @@ def build_clarification_router(get_connection: Callable[[], Any], banner_text: s
                     complaint_id,
                     now_iso,
                     now_iso,
-                    req.actor,
+                    current_actor(),
                     json.dumps({"text": text, "text_len": len(text)}, ensure_ascii=False),
                 ),
             )
@@ -151,8 +150,9 @@ def build_clarification_router(get_connection: Callable[[], Any], banner_text: s
             conn.execute("UPDATE complaints SET decision_status = 'pending' WHERE id = ?", (complaint_id,))
             conn.execute(
                 "INSERT INTO audit_events (id, complaint_id, event_type, occurred_at, recorded_at, actor, payload) "
-                "VALUES (?, ?, 'clarification_resolved', ?, ?, 'operator_demo', ?)",
-                (f"evt-{uuid.uuid4().hex[:8]}", complaint_id, now_iso, now_iso, json.dumps({})),
+                "VALUES (?, ?, 'clarification_resolved', ?, ?, ?, ?)",
+                (f"evt-{uuid.uuid4().hex[:8]}", complaint_id, now_iso, now_iso,
+                 current_actor(), json.dumps({})),
             )
             conn.commit()
             result = complaint_with_events(conn, complaint_id)

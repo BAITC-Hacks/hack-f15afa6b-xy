@@ -35,7 +35,7 @@ async function postClarification(complaintId, action, body) {
     options.headers = { "Content-Type": "application/json" };
     options.body = JSON.stringify(body);
   }
-  const res = await fetch(`/api/complaints/${complaintId}/${action}`, options);
+  const res = await pulseFetch(`/api/complaints/${complaintId}/${action}`, options);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     const error = new Error("Clarification action failed");
@@ -92,7 +92,7 @@ async function handleClarificationRequest(e) {
     complaint,
     generation,
     "clarification",
-    { reason, question, actor: "operator_demo" },
+    { reason, question },
     "clarification-error",
     "clarification-success",
     "Причина и вопрос сохранены. Заявка помечена «Нужно уточнение»."
@@ -116,7 +116,7 @@ async function handleClarificationResponse() {
     complaint,
     generation,
     "clarification-response",
-    { text, actor: "operator_demo" },
+    { text },
     "clarification-response-error",
     "clarification-response-success",
     "Полученное уточнение сохранено отдельно от исходного текста."
@@ -142,7 +142,7 @@ async function refreshClarifications(complaintId) {
   const target = document.getElementById("active-clarification-text");
   block.hidden = true;
   try {
-    const res = await fetch(`/api/complaints/${complaintId}`);
+    const res = await pulseFetch(`/api/complaints/${complaintId}`);
     if (!res.ok) return;
     const data = await res.json();
     if (selectionGeneration !== generation || !activeComplaint || activeComplaint.id !== complaintId) return;

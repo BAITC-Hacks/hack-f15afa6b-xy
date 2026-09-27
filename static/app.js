@@ -11,6 +11,18 @@ const STATUS_LABELS = {pending: "в ожидании", needs_clarification: "н�
 const STATUS_CLASSES = {pending: "badge-pending", needs_clarification: "badge-clarification", confirmed: "badge-confirmed"};
 const queueState = {view: "pending", regionId: "", priority: "", page: 1, pageSize: 10, pages: 1, items: [], counts: null};
 
+async function pulseFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const method = (options.method || "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const cookie = document.cookie.split("; ").find(item => item.startsWith("pulse109_csrf="));
+    if (cookie) headers.set("X-CSRF-Token", decodeURIComponent(cookie.split("=").slice(1).join("=")));
+  }
+  const response = await window.fetch.call(window, path, {...options, headers, credentials: "same-origin"});
+  if (response.status === 401) window.location.assign("/");
+  return response;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initApp();
   setupEventListeners();
@@ -67,7 +79,7 @@ function setupEventListeners() {
 
 async function loadHealth() {
   try {
-    const res = await fetch("/api/health");
+    const res = await pulseFetch("/api/health");
     const data = await res.json();
     document.getElementById("app-mode").textContent = data.mode;
     document.getElementById("app-training").textContent = data.training_status;
@@ -78,7 +90,7 @@ async function loadHealth() {
 
 async function loadRegions() {
   try {
-    const res = await fetch("/api/regions");
+    const res = await pulseFetch("/api/regions");
     const data = await res.json();
     cachedRegions = data.regions || [];
     const select = document.getElementById("intake-region");
@@ -110,7 +122,7 @@ async function loadRegions() {
 
 async function loadTopics() {
   try {
-    const res = await fetch("/api/topics");
+    const res = await pulseFetch("/api/topics");
     const data = await res.json();
     cachedTopics = data.topics || [];
     const select = document.getElementById("confirm-topic");
@@ -128,7 +140,7 @@ async function loadTopics() {
 
 async function loadStats() {
   try {
-    const res = await fetch("/api/stats");
+    const res = await pulseFetch("/api/stats");
     const data = await res.json();
     document.getElementById("stat-total").textContent = data.total_complaints;
     document.getElementById("stat-pending").textContent = data.pending_count;
@@ -209,7 +221,7 @@ async function loadQueue() {
 
   let payload;
   try {
-    const res = await fetch(queueRequestUrl());
+    const res = await pulseFetch(queueRequestUrl());
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const items = Array.isArray(data?.items) ? data.items : null;
@@ -354,7 +366,7 @@ async function handleIntakeSubmit(e) {
 
   btn.disabled = true;
   try {
-    const res = await fetch("/api/intake", {
+    const res = await pulseFetch("/api/intake", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, region_id: region, language: lang }),
@@ -371,7 +383,7 @@ async function handleIntakeSubmit(e) {
     await loadQueue();
     // Fetch full complaint and select
     try {
-      const fullRes = await fetch(`/api/complaints/${created.id}`);
+      const fullRes = await pulseFetch(`/api/complaints/${created.id}`);
       if (!fullRes.ok) throw new Error(`HTTP ${fullRes.status}`);
       const fullData = await fullRes.json();
       if (!fullData || !fullData.complaint || typeof fullData.complaint.id !== "string") throw new Error("Invalid complaint response");
@@ -398,7 +410,7 @@ async function handleClassify() {
   btn.disabled = true;
   let proposal;
   try {
-    const res = await fetch(`/api/complaints/${complaint.id}/classify`, { method: "POST" });
+    const res = await pulseFetch(`/api/complaints/${complaint.id}/classify`, { method: "POST" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!data || !data.proposal || typeof data.proposal !== "object" || Array.isArray(data.proposal)) throw new Error("Invalid classification response");
@@ -453,7 +465,7 @@ async function loadSimilar(complaintId) {
   container.replaceChildren(textElement("p", "Загружаем похожие обращения…", "empty-state"));
   let items;
   try {
-    const res = await fetch(`/api/complaints/${complaintId}/similar?limit=5`);
+    const res = await pulseFetch(`/api/complaints/${complaintId}/similar?limit=5`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!data || !Array.isArray(data.candidates)) throw new Error("Invalid similar response");
@@ -519,10 +531,10 @@ async function handleConfirmSubmit(e) {
   const requestId = ++confirmRequestId;
   btn.disabled = true;
   try {
-    const res = await fetch(`/api/complaints/${complaint.id}/confirm`, {
+    const res = await pulseFetch(`/api/complaints/${complaint.id}/confirm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, service_id, priority, actor: "operator_demo" }),
+      body: JSON.stringify({ topic, service_id, priority }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -565,7 +577,7 @@ async function callStub(url, method = "GET") {
   out.style.display = "block";
   out.textContent = `Запрос: ${method} ${url}...\n`;
   try {
-    const res = await fetch(url, { method });
+    const res = await pulseFetch(url, { method });
     const json = await res.json();
     out.textContent += `HTTP ${res.status} ${res.statusText}\n${JSON.stringify(json, null, 2)}`;
   } catch (err) {

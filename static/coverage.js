@@ -73,7 +73,7 @@
     try {
       const region = byId("coverage-region").value;
       const suffix = region ? "?region_id=" + encodeURIComponent(region) : "";
-      const response = await fetch("/api/data-coverage" + suffix, {signal: controller.signal});
+      const response = await pulseFetch("/api/data-coverage" + suffix, {signal: controller.signal});
       if (!response.ok) throw new Error("coverage unavailable");
       const data = await response.json();
       if (version !== requestVersion) return;

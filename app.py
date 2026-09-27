@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from auth import current_actor, init_auth, install_auth
 from data_coverage import CoverageUnavailable, load_coverage
 from clarification import build_clarification_router, get_received_clarifications
 from queue_api import build_queue_router
@@ -134,13 +135,25 @@ def init_db() -> None:
 async def lifespan(_: FastAPI):
     init_db()
     with get_connection() as conn:
+        init_auth(conn)
         init_workspace(conn)
         init_incidents(conn)
         init_support(conn)
     yield
 
 app = FastAPI(title="Pulse 109 Synthetic Skeleton", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+install_auth(app, get_connection)
+cors_origins = [origin.strip() for origin in os.environ.get("P109_CORS_ORIGINS", "").split(",") if origin.strip()]
+if "*" in cors_origins:
+    raise RuntimeError("P109_CORS_ORIGINS must list explicit origins when authentication is enabled")
+if cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-CSRF-Token"],
+    )
 app.include_router(build_clarification_router(get_connection, BANNER_TEXT))
 app.include_router(build_queue_router(get_connection, BANNER_TEXT, VALID_REGION_IDS))
 
@@ -153,7 +166,6 @@ class ConfirmRequest(BaseModel):
     topic: str
     service_id: str
     priority: str
-    actor: str = "operator_demo"
 
 # ponytail: Mock keyword classifier used before multilingual E5 fine-tuning.
 def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -422,7 +434,7 @@ def confirm_complaint(complaint_id: str, req: ConfirmRequest):
                 complaint_id,
                 now_iso,
                 now_iso,
-                req.actor,
+                current_actor(),
                 json.dumps({
                     "topic": req.topic, "service_id": req.service_id, "priority": req.priority,
                     "suggested_value": row["proposed_topic"], "confirmed_value": req.topic,

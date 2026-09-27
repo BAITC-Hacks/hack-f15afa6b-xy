@@ -1,4 +1,5 @@
 import {esc,button,badge,heading,empty,topicName} from './views.js';
+import {authFetch} from './auth.js';
 
 export function routingHealthView(s) {
   const h=s.routingHealth;
@@ -18,7 +19,7 @@ const session=crypto.randomUUID();
 let identity='op-senior';
 export function stopPresence() {
   clearInterval(timer);requestVersion++;
-  if(watched) fetch(`/api/workspace/complaints/${encodeURIComponent(watched)}/presence/leave`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:session}),keepalive:true}).catch(()=>{});
+  if(watched) authFetch(`/api/workspace/complaints/${encodeURIComponent(watched)}/presence/leave`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:session}),keepalive:true}).catch(()=>{});
   watched=null;
 }
 export function watchPresence(id,operators,api) {

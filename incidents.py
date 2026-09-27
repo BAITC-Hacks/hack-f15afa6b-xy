@@ -19,6 +19,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from auth import current_actor
 from triage import SERVICE_NAMES, moment
 
 VALID_INCIDENT_STATUSES = ["Проверяется", "Передано службе", "Работы ведутся", "Завершён"]
@@ -77,11 +78,11 @@ def init_incidents(conn) -> None:
 
 
 def incident_event(conn, incident_id: str, event_type: str, text: str, payload: dict | None = None,
-                   actor: str = "operator_demo") -> None:
+                   actor: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT INTO incident_events VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("iev-" + uuid.uuid4().hex[:10], incident_id, event_type, now, now, actor,
+        ("iev-" + uuid.uuid4().hex[:10], incident_id, event_type, now, now, actor or current_actor(),
          json.dumps({"text": text, **(payload or {})}, ensure_ascii=False)),
     )
 
@@ -156,7 +157,6 @@ class IncidentUpdate(BaseModel):
     severity: int = Field(ge=1, le=3)
     next_update: str | None = None
     note: str = Field(min_length=1, max_length=2000)
-    actor: str = "operator_demo"
 
 
 def attach_incident_routes(router: APIRouter, get_connection: Callable[[], Any]) -> None:
@@ -211,6 +211,6 @@ def attach_incident_routes(router: APIRouter, get_connection: Callable[[], Any])
                 f"Статус: {req.status}. Ответственный: {owner or 'не назначен'}. Серьёзность: {req.severity}.",
                 {"previous_status": row["status"], "status": req.status, "severity": req.severity,
                  "incident_owner_id": owner, "next_update": next_update, "note": note},
-                req.actor,
+                current_actor(),
             )
             return {"incident": incident_detail(conn, iid)}

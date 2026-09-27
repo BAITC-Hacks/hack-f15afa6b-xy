@@ -2,6 +2,7 @@ import {esc, button, badge, groups, time, queueView, dashboardView, incidentsVie
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js';
 import {caseView} from './case.js';
 import {radarView,signalView,incidentView,stamp} from './incidents.js';
+import {authFetch,bootstrapAuth} from './auth.js';
 
 const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null};
 Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
@@ -14,7 +15,7 @@ Object.assign(state,{routingHealth:null,healthRegion:'',regions:[]});
 const titles={routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
 async function api(path, data) {
   let response;
-  try {response=await fetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});}
+  try {response=await authFetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});}
   catch {throw new Error('Сервер недоступен. Проверьте подключение и повторите действие.');}
   const result=await response.json().catch(()=>({detail:'Не удалось получить ответ сервера. Обновите карточку и повторите действие.'}));
   if(!response.ok) throw new Error(typeof result.detail==='string'?result.detail:'Не удалось выполнить действие. Проверьте поля и повторите.');
@@ -332,7 +333,7 @@ async function start() {
 }
 document.addEventListener('click',e=>{if(e.target.closest('[data-action="retry"]')) start();});
 setInterval(async()=>{
-  if(document.hidden||dialog.open||state.page==='citizen'||document.activeElement?.tagName==='INPUT') return;
+  if(document.hidden||document.querySelector('#workspace-screen').hidden||dialog.open||state.page==='citizen'||document.activeElement?.tagName==='INPUT') return;
   try {await refresh();} catch { /* Preserve last usable queue during a temporary connection failure. */ }
 },60000);
-start();
+bootstrapAuth(start);

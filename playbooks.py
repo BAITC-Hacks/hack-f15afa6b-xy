@@ -19,6 +19,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from auth import current_actor
 from triage import SERVICE_NAMES
 DEMO_DELIVERY = "demo_only"
 PREVIEW_TTL_MINUTES = 30
@@ -448,8 +449,13 @@ def attach_playbook_routes(router: APIRouter, get_connection, ctx: dict) -> None
                 now = datetime.now(timezone.utc)
                 conn.execute("DELETE FROM playbook_previews WHERE created_at < ?",
                              ((now - timedelta(days=7)).isoformat(),))
-                conn.execute("INSERT INTO playbook_previews VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)",
-                             (token, cid, pid, req.model_dump_json(), plan["fingerprint"], now.isoformat()))
+                conn.execute(
+                    "INSERT INTO playbook_previews "
+                    "(token, complaint_id, playbook_id, request, fingerprint, created_at, actor) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (token, cid, pid, req.model_dump_json(), plan["fingerprint"], now.isoformat(),
+                     current_actor()),
+                )
                 conn.commit()
             return {"id": plan["id"], "title": plan["title"], "actions": plan["actions"],
                     "can_execute": plan["can_execute"], "blocked_reason": plan["blocked_reason"],
@@ -471,6 +477,8 @@ def attach_playbook_routes(router: APIRouter, get_connection, ctx: dict) -> None
                     raise HTTPException(409, "Preview не найден или устарел — обновите preview")
                 if row["complaint_id"] != cid or row["playbook_id"] != pid:
                     raise HTTPException(409, "Preview относится к другому обращению или сценарию — обновите preview")
+                if row["actor"] and row["actor"] != current_actor():
+                    raise HTTPException(403, "Preview создан другим оператором — создайте новый preview")
                 if row["executed_at"]:
                     conn.rollback()
                     return {"playbook": pid, "replayed": True, "result": json.loads(row["result"]),
@@ -483,7 +491,7 @@ def attach_playbook_routes(router: APIRouter, get_connection, ctx: dict) -> None
                     raise HTTPException(409, f"{plan['blocked_reason']} — обновите preview")
                 if plan["fingerprint"] != row["fingerprint"]:
                     raise HTTPException(409, "Состояние обращения изменилось после проверки — обновите preview")
-                result = plan["apply"](conn, ctx["actor"], req.preview_token)
+                result = plan["apply"](conn, current_actor(), req.preview_token)
                 conn.execute("UPDATE playbook_previews SET executed_at = ?, result = ? WHERE token = ?",
                              (datetime.now(timezone.utc).isoformat(),
                               json.dumps(result, ensure_ascii=False), req.preview_token))

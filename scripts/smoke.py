@@ -63,6 +63,7 @@ def run_smoke():
 
     env = os.environ.copy()
     env["DATABASE_PATH"] = str(tmp_db)
+    env["P109_AUTH_DISABLED"] = "1"
     # Ensure current python executable and repo root are used
     env["PYTHONPATH"] = str(repo_root)
 
