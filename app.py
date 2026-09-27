@@ -157,7 +157,6 @@ if cors_origins:
     )
 app.include_router(build_clarification_router(get_connection, BANNER_TEXT))
 app.include_router(build_queue_router(get_connection, BANNER_TEXT, VALID_REGION_IDS))
-app.include_router(build_voice_router())
 
 class IntakeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
@@ -194,6 +193,7 @@ def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str
 
 
 decision_service = DecisionService(mock_classify, TOPIC_SERVICE_MAP, TOPICS)
+app.include_router(build_voice_router(decision_service.classify, TOPICS))
 @app.get("/api/health")
 def health_check():
     model = decision_service.model_metadata()

@@ -9,7 +9,7 @@ const conversation=document.querySelector('#voice-conversation');
 const liveStatus=document.querySelector('#voice-live-status');
 const orb=document.querySelector('[data-live-orb]');
 const submit=document.querySelector('#voice-submit');
-let stage='idle', mode='idle', finishing=false, cities=[], duplicateApproved=false;
+let stage='idle', mode='idle', finishing=false, cities=[], duplicateApproved=false, clarificationAsked=false;
 
 async function api(path,data) {
   let response;
@@ -31,6 +31,16 @@ function message(role,text) {
   const author=document.createElement('small');author.textContent=role==='agent'?'Pulse Voice':'Вы';
   const copy=document.createElement('span');copy.textContent=text;node.append(author,copy);conversation.append(node);
   conversation.scrollTop=conversation.scrollHeight;
+}
+
+function showAnalysis(analysis) {
+  const node=document.querySelector('#voice-ai-insight');node.hidden=false;
+  const urgency=analysis.urgency==='urgent'?' · срочно':' · обычный приоритет';
+  const confidence=Number.isFinite(analysis.confidence)?` · ${Math.round(analysis.confidence*100)}%`:'';
+  node.replaceChildren();
+  const title=document.createElement('strong');title.textContent=`AI ${analysis.needs_clarification?'уточняет':'предполагает'}: ${analysis.category_label}`;
+  const detail=document.createElement('span');detail.textContent=`${analysis.ai_active?'Laya':'Резервные правила'}${confidence}${urgency} · оператор проверит результат`;
+  node.append(title,detail);
 }
 
 function setMode(next,text='') {
@@ -56,7 +66,17 @@ async function finishTurn() {
     const input=document.querySelector(field==='problem'?'#citizen-text':'#citizen-address');
     mergeTranscript(input,result.text);message('citizen',result.text);
     if(field==='address') {await applyDetectedCity(result.detected_city);document.querySelector('[data-address-search]')?.click();}
-    if(field==='problem') await beginTurn('address');
+    if(field==='problem') {
+      setMode('transcribing','Laya анализирует описание…');
+      let analysis;
+      try {
+        analysis=await api('/api/voice/analyze',{text:input.value,language:language.value,region_id:form.elements.region_id.value});
+        showAnalysis(analysis);message('agent',analysis.assistant_message);
+      } catch(error) {toast(`AI-анализ недоступен: ${error.message}`);}
+      if(analysis?.needs_clarification&&!clarificationAsked) {
+        clarificationAsked=true;await beginTurn('problem');
+      } else await beginTurn('address');
+    }
     else {
       stage='review';message('agent',result.assistant_message);setMode('speaking');
       await speakPrompt(result.assistant_message,result.language,result.assistant_prompt,api);setMode('review');
@@ -69,9 +89,10 @@ function resetDialogue(clearFields=true) {
   conversation.replaceChildren();message('agent','Здравствуйте! Я задам два коротких вопроса и заполню обращение вместе с вами.');
   if(clearFields) {
     form.elements.text.value='';form.elements.address.value='';form.elements.media.value='';
+    document.querySelector('#voice-ai-insight').hidden=true;
     document.querySelector('[data-geocode-results]').replaceChildren();resetLocationPicker(form);
   }
-  stage='idle';duplicateApproved=false;submit.textContent='Проверить и отправить обращение';setMode('idle');
+  stage='idle';duplicateApproved=false;clarificationAsked=false;submit.textContent='Проверить и отправить обращение';setMode('idle');
 }
 
 function updateCities() {
@@ -97,12 +118,13 @@ async function mediaData() {
 async function initialize() {
   resetDialogue(false);
   try {
-    const [regions,result,health]=await Promise.all([api('/api/regions'),api('/api/workspace/cities'),api('/api/voice/health')]);
+    const [regions,result,health,appHealth]=await Promise.all([api('/api/regions'),api('/api/workspace/cities'),api('/api/voice/health'),api('/api/health')]);
     cities=result.items;
     form.elements.region_id.replaceChildren(...regions.regions.map(region=>new Option(region.name_ru,region.id,false,region.id==='KZ-ALA')));
     updateCities();mountMaps(document);
     const healthNode=document.querySelector('[data-voice-health]'),ready=health.status==='healthy'&&health.tts?.status==='healthy';
-    healthNode.textContent=ready?'OmniVoice и распознавание подключены':'Доступен резервный голос';healthNode.classList.toggle('offline',!ready);
+    const aiReady=['ok','healthy'].includes(appHealth.laya?.status);
+    healthNode.textContent=ready?`${aiReady?'Laya · ':''}OmniVoice · распознавание подключены`:'Доступен резервный голос';healthNode.classList.toggle('offline',!ready);
   } catch(error) {toast(error.message);document.querySelector('[data-voice-health]').textContent='Голосовой сервис недоступен';}
 }
 

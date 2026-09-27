@@ -293,6 +293,7 @@ class DecisionService:
                             "confidence": laya.category.confidence,
                             "urgency": laya.urgency.value,
                             "urgency_confidence": laya.urgency.confidence,
+                            "needs_clarification": laya.needs_clarification.model_dump(),
                             "spam_suspected": laya.spam_suspected.model_dump(),
                             "decision": laya.decision,
                             "checkpoint_id": laya.provider_version,

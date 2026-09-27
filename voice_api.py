@@ -11,7 +11,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -135,6 +135,29 @@ def detect_spoken_city(text: str) -> dict | None:
     return None
 
 
+def clean_spoken_address(text: str, city: dict | None) -> str:
+    if not city:
+        return text
+    words = list(re.finditer(r"[\w-]+", text, re.UNICODE))
+    normalized = [normalize_city_text(word.group()) for word in words]
+    start = 0
+    while start < len(normalized) and normalized[start] in CITY_CUES:
+        start += 1
+    variants = {normalize_city_text(city["name_ru"]), normalize_city_text(city["name_kk"])}
+    variants.update(alias for alias, code in CITY_ALIASES.items() if code == city["code"])
+    for variant in sorted(variants, key=len, reverse=True):
+        count = len(variant.split())
+        candidate = " ".join(normalized[start:start + count])
+        if not candidate or (candidate != variant and not one_edit_apart(candidate, variant)):
+            continue
+        end = start + count
+        while end < len(normalized) and normalized[end] in CITY_CUES:
+            end += 1
+        cleaned = text[words[end - 1].end():].lstrip(" ,.:;—–-")
+        return cleaned or text
+    return text
+
+
 class VoiceRequest(BaseModel):
     audio_data: str = Field(max_length=2_800_000)
     language: Literal["ru", "kk", "mixed"] = "mixed"
@@ -143,6 +166,12 @@ class VoiceRequest(BaseModel):
 
 class SpeechRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=32)
+
+
+class DraftAnalysisRequest(BaseModel):
+    text: str = Field(min_length=3, max_length=10000)
+    language: Literal["ru", "kk", "mixed"] = "mixed"
+    region_id: str = Field(default="KZ-ALA", pattern=r"^KZ-[A-Z]{3}$")
 
 
 def decode_wav_data(value: str) -> bytes:
@@ -171,7 +200,8 @@ def cached_prompt(cache_dir: Path, prompt: str) -> bytes | None:
     return content
 
 
-def build_voice_router() -> APIRouter:
+def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
+                       topics: list[dict] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/voice")
     stt_url = os.environ.get("P109_STT_BASE_URL", "").strip().rstrip("/")
     tts_url = os.environ.get("P109_TTS_BASE_URL", "").strip().rstrip("/")
@@ -293,6 +323,8 @@ def build_voice_router() -> APIRouter:
         assistant_prompt = f"{req.language}_{'address' if req.field == 'problem' else 'review'}"
         text = normalize_address_numbers(text.strip()) if req.field == "address" else text.strip()
         city = detect_spoken_city(text) if req.field == "address" else None
+        if city:
+            text = clean_spoken_address(text, city)
         return {"text": text, "field": req.field,
                 "next_field": "address" if req.field == "problem" else "review",
                 "assistant_message": VOICE_PROMPTS[assistant_prompt][1],
@@ -302,6 +334,41 @@ def build_voice_router() -> APIRouter:
                 "language": req.language, "model": result.get("model"),
                 "stt_latency_ms": result.get("latency_ms"), "total_latency_ms": total_latency,
                 "audio_stored": False}
+
+    @router.post("/analyze")
+    def analyze(req: DraftAnalysisRequest, request: FastAPIRequest):
+        limit(request)
+        if analyze_draft is None:
+            raise HTTPException(503, "AI-анализ обращения не подключён")
+        view = analyze_draft({"text": req.text.strip(), "language": req.language,
+                              "region_id": req.region_id, "address": None})
+        laya = (view.get("source_decisions") or {}).get("laya") or {}
+        use_laya = bool(laya.get("category"))
+        source = laya if use_laya else view
+        category = source.get("category")
+        labels = {topic["id"]: topic["name_kk" if req.language == "kk" else "name_ru"]
+                  for topic in (topics or [])}
+        needs = source.get("needs_clarification") or {}
+        spam = source.get("spam_suspected") or {}
+        needs_clarification = (bool(needs.get("value")) or not category or bool(spam.get("value")) or
+                               source.get("decision") == "CLARIFY_OR_HUMAN_REVIEW")
+        label = labels.get(category, "Категория пока не определена")
+        if req.language == "kk":
+            assistant_message = ("Мәселені нақтырақ сипаттаңыз: не болды, қашан басталды және қауіп бар ма?"
+                                 if needs_clarification else
+                                 f"Түсіндім: «{label}». Енді оқиға орнын нақтылайық.")
+        else:
+            assistant_message = ("Опишите точнее, что произошло, когда началось и есть ли опасность."
+                                 if needs_clarification else
+                                 f"Похоже, это «{label}». Теперь уточним место.")
+        return {"category": category, "category_label": label,
+                "confidence": source.get("confidence", source.get("category_confidence")),
+                "urgency": source.get("urgency"), "needs_clarification": needs_clarification,
+                "spam_suspected": bool(spam.get("value")),
+                "provider": "laya_shadow" if use_laya else view.get("provider"),
+                "ai_active": use_laya or view.get("provider") in {"laya", "hybrid"},
+                "assistant_message": assistant_message,
+                "latency_ms": view.get("triage_total_latency_ms")}
 
     @router.post("/speak")
     def speak(req: SpeechRequest, request: FastAPIRequest):

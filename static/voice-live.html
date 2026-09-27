@@ -5,7 +5,7 @@
   <meta name="theme-color" content="#102a24"><link rel="icon" href="data:,">
   <title>Pulse Voice — живое обращение</title>
   <link rel="stylesheet" href="/static/workspace.css?v=20260927-14">
-  <link rel="stylesheet" href="/static/voice-live.css?v=20260927-1">
+  <link rel="stylesheet" href="/static/voice-live.css?v=20260927-2">
 </head>
 <body class="voice-live-body">
   <a class="skip" href="#voice-main">К диалогу</a>
@@ -34,6 +34,7 @@
       <form id="voice-live-form">
         <label for="citizen-text">Что произошло?</label>
         <textarea id="citizen-text" name="text" rows="5" maxlength="10000" required placeholder="Ответ появится здесь после первого вопроса"></textarea>
+        <div id="voice-ai-insight" class="voice-ai-insight" role="status" aria-live="polite" hidden></div>
 
         <div class="draft-grid">
           <div><label for="citizen-region">Область или регион</label><select id="citizen-region" name="region_id" required></select></div>
@@ -55,6 +56,6 @@
     </aside>
   </main>
   <div id="voice-toast" role="alert" hidden></div>
-  <script type="module" src="/static/voice-live.js?v=20260927-4"></script>
+  <script type="module" src="/static/voice-live.js?v=20260927-6"></script>
 </body>
 </html>

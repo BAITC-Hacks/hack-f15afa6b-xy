@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 from smoke import find_free_port, http_request, wait_for_server
-from voice_api import cached_prompt, detect_spoken_city, normalize_address_numbers
+from voice_api import cached_prompt, clean_spoken_address, detect_spoken_city, normalize_address_numbers
 
 
 class FakeVoice(BaseHTTPRequestHandler):
@@ -71,7 +71,7 @@ def start_pulse(root, db, stt_url, tts_url):
     env.update({"DATABASE_PATH": str(db), "PYTHONPATH": str(root), "P109_AUTH_DISABLED": "1",
                 "P109_STT_BASE_URL": stt_url, "P109_STT_TIMEOUT": "1",
                 "P109_TTS_BASE_URL": tts_url, "P109_TTS_TIMEOUT": "1",
-                "P109_VOICE_REQUESTS_PER_MINUTE": "5"})
+                "P109_VOICE_REQUESTS_PER_MINUTE": "6"})
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -97,6 +97,8 @@ def run():
     assert detect_spoken_city("город Ассана, улица Дала 35")["code"] == "710000000"
     assert detect_spoken_city("Нур-Султан, проспект Кабанбай батыра")["code"] == "710000000"
     assert detect_spoken_city("улица Абая 44") is None
+    astana = detect_spoken_city("город Ассана, улица Улы Дала 35")
+    assert clean_spoken_address("город Ассана, улица Улы Дала 35", astana) == "улица Улы Дала 35"
     stt = ThreadingHTTPServer(("127.0.0.1", 0), FakeVoice)
     stt.service = "stt"
     tts = ThreadingHTTPServer(("127.0.0.1", 0), FakeVoice)
@@ -139,10 +141,15 @@ def run():
             })
             assert problem["text"].startswith("На Абая") and problem["next_field"] == "address"
             assert problem["audio_stored"] is False and problem["model"] == "fixture-rukk"
+            analysis = call("/api/voice/analyze", {
+                "text": problem["text"], "language": "ru", "region_id": "KZ-ALA",
+            })
+            assert analysis["category"] == "water_supply"
+            assert analysis["category_label"] == "Водоснабжение"
             address = call("/api/voice/transcribe", {
                 "audio_data": wav_data_url(), "language": "kk", "field": "address",
             })
-            assert address["text"] == "Астана қаласы Абай көшесі 44 үй"
+            assert address["text"] == "Абай көшесі 44 үй"
             assert address["detected_city"] == {"code": "710000000", "name_ru": "Астана", "region_id": "KZ-AST"}
             assert address["next_field"] == "review"
             call("/api/voice/transcribe", {
@@ -150,7 +157,7 @@ def run():
             }, 422)
             assert problem["assistant_prompt"] == "ru_address"
             assert address["assistant_prompt"] == "kk_review"
-            print("PASS 3: problem → address → review dialogue validates WAV and keeps no audio")
+            print("PASS 3: AI analyzes the problem and city words stay out of the address")
 
             call("/api/voice/speak", {"prompt": "ru_problem"}, 429)
             print("PASS 4: public voice inference is rate limited per client")

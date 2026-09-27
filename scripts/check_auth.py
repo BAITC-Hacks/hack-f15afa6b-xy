@@ -97,6 +97,10 @@ def run() -> None:
             assert voice_headers["Permissions-Policy"] == "camera=(), microphone=(self), geolocation=(self)"
             status, voice_health, _ = anonymous.request(base_url + "/api/voice/health")
             assert status == 200 and voice_health["status"] == "disabled"
+            status, voice_ai, _ = anonymous.request(base_url + "/api/voice/analyze", "POST", {
+                "text": "Во всем доме нет воды", "language": "ru", "region_id": "KZ-ALA",
+            })
+            assert status == 200 and voice_ai["category"] == "water_supply"
             status, city_data, _ = anonymous.request(base_url + "/api/workspace/cities")
             assert status == 200 and city_data["count"] > 80
             status, public_map, _ = anonymous.request(base_url + "/api/workspace/public/complaints")
