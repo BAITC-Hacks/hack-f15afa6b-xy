@@ -6,7 +6,6 @@ import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260927-13';
 import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260927-12';
 import {handleVoiceAction} from './voice.js?v=20260927-18';
-import {juryDemoView,mountJuryDemo} from './jury-demo.js?v=20260928-1';
 async function mediaData(input) {
   const file=input.files[0];
   if(!file) return {photo_data:null,video_data:null};
@@ -17,7 +16,7 @@ async function mediaData(input) {
   const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Не удалось прочитать файл'));reader.readAsDataURL(file);});
   return images.includes(file.type)?{photo_data:data,video_data:null}:{photo_data:null,video_data:data};
 }
-const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},health:null,voiceHealth:null,detail:null,trackingId:'',tracking:null,subscriptions:[],analytics:{alerts:{items:[]},forecast:null,query:null,alertsError:null,forecastError:null,filters:{region_id:'',topic:'',data_origin:'synthetic_demo'},alertHistory:[]}};
+const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[],analytics:{alerts:{items:[]},forecast:null,query:null,alertsError:null,forecastError:null,filters:{region_id:'',topic:'',data_origin:'synthetic_demo'},alertHistory:[]}};
 Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
@@ -25,7 +24,7 @@ const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent
 let loadVersion=0, analyticsVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer, pendingIntake=null;
 const commandDialog=document.querySelector('#command-dialog');
 Object.assign(state,{routingHealth:null,healthRegion:'',regions:[],cities:[]});
-const titles={demo:'Демо жюри · 3 минуты',routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',map:'Карта обращений',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
+const titles={routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',map:'Карта обращений',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
 async function api(path, data) {
   let response;
   try {response=await authFetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});}
@@ -132,19 +131,18 @@ function render() {
   document.querySelector('#incident-count').textContent=state.metrics.active_incidents;
   document.querySelector('#quarantine-count').textContent=state.metrics.quarantined;
   document.querySelector('#radar-count').textContent=state.radar.items.filter(i=>!i.ignored&&!i.incident_id).length;
-  const views={demo:juryDemoView,routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,map:publicMapView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
+  const views={routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,map:publicMapView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
   main.innerHTML=views[state.page](state);
-  if(state.page==='demo') mountJuryDemo(main);
   mountMaps(main);
   if(state.page==='map') mountPublicIssueExplorer(main);
   if(state.page==='citizen') loadSubscriptions().catch(err=>{const node=document.querySelector('#subscriptions-list');if(node) node.textContent=err.message;});
 }
 async function refresh(renderPage=true) {
   const version=++loadVersion;
-  const [queue,incidents,operators,metrics,radar,health,voiceHealth]=await Promise.all([
-    api('/api/workspace/queue'),api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar'),api('/api/health').catch(()=>null),api('/api/voice/health').catch(()=>null)]);
+  const [queue,incidents,operators,metrics,radar]=await Promise.all([
+    api('/api/workspace/queue'),api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar')]);
   if(version!==loadVersion) return;
-  Object.assign(state,{items:queue.items,incidents:incidents.items,operators:operators.items,metrics,radar,health,voiceHealth});
+  Object.assign(state,{items:queue.items,incidents:incidents.items,operators:operators.items,metrics,radar});
   if(renderPage) render();
   await loadAnalytics(renderPage);
 }
