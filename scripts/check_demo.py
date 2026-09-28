@@ -42,6 +42,7 @@ def run():
                                            "city_code": "710000000"}, 422)
             queue = call("/api/workspace/queue")
             assert len(queue["items"]) == 50, "Seed must be idempotent and retain 20 originals"
+            assert all(item["similarity_scoring"]["mode"] != "trained" for item in queue["items"])
             print("PASS 1: 50 synthetic complaints; idempotent seed and 90-city KATO directory")
 
             cid = intake("Добрый день, на Абая 44 с утра нет воды, весь дом без воды, когда включат?",

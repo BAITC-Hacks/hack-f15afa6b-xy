@@ -83,11 +83,12 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                            level=None, assigned=True)
         return routing
 
-    def detail(conn, c, rows=None, operators=None):
+    def detail(conn, c, rows=None, operators=None, trained_similarity=True):
         rows = rows if rows is not None else [dict(r) for r in conn.execute("SELECT * FROM complaints")]
         ai = analysis(conn, c)
         similar, similarity_scoring = related_cases(
-            c, ai, rows, classifier, topic_services, similarity_client
+            c, ai, rows, classifier, topic_services,
+            similarity_client if trained_similarity else None,
         )
         incidents = incident_list(conn)
         candidate_ids = [r["incident_id"] for r in similar if r["incident_id"] and r["incident_eligible"]]
@@ -133,7 +134,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         with get_connection() as conn:
             rows = [dict(r) for r in conn.execute("SELECT * FROM complaints")]
             ops = operators_with_load(conn)
-            items = [detail(conn, c, rows, ops) for c in rows]
+            items = [detail(conn, c, rows, ops, False) for c in rows]
         items.sort(key=lambda x: (-x["priority_score"], x["complaint"]["ingested_at"], x["complaint"]["id"]))
         origins = {item["complaint"]["data_origin"] for item in items}
         origin = next(iter(origins)) if len(origins) == 1 else "mixed" if origins else None

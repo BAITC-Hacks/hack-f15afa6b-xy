@@ -16,7 +16,7 @@ async function mediaData(input) {
   const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Не удалось прочитать файл'));reader.readAsDataURL(file);});
   return images.includes(file.type)?{photo_data:data,video_data:null}:{photo_data:null,video_data:data};
 }
-const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[],analytics:{alerts:{items:[]},forecast:null,query:null,alertsError:null,forecastError:null,filters:{region_id:'',topic:'',data_origin:'synthetic_demo'},alertHistory:[]}};
+const state={page:'queue',group:'',search:'',region:'',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[],analytics:{alerts:{items:[]},forecast:null,query:null,alertsError:null,forecastError:null,filters:{region_id:'',topic:'',data_origin:'synthetic_demo'},alertHistory:[]}};
 Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
@@ -139,10 +139,15 @@ function render() {
 }
 async function refresh(renderPage=true) {
   const version=++loadVersion;
-  const [queue,incidents,operators,metrics,radar]=await Promise.all([
-    api('/api/workspace/queue'),api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar')]);
+  const queue=await api('/api/workspace/queue');
+  const [incidents,operators,metrics,radar]=await Promise.allSettled([
+    api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar')]);
   if(version!==loadVersion) return;
-  Object.assign(state,{items:queue.items,incidents:incidents.items,operators:operators.items,metrics,radar});
+  state.items=queue.items;
+  if(incidents.status==='fulfilled') state.incidents=incidents.value.items;
+  if(operators.status==='fulfilled') state.operators=operators.value.items;
+  if(metrics.status==='fulfilled') state.metrics=metrics.value;
+  if(radar.status==='fulfilled') state.radar=radar.value;
   if(renderPage) render();
   await loadAnalytics(renderPage);
 }
