@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from auth import current_actor
 from incidents import ACTIVE_INCIDENT_STATUSES, attach_incident_routes, incident_detail, incident_event
+from operations_core import cell_neighbors, operations_cell
 from triage import HIGH_CONFIDENCE, address_in, analyze, moment, symptom, tokens
 
 RADAR_MIN_CASES = int(os.environ.get("P109_RADAR_MIN_CASES", "5"))
@@ -135,20 +136,30 @@ def collect_cases(conn, classifier, topic_services, previous_start: datetime) ->
         # signals; only a confident rule/proposal or a category a human confirmed.
         if category not in topic_services or confidence < HIGH_CONFIDENCE:
             continue
+        cell_id = row.get("ops_cell")
+        if not cell_id and row.get("latitude") is not None and row.get("longitude") is not None:
+            cell_id = operations_cell(row["latitude"], row["longitude"])
         cases.append({"id": row["id"], "text": row["text"], "address": row["address"] or address_in(row["text"]),
                       "district": row["district"], "region_id": row["region_id"], "at": at,
                       "sender_key": row["sender_key"], "incident_id": row["incident_id"], "category": category,
-                      "confidence": confidence, "source": source, "symptom": symptom(row["text"])})
+                      "confidence": confidence, "source": source, "symptom": symptom(row["text"]),
+                      "ops_cell": cell_id})
     cases.sort(key=lambda case: (case["at"], case["id"]))
     return cases
 
 
 def group_cases(cases: list[dict]) -> dict[tuple, list[dict]]:
-    """Group by category + region + district + symptom; an unclear symptom needs word overlap."""
+    """Group by category, place and symptom; exact coordinates use adjacent hex cells."""
     # ponytail: lexical comparison within recent groups; index candidate tokens for high-volume streams.
     groups: dict[tuple, list[dict]] = {}
     for case in cases:
-        members = groups.setdefault((case["category"], case["region_id"], case["district"], case["symptom"]), [])
+        base = (case["category"], case["region_id"], case["district"], case["symptom"])
+        key = base + (None,)
+        if case["ops_cell"]:
+            nearby = {case["ops_cell"], *cell_neighbors(case["ops_cell"])}
+            key = next((candidate for candidate in groups if candidate[:4] == base and candidate[4] in nearby),
+                       base + (case["ops_cell"],))
+        members = groups.setdefault(key, [])
         if case["symptom"] == "unknown" and members and not any(_similar(case, other) for other in members):
             continue
         members.append(case)
@@ -194,7 +205,7 @@ def build_signals(conn, classifier, topic_services, min_cases: int | None = None
         if not current:
             continue
         case_ids = sorted(case["id"] for case in current)
-        signal_id = _hash_id([*key, *case_ids])
+        signal_id = _hash_id([*(str(value or "") for value in key), *case_ids])
         ignored = _is_ignored(conn, signal_id)
         if len(current) < minimum and not ignored:
             continue
@@ -208,6 +219,8 @@ def build_signals(conn, classifier, topic_services, min_cases: int | None = None
             f"Категория: {key[0]} ({current[0]['source']}, уверенность {current[0]['confidence']:g}).",
             baseline_note,
         ]
+        if key[4]:
+            reasons.insert(1, f"География: hex-cell {key[4]} и соседние ячейки local_hex_v1.")
         if len(links) > 1:
             reasons.append("Обращения связаны с несколькими активными инцидентами — автоматическое объединение "
                            "запрещено, нужно решение человека.")

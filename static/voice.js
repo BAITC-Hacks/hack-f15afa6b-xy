@@ -107,11 +107,13 @@ async function previewVoice(current) {
   if(recording===current) current.previewPromise=null;
 }
 
-export async function beginVoiceTurn({field,language,api,onState=()=>{},onTimeout=()=>{},onPartial=()=>{},onSpeech=()=>{},onSilence=()=>{}}) {
+export async function beginVoiceTurn({field,language,api,skipPrompt=false,onState=()=>{},onTimeout=()=>{},onPartial=()=>{},onSpeech=()=>{},onSilence=()=>{}}) {
   if(recording||processing) throw new Error('Дождитесь завершения текущего ответа');
   if(!navigator.mediaDevices?.getUserMedia) throw new Error('Браузер не поддерживает запись с микрофона');
-  onState('prompting');
-  await speakPrompt(voicePrompts[language][field],language,`${language}_${field}`,api);
+  if(!skipPrompt) {
+    onState('prompting');
+    await speakPrompt(voicePrompts[language][field],language,`${language}_${field}`,api);
+  }
   const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
   const context=new AudioContext(), source=context.createMediaStreamSource(stream);
   const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];

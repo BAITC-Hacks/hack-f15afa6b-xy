@@ -30,6 +30,7 @@ from radar import build_incident_router
 from support_api import init_support, build_support_router
 from decision import DecisionService
 from object_storage import object_storage
+from operations import build_operations_router, init_operations, operations_health
 from voice_api import build_voice_router
 from analytics import build_analytics_router, init_analytics
 from similarity import SimilarityClient, rank_candidates
@@ -155,6 +156,7 @@ async def lifespan(_: FastAPI):
         init_incidents(conn)
         init_support(conn)
         init_analytics(conn)
+        init_operations(conn)
     yield
 
 app = FastAPI(title="Pulse 109 Synthetic Skeleton", lifespan=lifespan)
@@ -226,6 +228,7 @@ def health_check():
             "configured": False, "mode": "lexical_fallback", "status": "not_configured", "checkpoint_id": None,
         },
         "object_storage": object_storage().status(),
+        "operations": operations_health(),
         "banner": BANNER_TEXT,
     }
 
@@ -467,6 +470,9 @@ app.include_router(build_workspace_router(get_connection, mock_classify, TOPIC_S
                                          {t["id"]: t["name_ru"] for t in TOPICS}, decision_service,
                                          copilot))
 app.include_router(build_incident_router(get_connection, mock_classify, TOPIC_SERVICE_MAP))
+app.include_router(build_operations_router(
+    get_connection, mock_classify, decision_service, TOPIC_SERVICE_MAP, VALID_REGION_IDS
+))
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

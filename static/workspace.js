@@ -1,11 +1,12 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260928-5';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260928-6';
+import {liveOperatorView,operationsMapView,commandCenterView} from './operations-view.js?v=20260928-1';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260927-2';
 import {caseView} from './case.js?v=20260928-3';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
 import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
-import {mountMaps,resetLocationPicker} from './map.js?v=20260927-13';
+import {mountMaps,mountOperationsMap,resetLocationPicker} from './map.js?v=20260928-1';
 import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260927-12';
-import {handleVoiceAction} from './voice.js?v=20260927-18';
+import {beginVoiceTurn,finishVoiceTurn,handleVoiceAction} from './voice.js?v=20260928-1';
 async function mediaData(input) {
   const file=input.files[0];
   if(!file) return {photo_data:null,video_data:null};
@@ -18,13 +19,14 @@ async function mediaData(input) {
 }
 const state={page:'queue',group:'',search:'',region:'',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[],analytics:{alerts:{items:[]},forecast:null,query:null,alertsError:null,forecastError:null,filters:{region_id:'',topic:'',data_origin:'synthetic_demo'},alertHistory:[]}};
 Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
+Object.assign(state,{live:{session:null,running:false,elapsed:'00:00'},operations:{map:null,command:null,simulation:null,mode:'heat',offset:0}});
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
 const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent=document.querySelector('#playbook-content');
-let loadVersion=0, analyticsVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer, pendingIntake=null;
+let loadVersion=0, analyticsVersion=0, operationsVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer, pendingIntake=null, liveTranscriptQueue=Promise.resolve();
 const commandDialog=document.querySelector('#command-dialog');
 Object.assign(state,{routingHealth:null,healthRegion:'',regions:[],cities:[]});
-const titles={routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',map:'Карта обращений',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
+const titles={routing:'Маршрутизация',queue:'Обращения',live:'Live Call',radar:'Радар',incidents:'Инциденты',operations:'Operations Map',supervisor:'Command Center',map:'Карта обращений',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
 async function api(path, data) {
   let response;
   try {response=await authFetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});}
@@ -75,6 +77,64 @@ async function loadAnalytics(renderPage=true) {
   if(forecast.status==='fulfilled') {state.analytics.forecast=forecast.value;state.analytics.forecastError=null;}
   else {state.analytics.forecast=null;state.analytics.forecastError=forecast.reason.message;}
   if(renderPage&&state.page==='dashboard') render();
+}
+async function loadOperationsPage(renderPage=true) {
+  const version=++operationsVersion,page=state.page;
+  if(state.page==='operations') {
+    const at=state.operations.offset?`&at=${encodeURIComponent(new Date(Date.now()+state.operations.offset*60000).toISOString())}`:'';
+    const result=await api(`/api/operations/map?mode=${encodeURIComponent(state.operations.mode)}&minutes=240${at}`);
+    if(version!==operationsVersion||page!==state.page) return;
+    state.operations.map=result;
+  }
+  if(state.page==='supervisor') {
+    const result=await api('/api/operations/command-center');
+    if(version!==operationsVersion||page!==state.page) return;
+    state.operations.command=result;
+  }
+  if(renderPage&&['operations','supervisor'].includes(state.page)) render();
+}
+async function runLiveDemo() {
+  const session=await api('/api/operations/live/sessions',{region_id:'KZ-ALA',language:'ru',channel:'phone',latitude:43.238949,longitude:76.917806});
+  state.live={session,running:true,mode:'demo',elapsed:'00:00'};render();
+  const parts=[
+    ['На Абая 44',false],
+    ['На Абая 44 с утра нет холодной воды',false],
+    ['На Абая 44 с утра нет холодной воды во всём доме.',true],
+  ];
+  for(let index=0;index<parts.length;index++) {
+    await new Promise(resolve=>setTimeout(resolve,650));
+    const [text,final]=parts[index];
+    const result=await api(`/api/operations/live/sessions/${encodeURIComponent(session.id)}/transcript`,{text,event_type:final?'transcript_final':'transcript_partial',speech_pause:true,stt_latency_ms:420});
+    state.live.session={...session,status:result.status,state:result.state};state.live.elapsed=`00:0${index+1}`;render();
+  }
+  state.live.running=false;render();
+}
+function saveLiveTranscript(session,text,event_type='transcript_partial',speech_pause=false,stt_latency_ms=null) {
+  const task=liveTranscriptQueue.then(async()=>{
+    const result=await api(`/api/operations/live/sessions/${encodeURIComponent(session.id)}/transcript`,{text,event_type,speech_pause,stt_latency_ms});
+    if(state.live.session?.id===session.id) {state.live.session={...session,status:result.status,state:result.state};render();}
+    return result;
+  });
+  liveTranscriptQueue=task.catch(()=>{});
+  return task;
+}
+async function startLiveMicrophone() {
+  const session=await api('/api/operations/live/sessions',{region_id:'KZ-ALA',language:'ru',channel:'phone'});
+  state.live={session,running:true,mode:'microphone',elapsed:'00:00'};render();
+  try {
+    await beginVoiceTurn({field:'problem',language:'ru',api,skipPrompt:true,
+      onPartial:text=>saveLiveTranscript(session,text).catch(error=>toast(error.message,true)),
+      onSilence:()=>finishLiveMicrophone().catch(error=>toast(error.message,true)),
+      onTimeout:()=>finishLiveMicrophone().catch(error=>toast(error.message,true))});
+  } catch(error) {state.live.running=false;render();throw error;}
+}
+async function finishLiveMicrophone() {
+  if(state.live.mode!=='microphone'||!state.live.running) return;
+  const session=state.live.session;
+  try {
+    const result=await finishVoiceTurn();
+    if(result?.text) await saveLiveTranscript(session,result.text,'transcript_final',true,result.stt_latency_ms??result.total_latency_ms);
+  } finally {state.live.running=false;render();}
 }
 try {state.analytics.alertHistory=JSON.parse(localStorage.getItem('pulse109-alert-history')||'[]');} catch { /* Start with an empty notification history. */ }
 let subscriberId;
@@ -131,9 +191,10 @@ function render() {
   document.querySelector('#incident-count').textContent=state.metrics.active_incidents;
   document.querySelector('#quarantine-count').textContent=state.metrics.quarantined;
   document.querySelector('#radar-count').textContent=state.radar.items.filter(i=>!i.ignored&&!i.incident_id).length;
-  const views={routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,map:publicMapView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
+  const views={routing:routingHealthView,queue:queueView,live:liveOperatorView,quarantine:queueView,radar:radarView,operations:operationsMapView,supervisor:commandCenterView,map:publicMapView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
   main.innerHTML=views[state.page](state);
   mountMaps(main);
+  if(state.page==='operations'&&state.operations.map) mountOperationsMap(document.querySelector('#operations-map'),state.operations.map,state.operations.mode).catch(error=>toast(error.message,true));
   if(state.page==='map') mountPublicIssueExplorer(main);
   if(state.page==='citizen') loadSubscriptions().catch(err=>{const node=document.querySelector('#subscriptions-list');if(node) node.textContent=err.message;});
 }
@@ -150,6 +211,7 @@ async function refresh(renderPage=true) {
   if(radar.status==='fulfilled') state.radar=radar.value;
   if(renderPage) render();
   await loadAnalytics(renderPage);
+  if(['operations','supervisor'].includes(state.page)) await loadOperationsPage(renderPage);
 }
 async function openCase(id) {
   const version=++caseVersion;
@@ -269,6 +331,16 @@ function openCommands() {
 }
 async function handleAction(node) {
   const action=node.dataset.action, d=state.detail, c=d?.complaint;
+  if(action==='start-live-demo') {await runLiveDemo();return;}
+  if(action==='start-live-microphone') {await startLiveMicrophone();return;}
+  if(action==='stop-live-microphone') {await finishLiveMicrophone();return;}
+  if(action==='apply-live') {
+    const session=state.live.session,result=await api(`/api/operations/live/sessions/${encodeURIComponent(session.id)}/apply`,{link_incident:!!session.state?.incident_candidate});
+    state.live.session.status='applied';await refresh(false);location.hash='queue';await openCase(result.id);toast(result.incident_id?`Обращение создано и связано с ${result.incident_id}. Категория ждёт подтверждения.`:'Обращение создано. Категория ждёт подтверждения.');return;
+  }
+  if(action==='ignore-live') {await api(`/api/operations/live/sessions/${encodeURIComponent(state.live.session.id)}/ignore`,{});state.live.session.status='ignored';render();toast('Live-подсказка отклонена. Решение сохранено.');return;}
+  if(action==='refresh-operations') {await loadOperationsPage();toast('Операционная картина обновлена');return;}
+  if(action==='ops-map-mode') {state.operations.mode=node.dataset.mode;render();return;}
   if(action==='enable-alert-notifications') {
     if(!('Notification' in window)) {toast('Системные уведомления не поддерживаются этим браузером',true);return;}
     const permission=await Notification.requestPermission();
@@ -418,6 +490,8 @@ document.addEventListener('click',async e=>{
 document.addEventListener('input',e=>{
   if(pendingIntake&&e.target.closest('#citizen-form')) {pendingIntake=null;document.querySelector('#citizen-notice').hidden=true;}
   if(e.target.id==='command-search') {document.querySelector('#command-options').innerHTML=commandList(caseCommands(state.detail),e.target.value);return;}
+  if(e.target.id==='ops-time') {state.operations.offset=Number(e.target.value);loadOperationsPage().catch(err=>toast(err.message,true));return;}
+  if(e.target.closest('#simulation-form')&&e.target.type==='range') {e.target.previousElementSibling.textContent=(e.target.name==='operator_delta'?(e.target.value>=0?'+':'')+e.target.value:(e.target.value>=0?'+':'')+e.target.value+'%');return;}
   if(e.target.id!=='search') return;
   state.search=e.target.value;
   const position=e.target.selectionStart;
@@ -450,6 +524,15 @@ document.addEventListener('change',async e=>{
   }
 });
 document.addEventListener('submit',async e=>{
+  if(e.target.id==='live-checkpoint-form') {
+    e.preventDefault();const text=new FormData(e.target).get('text').trim();if(!text) return;
+    const result=await api(`/api/operations/live/sessions/${encodeURIComponent(state.live.session.id)}/transcript`,{text,event_type:'transcript_partial',speech_pause:true});
+    state.live.session={...state.live.session,state:result.state};render();return;
+  }
+  if(e.target.id==='simulation-form') {
+    e.preventDefault();const form=new FormData(e.target),number=name=>Number(form.get(name));
+    state.operations.simulation=await api('/api/operations/simulate',{queue:form.get('queue'),horizon_minutes:60,incoming_percent:number('incoming_percent'),operator_delta:number('operator_delta'),handle_time_percent:number('handle_time_percent'),active_incident:form.get('active_incident')==='on',priority_percent:number('priority_percent'),seed:109});render();return;
+  }
   if(e.target.id==='analytics-query') {
     e.preventDefault();
     const question=new FormData(e.target).get('question').trim();
@@ -484,7 +567,7 @@ document.addEventListener('submit',async e=>{
     await registerIntake(form,payload);
   } catch(err) {toast(err.message,true);} finally {submit.disabled=false;}
 });
-window.addEventListener('hashchange',()=>{trackingVersion++;state.tracking=null;state.group='';state.search='';render();main.focus();if(state.page==='routing') loadHealth().catch(err=>toast(err.message,true));});
+window.addEventListener('hashchange',()=>{trackingVersion++;state.tracking=null;state.group='';state.search='';render();main.focus();if(state.page==='routing') loadHealth().catch(err=>toast(err.message,true));if(['operations','supervisor'].includes(state.page)) loadOperationsPage().catch(err=>toast(err.message,true));});
 dialog.addEventListener('cancel',()=>caseVersion++);
 dialog.addEventListener('close',stopPresence);
 document.addEventListener('keydown',e=>{

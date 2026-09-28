@@ -228,3 +228,37 @@ export function resetLocationPicker(root=document) {
   element._pulseMarker?.remove();
   setStatus(root.elements?root:element.closest('form'),'Введите адрес или выберите точку на карте');
 }
+
+export async function mountOperationsMap(element, payload, mode='heat') {
+  if(!element||!payload) return;
+  const maplibregl=await loadLibrary();
+  element._pulseMap?.remove();element.replaceChildren();
+  const points=payload.points||[], cells=payload.cells||{type:'FeatureCollection',features:[]};
+  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:DEFAULT_CITY.center,zoom:11,pitch:18,renderWorldCopies:false});
+  element._pulseMap=map;
+  map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
+  map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
+  const metric=mode==='sla_risk'?'sla_risk':mode==='operator_load'?'operator_load':'count';
+  const colors=mode==='category'
+    ? ['match',['get','category'],'water_supply','#3b82f6','electricity','#f59e0b','roads','#8b5cf6','sewerage','#06b6d4','#71856a']
+    : ['step',['get',metric],'#dce9d5',3,'#f2cd74',6,'#e68a4f',10,'#c94f44'];
+  map.on('load',()=>{
+    map.addSource('ops-cells',{type:'geojson',data:cells});
+    map.addLayer({id:'ops-cells-fill',type:'fill',source:'ops-cells',paint:{'fill-color':colors,'fill-opacity':.58}});
+    map.addLayer({id:'ops-cells-line',type:'line',source:'ops-cells',paint:{'line-color':'#526c5c','line-width':1.2}});
+    const pointData={type:'FeatureCollection',features:points.map(item=>({type:'Feature',geometry:{type:'Point',coordinates:[item.longitude,item.latitude]},properties:item}))};
+    map.addSource('ops-points',{type:'geojson',data:pointData});
+    const pointLayer={id:'ops-points',type:'circle',source:'ops-points',paint:{'circle-radius':mode==='complaints'?5:3,'circle-color':'#153e35','circle-stroke-color':'#fff','circle-stroke-width':1}};
+    if(mode==='incidents') pointLayer.filter=['!=',['coalesce',['get','incident_id'],''],''];
+    map.addLayer(pointLayer);
+    map.on('click','ops-cells-fill',event=>{
+      const item=event.features?.[0]?.properties;if(!item) return;
+      new maplibregl.Popup().setLngLat(event.lngLat).setHTML(`<strong>${item.count} обращений</strong><p>${item.category}</p><small>SLA risk ${item.sla_risk} · load ${item.operator_load}%</small>`).addTo(map);
+    });
+    if(points.length) {
+      const bounds=new maplibregl.LngLatBounds();points.forEach(item=>bounds.extend([item.longitude,item.latitude]));
+      map.fitBounds(bounds,{padding:60,maxZoom:13,duration:0});
+    }
+    element.dataset.cellFeatures=String(cells.features.length);element.dataset.pointFeatures=String(points.length);element.dataset.mode=mode;
+  });
+}
