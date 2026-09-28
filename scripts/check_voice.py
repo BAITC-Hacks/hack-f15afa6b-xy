@@ -69,6 +69,7 @@ def start_pulse(root, db, stt_url, tts_url):
     port = find_free_port()
     env = os.environ.copy()
     env.update({"DATABASE_PATH": str(db), "PYTHONPATH": str(root), "P109_AUTH_DISABLED": "1",
+                "P109_DEMO_MODE": "1",
                 "P109_STT_BASE_URL": stt_url, "P109_STT_TIMEOUT": "1",
                 "P109_TTS_BASE_URL": tts_url, "P109_TTS_TIMEOUT": "1",
                 "P109_VOICE_REQUESTS_PER_MINUTE": "6"})

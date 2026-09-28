@@ -1,5 +1,7 @@
 # Laya integration
 
+> Первые CPU-измерения ниже сохранены как baseline. Актуальный synthetic-trained shadow checkpoint и GPU evidence описаны в [handoff](handoff.md).
+
 Pulse uses Laya as a decision layer for category, clarification need, spam suspicion and urgency.
 Laya does not select a service, queue or operator. The existing Pulse routing engine still uses the
 confirmed category, region, language, district, operator skills, availability and workload.
@@ -84,10 +86,10 @@ The checked 20-case synthetic RU/KK fixture set produced 55% accuracy and 0.5033
 operator outcomes, so spam precision and override rate are unavailable. A separate 50-request run
 completed with 0 errors, 459.93 ms median latency, 554.76 ms p95 and 32% verification requests.
 
-These are small synthetic demo measurements, not production quality evidence. The aggregate accuracy
-is too low for unattended classification even when an individual response reports high confidence.
-The default provider therefore remains `mock`; Laya needs approved, group-aware RU/KK evaluation and
-threshold calibration before production activation.
+These are small synthetic baseline measurements, not production quality evidence. A later
+synthetic-trained checkpoint was promoted to `shadow`, while production decisions still require
+approved, group-aware RU/KK evaluation and human confirmation. See `docs/handoff.md` for the current
+checkpoint and metrics.
 
 ## Promote and serve a trained checkpoint
 

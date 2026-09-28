@@ -11,7 +11,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from laya_client import LayaClient, LayaError, LayaResponseError
-from triage import HIGH_CONFIDENCE, MEDIUM_CONFIDENCE, SERVICE_NAMES, analyze
+from triage import HIGH_CONFIDENCE, MEDIUM_CONFIDENCE, analyze, responsible_service_name
 
 
 DecisionMode = Literal[
@@ -394,8 +394,7 @@ class DecisionService:
             "category": category, "category_confidence": contract.category.confidence,
             "urgency": contract.urgency.value, "urgency_confidence": contract.urgency.confidence,
             "suggested_service": service,
-            "service_name": SERVICE_NAMES.get(service, "Старший оператор") if complaint["region_id"] == "KZ-ALA"
-            else "Региональная очередь — служба требует проверки",
+            "service_name": responsible_service_name(complaint["region_id"], service),
             "confidence_band": band,
             "alternatives": [{"category": item["value"], "confidence": item["confidence"],
                               "provider": item["provider"]} for item in alternatives],

@@ -1,189 +1,30 @@
 """Operator workspace on the existing complaint and audit tables."""
-import base64
-import binascii
-import hashlib
 import json
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, model_validator
-
-from auth import current_actor
+from fastapi import APIRouter, HTTPException, Response
 from cities import CITY_BY_CODE, attach_city_routes, normalized_address_query
 from clarification import VALID_CLARIFICATION_REASONS, get_received_clarifications
 from copilot import attach_copilot_routes
-from demo_data import seed_workspace
+from demo_data import intake_privacy, seed_workspace
 from object_storage import ObjectStorageError, object_storage
 from playbooks import attach_playbook_routes
-from public_issues import attach_public_issue_routes
+from public_issues import attach_public_issue_routes, redact_public_text
+from similarity import SimilarityClient
 from triage import (analyze, address_in, operators_with_load, queue_state, related_cases,
-                    risk_for, route, SERVICE_NAMES, moment)
-
-
-def ai_evidence():
-    evidence_dir = Path(__file__).with_name("training") / "evidence"
-    files = {
-        "laya": evidence_dir / "laya-gpu-hardcases-shadow-20260926.json",
-        "rejected": evidence_dir / "laya-gpu-phase0-rejected-20260926.json",
-        "stt": evidence_dir / "voice-stt-gpu-20260927.json",
-        "tts": evidence_dir / "voice-tts-ab-20260927.json",
-        "similarity": evidence_dir / "similarity-e5-gpu-20260928.json",
-    }
-    try:
-        documents = {name: json.loads(path.read_text(encoding="utf-8")) for name, path in files.items()}
-        laya, stt, tts, similarity = (
-            documents["laya"], documents["stt"], documents["tts"], documents["similarity"]
-        )
-        metrics = laya["experiment"]["aggregate_test_metrics"]
-        speech = {item["language"]: item for item in stt["evaluation"]["results"]}
-        omnivoice = [item for item in tts["roundtrip_evaluation"]["results"]
-                     if item["engine"] == "omnivoice"]
-        return {
-            "available": True, "stage": laya["promotion"]["stage"],
-            "checkpoint_id": laya["promotion"]["version"], "model": laya["source"]["base_model"],
-            "dataset_records": laya["dataset"]["records"], "trained_runs": len(laya["experiment"]["runs"]),
-            "rejected_runs": len(documents["rejected"]["runs"]),
-            "hardware": {"provider": laya["compute"]["provider"], "gpu_count": laya["compute"]["gpus"],
-                         "gpu_model": laya["compute"]["gpu_model"]},
-            "category_accuracy": {"baseline": metrics["baseline_category_accuracy"]["mean"],
-                                  "trained": metrics["trained_category_accuracy"]["mean"]},
-            "category_macro_f1": metrics["trained_category_macro_f1"]["mean"],
-            "calibrated_ece": metrics["checkpoint_calibrated_ece"]["mean"],
-            "stt": {"model": stt["model"]["id"], "runs_per_language": stt["evaluation"]["runs_per_language"],
-                    "ru_median_ms": speech["ru"]["median_ms"], "kk_median_ms": speech["kk"]["median_ms"]},
-            "tts": {"engine": "OmniVoice", "ru_kk_roundtrip_cer": max(item["character_error_rate"] for item in omnivoice)},
-            "similarity": {
-                "model": similarity["base_model"],
-                "selected_run": similarity["selection"]["selected_run"],
-                "checkpoint_sha256": similarity["selection"]["checkpoint_sha256"],
-                "test": {"baseline": similarity["baseline"]["test"], "trained": similarity["trained"]["test"]},
-                "cross_language_test": {
-                    "baseline": similarity["baseline"]["cross_language_test"],
-                    "trained": similarity["trained"]["cross_language_test"],
-                },
-                "claim_boundary": similarity["claim_boundary"],
-            },
-            "evidence_sha256": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in files.items()},
-            "claim_boundary": laya["claim_boundary"], "next_gate": laya["activation"]["next_gate"],
-        }
-    except (OSError, ValueError, KeyError, TypeError):
-        return {"available": False}
-
-
-class Intake(BaseModel):
-    text: str = Field(min_length=1, max_length=10000)
-    region_id: str
-    city_code: str | None = Field(default=None, min_length=9, max_length=9, pattern=r"^\d{9}$")
-    language: Literal["ru", "kk", "mixed", "unknown"] = "ru"
-    address: str | None = Field(default=None, max_length=200)
-    latitude: float | None = Field(default=None, ge=-90, le=90)
-    longitude: float | None = Field(default=None, ge=-180, le=180)
-    location_accuracy_m: float | None = Field(default=None, ge=0, le=100000)
-    district: str | None = Field(default=None, max_length=100)
-    channel: Literal["web", "phone", "telegram", "whatsapp"] = "web"
-    sender_key: str | None = Field(default=None, max_length=100)
-    photo_data: str | None = Field(default=None, max_length=5_600_000)
-    video_data: str | None = Field(default=None, max_length=16_800_000)
-
-    @model_validator(mode="after")
-    def location_is_complete(self):
-        if (self.latitude is None) != (self.longitude is None):
-            raise ValueError("Укажите широту и долготу вместе")
-        if self.location_accuracy_m is not None and self.latitude is None:
-            raise ValueError("Точность требует координаты")
-        if self.photo_data and self.video_data:
-            raise ValueError("Прикрепите один файл: фото или видео")
-        return self
-
-
-def decode_photo(value):
-    if not value:
-        return None
-    try:
-        header, encoded = value.split(",", 1)
-        if header not in {"data:image/jpeg;base64", "data:image/png;base64", "data:image/webp;base64"}:
-            raise ValueError
-        declared = header[5:-7]
-        content = base64.b64decode(encoded, validate=True)
-    except (ValueError, binascii.Error):
-        raise HTTPException(422, "Не удалось прочитать фото") from None
-    detected = ("image/jpeg" if content.startswith(b"\xff\xd8\xff") else
-                "image/png" if content.startswith(b"\x89PNG\r\n\x1a\n") else
-                "image/webp" if content.startswith(b"RIFF") and content[8:12] == b"WEBP" else None)
-    if declared not in {"image/jpeg", "image/png", "image/webp"} or detected != declared:
-        raise HTTPException(422, "Допустимы фото JPEG, PNG или WebP")
-    if len(content) > 4 * 1024 * 1024:
-        raise HTTPException(422, "Фото должно быть не больше 4 МБ")
-    return detected, content
-
-
-def decode_video(value):
-    if not value:
-        return None
-    try:
-        header, encoded = value.split(",", 1)
-        if header not in {"data:video/mp4;base64", "data:video/webm;base64"}:
-            raise ValueError
-        declared = header[5:-7]
-        content = base64.b64decode(encoded, validate=True)
-    except (ValueError, binascii.Error):
-        raise HTTPException(422, "Не удалось прочитать видео") from None
-    detected = ("video/mp4" if len(content) >= 12 and content[4:8] == b"ftyp" else
-                "video/webm" if content.startswith(b"\x1aE\xdf\xa3") else None)
-    if detected != declared:
-        raise HTTPException(422, "Допустимы видео MP4 или WebM")
-    if len(content) > 12 * 1024 * 1024:
-        raise HTTPException(422, "Видео должно быть не больше 12 МБ")
-    return detected, content
-
-
-class Decision(BaseModel):
-    topic: str
-    priority: Literal["urgent", "normal"]
-    operator_id: str | None = None
-    incident_id: str | None = None
-
-
-class Link(BaseModel):
-    incident_id: str | None = None
-    separate: bool = False
-
-
-class Safety(BaseModel):
-    quarantine: bool
-
-
-class Reply(BaseModel):
-    text: str = Field(min_length=1, max_length=2000)
-
-
-class Subscription(BaseModel):
-    subscriber_key: str = Field(min_length=8, max_length=100)
-
-
-def event(conn, cid, kind, payload, actor=None, event_id=None):
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute("INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?)",
-                 (event_id or "evt-" + uuid.uuid4().hex, cid, kind, now, now, actor or current_actor(),
-                  json.dumps(payload, ensure_ascii=False)))
-
-
-def suggested_response(c):
-    if c["language"] == "kk":
-        return ("Өтінішіңіз тіркелді. Ол " + c["incident_id"] + " оқиғасымен байланыстырылды. Жауапты қызметке хабар берілді. Орындалу мерзімі әлі расталған жоқ."
-                if c["incident_id"] else "Өтінішіңіз тіркелді. Оператор ақпаратты тексеріп, жауапты қызметке бағыттайды. Орындалу мерзімі әлі расталған жоқ.")
-    return ("Ваше обращение зарегистрировано. Оно связано с инцидентом " + c["incident_id"] + ". Ответственная служба уведомлена в демо-системе. Срок устранения пока не подтверждён."
-            if c["incident_id"] else "Ваше обращение зарегистрировано. Оператор проверит информацию и направит её в ответственную службу. Срок устранения пока не подтверждён.")
+                    risk_for, route, responsible_service_name, moment)
+from workspace_support import (Decision, Intake, Link, Moderation, Reply, Safety, Subscription,
+                               ai_evidence, decode_photo, decode_video, event, suggested_response)
 
 
 def build_workspace_router(get_connection, classifier, topic_services, valid_regions, topic_names=None,
                            decision_service=None, copilot=None):
     router = APIRouter(prefix="/api/workspace")
     storage = object_storage()
+    similarity_client = SimilarityClient.from_env()
     attach_city_routes(router)
     attach_public_issue_routes(router, get_connection, classifier, topic_services, valid_regions,
                                topic_names or {})
@@ -210,7 +51,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             item.update(count=len(members), members=[dict(r) for r in members],
                         streets=len({(r["address"] or "").rsplit(" ", 1)[0] for r in members if r["address"]}),
                         minutes=round((datetime.now(timezone.utc) - moment(item["started_at"])).total_seconds() / 60),
-                        service_name=SERVICE_NAMES.get(item["service_id"], item["service_id"]))
+                        service_name=responsible_service_name(item["region_id"], item["service_id"]))
             result.append(item)
         return result
 
@@ -238,15 +79,18 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         routing = route(c, ai, ops)
         assigned = next((o for o in ops if o["id"] == c["assigned_operator"]), None)
         if assigned:
-            routing = {"operator": assigned, "reason": "Назначение подтверждено оператором.", "level": None, "assigned": True}
+            routing.update(operator=assigned, reason="Назначение подтверждено оператором.",
+                           level=None, assigned=True)
         return routing
 
     def detail(conn, c, rows=None, operators=None):
         rows = rows if rows is not None else [dict(r) for r in conn.execute("SELECT * FROM complaints")]
         ai = analysis(conn, c)
-        similar = related_cases(c, ai, rows, classifier, topic_services)
+        similar, similarity_scoring = related_cases(
+            c, ai, rows, classifier, topic_services, similarity_client
+        )
         incidents = incident_list(conn)
-        candidate_ids = [r["incident_id"] for r in similar if r["incident_id"]]
+        candidate_ids = [r["incident_id"] for r in similar if r["incident_id"] and r["incident_eligible"]]
         candidate = next((i for i in incidents if i["id"] in candidate_ids and i["status"] != "Завершён"), None)
         risk = risk_for(c, rows)
         spam = ai.get("spam_suspected") or {}
@@ -260,7 +104,8 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             risk["kind"] = "deterministic_plus_laya_signal"
         ops = operators if operators is not None else operators_with_load(conn)
         routing = routing_for(c, ai, ops)
-        return {"complaint": c, "triage": ai, "similar": similar, "incident_candidate": candidate,
+        return {"complaint": c, "triage": ai, "similar": similar,
+                "similarity_scoring": similarity_scoring, "incident_candidate": candidate,
                 "routing": routing, "risk": risk, "suggested_response": suggested_response(c),
                 **queue_state(c, ai, risk, bool(similar) or bool(c["incident_id"]))}
 
@@ -275,7 +120,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         d = detail(conn, c)
         if not d["incident_candidate"] or d["incident_candidate"]["id"] != iid or ai["category"] != inc["category"]:
             raise HTTPException(409, "Не совпадают категория, район, время или характер проблемы")
-        return next((r["id"] for r in d["similar"] if r["incident_id"] == iid), None)
+        return next((r["id"] for r in d["similar"] if r["incident_id"] == iid and r["incident_eligible"]), None)
 
     @router.post("/seed")
     def seed():
@@ -290,7 +135,9 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             ops = operators_with_load(conn)
             items = [detail(conn, c, rows, ops) for c in rows]
         items.sort(key=lambda x: (-x["priority_score"], x["complaint"]["ingested_at"], x["complaint"]["id"]))
-        return {"items": items, "data_origin": "synthetic", "score_method": "urgency + SLA risk + waiting + incident + review"}
+        origins = {item["complaint"]["data_origin"] for item in items}
+        origin = next(iter(origins)) if len(origins) == 1 else "mixed" if origins else None
+        return {"items": items, "data_origin": origin, "score_method": "urgency + SLA risk + waiting + incident + review"}
 
     @router.get("/operators")
     def operators():
@@ -325,7 +172,8 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                 if clarification and clarification[-1]["type"] == "clarification_received":
                     status = "clarification_received"
             incident = conn.execute("SELECT id, title, status, next_update FROM incidents WHERE id = ?", (c["incident_id"],)).fetchone()
-            service = SERVICE_NAMES.get(c["service_id"]) if c["decision_status"] == "confirmed" and c["region_id"] == "KZ-ALA" else None
+            service = (responsible_service_name(c["region_id"], c["service_id"])
+                       if c["decision_status"] == "confirmed" else None)
             registered_at = c["received_at"] or c["ingested_at"]
             timeline = [{"type": "registered", "at": registered_at,
                          "title": "Обращение зарегистрировано", "text": "Номер обращения сохранён."}]
@@ -369,20 +217,24 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         video = decode_video(req.video_data)
         cid = "PULSE-" + uuid.uuid4().hex[:6].upper()
         now = datetime.now(timezone.utc).isoformat()
+        cleaned = req.text.strip()
+        origin, consent, moderation, public_text = intake_privacy(cleaned, req.public_consent)
+        source = "local_demo_intake_v2" if origin == "synthetic" else "citizen_web"
         uploaded = []
         try:
             with get_connection() as conn:
                 conn.execute("""INSERT INTO complaints
                     (id, data_origin, source_system, text, region_id, received_at, ingested_at,
-                     language, address, city_code, latitude, longitude, location_accuracy_m, district, channel, sender_key)
-                    VALUES (?, 'synthetic', 'operator_demo_intake', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (cid, req.text.strip(), req.region_id, now, now, req.language,
+                     language, address, city_code, latitude, longitude, location_accuracy_m, district, channel, sender_key,
+                     public_consent, moderation_status, public_text)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (cid, origin, source, cleaned, req.region_id, now, now, req.language,
                      req.address.strip() if req.address else address_in(req.text),
                      req.city_code,
                      round(req.latitude, 6) if req.latitude is not None else None,
                      round(req.longitude, 6) if req.longitude is not None else None,
                      round(req.location_accuracy_m, 1) if req.location_accuracy_m is not None else None,
-                     req.district, req.channel, req.sender_key))
+                     req.district, req.channel, req.sender_key, consent, moderation, public_text))
                 if photo:
                     key = storage.put_media(cid, "photo", photo[0], photo[1])
                     uploaded.append(key)
@@ -398,9 +250,11 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                 event(conn, cid, "intake", {"channel": req.channel, "city_code": req.city_code,
                                             "text_len": len(req.text),
                                             "has_location": req.latitude is not None,
+                                            "public_consent": bool(consent),
                                             "has_photo": bool(photo), "has_video": bool(video),
                                             "media_backend": ("s3" if any(uploaded) else
-                                                              "sqlite" if photo or video else None)}, "citizen_demo")
+                                                              "sqlite" if photo or video else None)},
+                      "citizen_demo" if origin == "synthetic" else "citizen_intake")
         except Exception as error:
             for key in filter(None, uploaded):
                 try:
@@ -410,7 +264,50 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             if isinstance(error, ObjectStorageError):
                 raise HTTPException(503, "Не удалось сохранить вложение. Повторите отправку") from error
             raise
-        return {"id": cid, "data_origin": "synthetic", "decision_status": "pending"}
+        return {"id": cid, "data_origin": origin, "decision_status": "pending",
+                "moderation_status": moderation}
+
+    def private_media(cid, table):
+        with get_connection() as conn:
+            row = conn.execute(
+                f"SELECT mime_type, content, object_key FROM {table} WHERE complaint_id = ?", (cid,)
+            ).fetchone()
+        if not row:
+            raise HTTPException(404, "Вложение не найдено")
+        try:
+            content = storage.get_media(row["object_key"]) if row["object_key"] else row["content"]
+        except ObjectStorageError as error:
+            raise HTTPException(503, "Вложение временно недоступно") from error
+        return Response(content, media_type=row["mime_type"], headers={"Cache-Control": "private, no-store"})
+
+    @router.get("/complaints/{cid}/photo")
+    def complaint_photo(cid: str):
+        return private_media(cid, "complaint_photos")
+
+    @router.get("/complaints/{cid}/video")
+    def complaint_video(cid: str):
+        return private_media(cid, "complaint_videos")
+
+    @router.post("/complaints/{cid}/moderation")
+    def moderate(cid: str, req: Moderation):
+        with get_connection() as conn:
+            c = complaint(conn, cid)
+            if req.status == "approved":
+                if not c["public_consent"]:
+                    raise HTTPException(409, "Заявитель не дал согласие на публикацию")
+                reviewed = (req.public_text or "").strip()
+                if not reviewed:
+                    raise HTTPException(422, "Проверенный публичный текст обязателен")
+                reviewed = reviewed if c["data_origin"] == "synthetic" else redact_public_text(reviewed)
+            else:
+                reviewed = None
+            conn.execute("UPDATE complaints SET moderation_status = ?, public_text = ? WHERE id = ?",
+                         (req.status, reviewed, cid))
+            event(conn, cid, "public_moderation", {
+                "status": req.status, "public_text_len": len(reviewed) if reviewed else 0,
+                "redaction_applied": bool(reviewed and reviewed != (req.public_text or "").strip()),
+            })
+        return {"id": cid, "moderation_status": req.status, "public_text": reviewed}
 
     @router.post("/complaints/{cid}/triage")
     def triage(cid: str):
@@ -477,7 +374,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             c = complaint(conn, cid)
             ai = {"category": topic, "suggested_service": topic_services[topic]}
             return {"routing": route({**c, "topic": topic, "priority": priority or c["priority"]}, ai, operators_with_load(conn)),
-                    "service_name": SERVICE_NAMES[topic_services[topic]] if c["region_id"] == "KZ-ALA" else "Региональная очередь — служба требует проверки"}
+                    "service_name": responsible_service_name(c["region_id"], topic_services[topic])}
 
     @router.post("/complaints/{cid}/link")
     def link(cid: str, req: Link):
@@ -527,7 +424,8 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
 
     @router.get("/metrics")
     def metrics():
-        data = queue()["items"]
+        queue_data = queue()
+        data = queue_data["items"]
         today = datetime.now(timezone.utc).date()
         today_items = [x for x in data if moment(x["complaint"]["ingested_at"]).date() == today]
         response_times = [(moment(x["complaint"]["first_response_at"]) - moment(x["complaint"]["ingested_at"])).total_seconds()
@@ -558,7 +456,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         corrected = Counter(suggested for suggested, confirmed, _ in decisions if suggested != confirmed)
         linked = sum(bool(x["complaint"]["incident_id"]) for x in data)
         consolidated = sum(max(0, i["count"] - 1) for i in incs)
-        return {"data_origin": "synthetic", "total": len(data), "today": len(today_items),
+        return {"data_origin": queue_data["data_origin"], "total": len(data), "today": len(today_items),
                 "pending": sum(x["group"] in {"urgent", "attention", "normal"} for x in data),
                 "active_incidents": sum(i["status"] != "Завершён" for i in incs), "linked": linked,
                 "consolidated": consolidated, "quarantined": sum(x["group"] == "quarantine" for x in data),

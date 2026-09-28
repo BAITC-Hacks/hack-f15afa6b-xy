@@ -1,11 +1,6 @@
-"""Operator playbooks: preview a plan, confirm it, apply it atomically.
+"""Operator playbooks preview plans and apply confirmed actions atomically.
 
-A preview never changes a complaint. Execution takes the write lock first, then
-re-reads the complaint and refuses a stale preview (its state fingerprint
-changed), so the state change and its audit events land in one transaction.
-Executed tokens are stored, so replaying one returns the recorded result.
-Guards, routing and incident checks arrive as `ctx` callables from
-workspace_api: playbooks reuse the same functions as the legacy endpoints.
+Guards and routing reuse the same callables as the legacy workspace endpoints.
 """
 from __future__ import annotations
 
@@ -23,7 +18,6 @@ from auth import current_actor
 from triage import SERVICE_NAMES
 DEMO_DELIVERY = "demo_only"
 PREVIEW_TTL_MINUTES = 30
-
 # ponytail: exact-phrase FAQ list. Widen only with a reviewed phrasing list, never by substring.
 CLOSE_FAQ = "close_faq"
 REOPEN_FAQ = "reopen_faq"
@@ -43,7 +37,6 @@ FAQ_QUESTIONS = {
 FAQ_BLOCK_TERMS = ["авари", "срочно", "жарылыс", "искрит", "запах гар", "опасно", "пожар",
                    "прорыв", "нет воды", "нет света", "нет тепла", "не работает", "течёт", "течет",
                    "су жоқ", "жылу жоқ", "жарық жоқ", "қауіп", "апат", "отключ"]
-
 TITLES = {
     "link_mass_incident": "Связать с массовым инцидентом и подтвердить решение",
     "route_service": "Подтвердить решение и направить в службу",
@@ -54,7 +47,6 @@ TITLES = {
     "unlink_incident": "Снять связь с инцидентом",
     "reopen_faq": "Вернуть закрытый типовой вопрос в работу",
 }
-
 REASON_LABELS = {
     "unknown_place": "Нужен точный адрес или место", "unclear_event": "Непонятно, что именно произошло",
     "insufficient_detail": "Слишком мало деталей", "multiple_problems": "В одном обращении несколько проблем",

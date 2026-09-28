@@ -1,5 +1,6 @@
 """Safe public views and duplicate deflection for synthetic complaints."""
 import hashlib
+import re
 from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
 
@@ -29,6 +30,24 @@ ALMATY_DISTRICT_CENTERS = {
 REGION_PLACE = {}
 for city in CITIES:
     REGION_PLACE.setdefault(city["region_id"], city["name_ru"])
+
+EMAIL = re.compile(r"(?<![\w.-])[\w.+-]+@[\w.-]+\.[a-zа-я]{2,}(?![\w.-])", re.IGNORECASE)
+PHONE = re.compile(r"(?<!\d)(?:\+?7|8)(?:[\s().-]*\d){10}(?!\d)")
+IIN = re.compile(r"(?<!\d)\d{12}(?!\d)")
+APARTMENT = re.compile(r"\b(?:кв(?:артира)?|квартира|пәтер)\s*[:№#.-]?\s*\d+[a-zа-я]?\b", re.IGNORECASE)
+
+
+def redact_public_text(text):
+    text = EMAIL.sub("[EMAIL СКРЫТ]", text)
+    text = PHONE.sub("[ТЕЛЕФОН СКРЫТ]", text)
+    text = IIN.sub("[ИИН СКРЫТ]", text)
+    return APARTMENT.sub("[КВАРТИРА СКРЫТА]", text)
+
+
+def public_eligible(item):
+    return bool(item.get("public_consent") and item.get("moderation_status") == "approved"
+                and item.get("public_text") and item.get("data_origin") != "organizer"
+                and not item.get("quarantined"))
 
 
 class SimilarRequest(BaseModel):
@@ -81,7 +100,8 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
     @router.get("/public/complaints")
     def public_complaints():
         with get_connection() as conn:
-            rows = [dict(row) for row in conn.execute("""SELECT c.id, substr(c.text, 1, 1000) AS text, c.region_id,
+            rows = [dict(row) for row in conn.execute("""SELECT c.id, substr(c.public_text, 1, 1000) AS text,
+                    c.public_text, c.public_consent, c.moderation_status, c.data_origin, c.region_id,
                     c.city_code, c.district, c.latitude, c.longitude,
                     COALESCE(c.topic, c.proposed_topic) AS topic, c.service_id, c.incident_id,
                     c.sender_key, c.ingested_at, c.quarantined,
@@ -94,11 +114,15 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
                     EXISTS(SELECT 1 FROM complaint_photos p WHERE p.complaint_id = c.id) AS has_photo,
                     EXISTS(SELECT 1 FROM complaint_videos v WHERE v.complaint_id = c.id) AS has_video
                 FROM complaints c
-                WHERE c.data_origin = 'synthetic' AND c.quarantined = 0
+                WHERE c.public_consent = 1 AND c.moderation_status = 'approved'
+                  AND c.public_text IS NOT NULL AND c.quarantined = 0
                 ORDER BY COALESCE(c.received_at, c.ingested_at) DESC""")]
         items = []
+        origins = set()
         for row in rows:
             item = dict(row)
+            if not public_eligible(item):
+                continue
             if risk_for(item, rows)["reasons"]:
                 continue
             item["topic"] = category(item)
@@ -109,12 +133,15 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
             item["location_label"] = ("Точка указана заявителем" if item["location_source"] == "user_selected" else
                                       "Примерно по району" if item["location_source"] == "district_approximate" else
                                       "Примерно по региону")
-            item["has_photo"] = bool(item["has_photo"])
-            item["has_video"] = bool(item["has_video"])
-            for key in ("sender_key", "ingested_at", "quarantined"):
+            item["has_photo"] = item["data_origin"] == "synthetic" and bool(item["has_photo"])
+            item["has_video"] = item["data_origin"] == "synthetic" and bool(item["has_video"])
+            origins.add(item["data_origin"])
+            for key in ("sender_key", "ingested_at", "quarantined", "public_text",
+                        "public_consent", "moderation_status", "data_origin"):
                 item.pop(key)
             items.append(item)
-        return {"items": items, "count": len(items), "data_origin": "synthetic"}
+        origin = next(iter(origins)) if len(origins) == 1 else "mixed" if origins else None
+        return {"items": items, "count": len(items), "data_origin": origin}
 
     @router.post("/public/similar")
     def similar(req: SimilarRequest):
@@ -130,14 +157,16 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
         with get_connection() as conn:
             rows = [dict(row) for row in conn.execute("""SELECT c.*,
                     (SELECT COUNT(*) FROM complaint_subscriptions s WHERE s.complaint_id = c.id) AS subscribers
-                FROM complaints c WHERE c.data_origin = 'synthetic' AND c.region_id = ?
-                  AND c.resolved_at IS NULL AND c.quarantined = 0""", (req.region_id,))]
+                FROM complaints c WHERE c.region_id = ? AND c.resolved_at IS NULL""", (req.region_id,))]
         probe_address = (req.address or address_in(req.text) or "").strip().casefold()
         radius = 2500 if probe_symptom == "outage" else 500 if probe_topic in {
             "roads", "street_lighting", "waste_management", "sewerage"
         } else 900
         found = []
         for row in rows:
+            if not public_eligible(row):
+                continue
+            row["text"] = row["public_text"]
             if req.city_code and row.get("city_code") and req.city_code != row["city_code"]:
                 continue
             if category(row) != probe_topic or symptom(row["text"]) != probe_symptom:
@@ -170,8 +199,10 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
     @router.post("/public/complaints/{cid}/subscribe")
     def subscribe(cid: str, req: Subscription):
         with get_connection() as conn:
-            cid = cid.strip().upper()
-            if not conn.execute("SELECT id FROM complaints WHERE id = ? AND data_origin = 'synthetic'", (cid,)).fetchone():
+            cid = cid.strip()
+            row = conn.execute("""SELECT id, data_origin, public_consent, moderation_status, public_text, quarantined
+                                  FROM complaints WHERE id = ?""", (cid,)).fetchone()
+            if not row or not public_eligible(dict(row)):
                 raise HTTPException(404, "Обращение не найдено")
             conn.execute("INSERT OR IGNORE INTO complaint_subscriptions VALUES (?, ?, ?)",
                          (cid, req.subscriber_key, datetime.now(timezone.utc).isoformat()))
@@ -194,10 +225,12 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
     @router.get("/public/complaints/{cid}/photo")
     def public_photo(cid: str):
         with get_connection() as conn:
-            row = conn.execute("""SELECT p.mime_type, p.content, p.object_key FROM complaint_photos p
+            row = conn.execute("""SELECT p.mime_type, p.content, p.object_key, c.data_origin,
+                    c.public_consent, c.moderation_status, c.public_text, c.quarantined
+                FROM complaint_photos p
                 JOIN complaints c ON c.id = p.complaint_id
-                WHERE p.complaint_id = ? AND c.data_origin = 'synthetic'""", (cid,)).fetchone()
-        if not row:
+                WHERE p.complaint_id = ?""", (cid,)).fetchone()
+        if not row or row["data_origin"] != "synthetic" or not public_eligible(dict(row)):
             raise HTTPException(404, "Фото не найдено")
         try:
             content = storage.get_media(row["object_key"]) if row["object_key"] else row["content"]
@@ -209,10 +242,12 @@ def attach_public_issue_routes(router: APIRouter, get_connection, classifier, to
     @router.get("/public/complaints/{cid}/video")
     def public_video(cid: str):
         with get_connection() as conn:
-            row = conn.execute("""SELECT v.mime_type, v.content, v.object_key FROM complaint_videos v
+            row = conn.execute("""SELECT v.mime_type, v.content, v.object_key, c.data_origin,
+                    c.public_consent, c.moderation_status, c.public_text, c.quarantined
+                FROM complaint_videos v
                 JOIN complaints c ON c.id = v.complaint_id
-                WHERE v.complaint_id = ? AND c.data_origin = 'synthetic'""", (cid,)).fetchone()
-        if not row:
+                WHERE v.complaint_id = ?""", (cid,)).fetchone()
+        if not row or row["data_origin"] != "synthetic" or not public_eligible(dict(row)):
             raise HTTPException(404, "Видео не найдено")
         try:
             content = storage.get_media(row["object_key"]) if row["object_key"] else row["content"]

@@ -30,7 +30,8 @@ def direct_checks(tmp_dir: Path):
     import app as app_module
     from demo_data import init_workspace, seed_workspace
     from support_api import init_support
-    from triage import DEMO_WORKLOAD_WEIGHTS as W, operators_with_load, route
+    from triage import (DEMO_WORKLOAD_WEIGHTS as W, REGION_NAMES, operators_with_load,
+                        responsible_service_name, route)
 
     app_module.init_db()
     services = dict(app_module.TOPIC_SERVICE_MAP)
@@ -46,6 +47,14 @@ def direct_checks(tmp_dir: Path):
 
     def routed(c, category):
         return route(c, {"category": category, "suggested_service": services[category]}, list(snapshot().values()))
+
+    assert len(REGION_NAMES) == 20
+    for region_id in REGION_NAMES:
+        for service_id in services.values():
+            name = responsible_service_name(region_id, service_id)
+            assert name and "Региональная очередь" not in name
+            if region_id != "KZ-ALA":
+                assert "подтверждает оператор" in name
 
     ops = snapshot()
     assert len(ops) == 7, sorted(ops)

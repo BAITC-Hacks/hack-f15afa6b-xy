@@ -10,7 +10,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +22,7 @@ from data_coverage import CoverageUnavailable, load_coverage
 from clarification import build_clarification_router, get_received_clarifications
 from copilot import QwenCopilot
 from queue_api import build_queue_router
-from demo_data import init_workspace
+from demo_data import init_workspace, intake_privacy
 from playbooks import faq_closed
 from workspace_api import build_workspace_router
 from incidents import init_incidents
@@ -177,6 +177,7 @@ class IntakeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
     region_id: str
     language: Optional[str] = None
+    public_consent: bool = False
 
 class ConfirmRequest(BaseModel):
     topic: str
@@ -313,11 +314,15 @@ def intake_complaint(req: IntakeRequest):
     cid = f"cmp-{uuid.uuid4().hex[:8]}"
     now_iso = datetime.now(timezone.utc).isoformat()
     lang = req.language if req.language in {"ru", "kk", "mixed"} else "unknown"
+    origin, consent, moderation, public_text = intake_privacy(cleaned, req.public_consent)
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO complaints (id, data_origin, text, region_id, ingested_at, language, decision_status) "
-            "VALUES (?, 'synthetic', ?, ?, ?, ?, 'pending')",
-            (cid, cleaned, req.region_id, now_iso, lang),
+            """INSERT INTO complaints
+               (id, data_origin, source_system, text, region_id, ingested_at, language, decision_status,
+                public_consent, moderation_status, public_text)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)""",
+            (cid, origin, "local_demo_intake_v2" if origin == "synthetic" else "citizen_web",
+             cleaned, req.region_id, now_iso, lang, consent, moderation, public_text),
         )
         conn.execute(
             "INSERT INTO audit_events (id, complaint_id, event_type, occurred_at, recorded_at, actor, payload) "
@@ -327,11 +332,13 @@ def intake_complaint(req: IntakeRequest):
                 cid,
                 now_iso,
                 now_iso,
-                json.dumps({"region_id": req.region_id, "text_len": len(cleaned)}, ensure_ascii=False),
+                json.dumps({"region_id": req.region_id, "text_len": len(cleaned),
+                            "public_consent": bool(consent)}, ensure_ascii=False),
             ),
         )
         conn.commit()
-    return {"id": cid, "decision_status": "pending", "data_origin": "synthetic", "banner": BANNER_TEXT}
+    return {"id": cid, "decision_status": "pending", "data_origin": origin,
+            "moderation_status": moderation, "banner": BANNER_TEXT}
 
 
 @app.post("/api/complaints/{complaint_id}/classify")
@@ -391,16 +398,14 @@ def find_similar(complaint_id: str, limit: int = Query(5, ge=1, le=20)):
                 topic, _, _ = mock_classify(target["text"] + "\n\n" + "\n".join(clarifications))
             topic = topic or target["proposed_topic"]
         sql = ("SELECT id,data_origin,text,COALESCE(topic,proposed_topic) topic,decision_status,resolution_text "
-               "FROM complaints WHERE id != ? AND resolution_text IS NOT NULL")
-        values: list[Any] = [complaint_id]
-        if topic:
-            sql += " AND COALESCE(topic,proposed_topic) = ?"
-            values.append(topic)
-        rows = [dict(row) for row in conn.execute(sql + " ORDER BY resolved_at DESC,ingested_at DESC LIMIT 100", values).fetchall()]
+               "FROM complaints WHERE id != ? AND resolution_text IS NOT NULL "
+               "ORDER BY resolved_at DESC,ingested_at DESC LIMIT 100")
+        rows = [dict(row) for row in conn.execute(sql, (complaint_id,)).fetchall()]
     ranked, mode, checkpoint_id = rank_candidates(target["text"], topic, rows, similarity_client, limit)
     candidates = [{"complaint_id": row["id"], "excerpt": row["text"][:140] + ("..." if len(row["text"]) > 140 else ""),
                    "origin": row["data_origin"], "topic": row["topic"], "decision_status": row["decision_status"],
-                   "resolution_text": row["resolution_text"], "similarity": row["similarity"]} for row in ranked]
+                   "resolution_text": row["resolution_text"], "similarity": row["similarity"],
+                   "requires_human_confirmation": True} for row in ranked]
     return {
         "mode": mode,
         "checkpoint_id": checkpoint_id,

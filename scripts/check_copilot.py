@@ -57,6 +57,7 @@ def start_pulse(root, db, qwen_url):
     env = os.environ.copy()
     env.update({
         "PYTHONPATH": str(root), "DATABASE_PATH": str(db), "P109_AUTH_DISABLED": "1",
+        "P109_DEMO_MODE": "1",
         "P109_COPILOT_BASE_URL": qwen_url, "P109_COPILOT_API_KEY": "fixture-secret",
         "P109_COPILOT_MODEL": "Qwen/Qwen3-4B-Instruct-2507", "P109_COPILOT_TIMEOUT": "1",
     })

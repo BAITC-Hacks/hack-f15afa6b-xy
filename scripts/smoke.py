@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -64,6 +65,7 @@ def run_smoke():
     env = os.environ.copy()
     env["DATABASE_PATH"] = str(tmp_db)
     env["P109_AUTH_DISABLED"] = "1"
+    env["P109_DEMO_MODE"] = "1"
     # Ensure current python executable and repo root are used
     env["PYTHONPATH"] = str(repo_root)
 
@@ -202,27 +204,91 @@ def run_smoke():
 
         # 13. Aggregate analytics and validated exports
         status, res = http_request(f"{base_url}/api/alerts")
-        assert status == 200 and res["data_origin"] == "organizer" and res["method"]
-        print(f"PASS 13a: GET /api/alerts returned {len(res['items'])} evidence-backed alerts")
+        current_month = time.strftime("%Y-%m", time.gmtime())
+        assert status == 200 and res["data_origin"] == "synthetic_demo" and res["items"]
+        assert res["provenance"]["synthetic"] is True
+        assert res["provenance"]["coverage_regions"] == 20
+        assert res["provenance"]["last_observation_month"] == current_month
+        assert all(item["observed_month"] == current_month for item in res["items"])
+        print(f"PASS 13a: GET /api/alerts detected {len(res['items'])} synthetic national demo alerts across 20 regions")
+
+        selected = res["items"][0]
+        status, filtered_alerts = http_request(
+            f"{base_url}/api/alerts?region_id={selected['region_id']}&topic={selected['topic']}"
+        )
+        assert status == 200 and filtered_alerts["items"]
+        assert all(item["region_id"] == selected["region_id"] and item["topic"] == selected["topic"]
+                   for item in filtered_alerts["items"])
+        assert filtered_alerts["provenance"]["filters"] == {
+            "region_id": selected["region_id"], "topic": selected["topic"]}
+        print("PASS 13a.1: GET /api/alerts applies region and topic filters before ranking")
+
+        status, organizer_alerts = http_request(f"{base_url}/api/alerts?data_origin=organizer")
+        assert status == 200 and organizer_alerts["data_origin"] == "organizer"
+        assert organizer_alerts["provenance"]["synthetic"] is False
+        assert organizer_alerts["provenance"]["freshness"]["status"] == "stale"
+        print("PASS 13a.2: Organizer mode remains available and declares stale source freshness")
 
         status, res = http_request(f"{base_url}/api/forecast?horizon_months=3")
         assert status == 200 and len(res["forecast"]) == 3 and res["evaluation"]["backtest_points"] > 0
         assert res["evaluation"]["mae"] >= 0 and res["evaluation"]["smape_percent"] >= 0
-        print("PASS 13b: GET /api/forecast returned 3 months with MAE and sMAPE backtest metrics")
+        assert set(res["evaluation"]["by_horizon"]) == {"1", "2", "3"}
+        assert [res["evaluation"]["by_horizon"][str(step)]["horizon_months"] for step in (1, 2, 3)] == [1, 2, 3]
+        assert res["provenance"]["coverage_regions"] == 20
+        assert res["provenance"]["freshness"]["status"] == "current"
+        print("PASS 13b: GET /api/forecast returned distinct 1/2/3-month backtests and current synthetic provenance")
 
         status, _ = http_request(f"{base_url}/api/forecast?horizon_months=5")
         assert status == 422
         print("PASS 13c: GET /api/forecast?horizon_months=5 rejected with 422 (input validation)")
 
-        status, res = http_request(f"{base_url}/api/query", "POST", {"question": "Какие категории лидируют?"})
-        assert status == 200 and res["chart"]["values"] and res["provenance"]["data_origin"] == "organizer"
-        print("PASS 13d: POST /api/query returned a numeric answer, chart and provenance")
+        status, res = http_request(
+            f"{base_url}/api/query", "POST",
+            {"question": f"Какие категории лидируют в Карагандинской области за {current_month}?"},
+        )
+        assert status == 200 and res["chart"]["values"]
+        assert res["provenance"]["data_origin"] == "synthetic_demo"
+        assert res["provenance"]["operation"] == "sum_by_topic"
+        assert res["provenance"]["filters"] == {"region_id": "KZ-KAR", "topic": None, "period": current_month}
+        print("PASS 13d: Category intent wins over oblast wording and parses RU region plus YYYY-MM")
+
+        month_ru = ("январе", "феврале", "марте", "апреле", "мае", "июне", "июле", "августе", "сентябре", "октябре", "ноябре", "декабре")[int(current_month[5:]) - 1]
+        status, res = http_request(
+            f"{base_url}/api/query", "POST",
+            {"question": f"Какие категории лидируют в Карагандинской области в {month_ru} {current_month[:4]} года?"},
+        )
+        assert status == 200 and res["provenance"]["filters"]["period"] == current_month
+        print("PASS 13d.1: POST /api/query parses a supported Russian month name and year")
+
+        status, res = http_request(
+            f"{base_url}/api/query", "POST", {"question": "Қарағанды облысында қандай санаттар көп?"},
+        )
+        assert status == 200 and res["provenance"]["filters"]["region_id"] == "KZ-KAR"
+        print("PASS 13d.2: POST /api/query parses an explicit Kazakh region name")
+
+        status, _ = http_request(
+            f"{base_url}/api/query", "POST", {"question": "Категории в Астане и Шымкенте"},
+        )
+        assert status == 422
+        status, _ = http_request(
+            f"{base_url}/api/query", "POST", {"question": "Категории в январе"},
+        )
+        assert status == 422
+        print("PASS 13d.3: Ambiguous regions and month without year are rejected safely")
 
         with urllib.request.urlopen(f"{base_url}/api/reports?format=pdf") as response:
-            assert response.headers.get_content_type() == "application/pdf" and response.read().startswith(b"%PDF")
+            pdf = response.read()
+            assert response.headers.get_content_type() == "application/pdf" and pdf.startswith(b"%PDF")
+            assert b"/FontFile2" in pdf
+        if shutil.which("pdftotext"):
+            pdf_path = Path(tmp_dir.name) / "analytics.pdf"
+            pdf_path.write_bytes(pdf)
+            extracted = subprocess.run(["pdftotext", str(pdf_path), "-"], check=True,
+                                       capture_output=True, text=True).stdout
+            assert "аналитический отчёт" in extracted and "Источник данных" in extracted
         with urllib.request.urlopen(f"{base_url}/api/reports?format=xlsx") as response:
             assert response.headers.get_content_type() == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" and response.read().startswith(b"PK")
-        print("PASS 13e: PDF and XLSX exports are real downloadable files")
+        print("PASS 13e: Unicode PDF and XLSX exports are real downloadable files")
 
         status, _ = http_request(f"{base_url}/api/reports?format=csv")
         assert status == 422

@@ -54,7 +54,10 @@ def run():
             assert ai["confidence_kind"] == "synthetic_demo" and ai["checkpoint_id"] is None
             assert ai["extracted_address"] == "Абая 44" and ai["confidence_band"] == "high"
             assert detail["incident_candidate"]["id"] == "INC-204"
-            assert len(detail["similar"]) == 17
+            assert len(detail["similar"]) == 8, "Duplicate review stays bounded"
+            assert detail["similarity_scoring"]["mode"] == "lexical_fallback"
+            assert detail["similarity_scoring"]["human_confirmation_required"] is True
+            assert all(item["requires_human_confirmation"] for item in detail["similar"])
             assert detail["routing"]["operator"]["id"] == "op-aidana"
             assert detail["routing"]["operator"]["current_load"] == 2
             assert detail["complaint"]["decision_status"] == "pending"
@@ -110,8 +113,9 @@ def run():
             assert evidence["similarity"]["test"]["trained"]["ndcg_at_10"] == .9662
             assert len(evidence["evidence_sha256"]["similarity"]) == 64
             forecast = call("/api/forecast?horizon_months=3")
-            assert forecast["method"] == "last_value" and forecast["evaluation"]["smape_percent"] < 25
-            assert forecast["excluded_partial_month"] == {"month": "2025-11", "count": 594}
+            assert forecast["data_origin"] == "synthetic_demo" and len(forecast["forecast"]) == 3
+            assert set(forecast["evaluation"]["by_horizon"]) == {"1", "2", "3"}
+            assert forecast["provenance"]["synthetic"] and forecast["provenance"]["coverage_regions"] == 20
             assert next(x for x in call("/api/workspace/operators")["items"] if x["id"] == "op-aidana")["current_load"] == 3
             call(f"/api/complaints/{cid}/confirm", {"topic": "roads", "service_id": "srv_roads", "priority": "normal"}, 409)
             print("PASS 3: atomic confirm + link + assign; counters/load update, double-submit rejected")

@@ -1,9 +1,21 @@
 """Explicitly synthetic operator scenarios; never imports organizer records."""
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 DEMO_TEXT = "Добрый день, на Абая 44 с утра нет воды, весь дом без воды, когда включат?"
 DEMO_DISTRICT = "Алмалинский"
+
+
+def demo_mode():
+    return (os.environ.get("P109_DEMO_MODE") == "1"
+            and os.environ.get("P109_AUTH_DISABLED") == "1")
+
+
+def intake_privacy(text, public_consent):
+    if demo_mode():
+        return "synthetic", 1, "approved", text
+    return "citizen", int(public_consent), "pending" if public_consent else "private", None
 
 
 def init_workspace(conn):
@@ -14,6 +26,9 @@ def init_workspace(conn):
         "sender_key": "TEXT", "assigned_operator": "TEXT", "first_response_at": "TEXT", "related_to": "TEXT",
         "quarantined": "INTEGER NOT NULL DEFAULT 0", "safety_reviewed": "INTEGER NOT NULL DEFAULT 0",
         "incident_dismissed": "INTEGER NOT NULL DEFAULT 0",
+        "public_consent": "INTEGER NOT NULL DEFAULT 0",
+        "moderation_status": "TEXT NOT NULL DEFAULT 'private'",
+        "public_text": "TEXT",
     }.items():
         if name not in columns:
             conn.execute(f"ALTER TABLE complaints ADD COLUMN {name} {definition}")
@@ -58,6 +73,21 @@ def init_workspace(conn):
         columns = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if "object_key" not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN object_key TEXT")
+    conn.execute("""UPDATE complaints SET public_consent = 0, moderation_status = 'private',
+                    public_text = NULL
+                    WHERE data_origin = 'synthetic'
+                      AND COALESCE(source_system, '') NOT IN (
+                        'fixture_generator', 'operator_demo_v1', 'local_demo_intake_v2'
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM audit_events a
+                        WHERE a.complaint_id = complaints.id AND a.event_type = 'public_moderation'
+                      )""")
+    conn.execute("""UPDATE complaints SET public_consent = 1, moderation_status = 'approved',
+                    public_text = text
+                    WHERE data_origin = 'synthetic'
+                      AND source_system IN ('fixture_generator', 'operator_demo_v1', 'local_demo_intake_v2')
+                      AND moderation_status = 'private' AND public_text IS NULL""")
 
 
 def seed_workspace(conn, topic_services):
@@ -103,8 +133,10 @@ def seed_workspace(conn, topic_services):
         at = (now - timedelta(minutes=minutes)).isoformat()
         conn.execute("""INSERT OR IGNORE INTO complaints
             (id, data_origin, source_system, text, region_id, received_at, ingested_at, language,
-             topic, service_id, priority, decision_status, incident_id, address, district, channel, sender_key)
-            VALUES (?, 'synthetic', 'operator_demo_v1', ?, 'KZ-ALA', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             topic, service_id, priority, decision_status, incident_id, address, district, channel, sender_key,
+             public_consent, moderation_status, public_text)
+            VALUES (?, 'synthetic', 'operator_demo_v1', ?, 'KZ-ALA', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    1, 'approved', ?)""",
             (f"PULSE-{i}", text, at, at, lang, topic, topic_services.get(topic),
              "normal" if incident else None, "confirmed" if incident else "pending", incident,
-             address, DEMO_DISTRICT, ["web", "phone", "telegram"][i % 3], sender))
+             address, DEMO_DISTRICT, ["web", "phone", "telegram"][i % 3], sender, text))

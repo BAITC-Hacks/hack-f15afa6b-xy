@@ -47,14 +47,18 @@ class SimilarityClient:
         return cls(base_url, checkpoint, float(os.environ.get("P109_SIMILARITY_TIMEOUT", "8"))) if base_url and checkpoint else None
 
     def rank(self, query: str, candidates: list[dict]) -> list[dict]:
+        if not 1 <= len(candidates) <= 100:
+            raise ValueError("Similarity ranking requires 1..100 candidates")
         body = json.dumps({"query": query, "candidates": [{"id": row["id"], "text": row["text"]} for row in candidates]}).encode()
         request = urllib.request.Request(self.url, data=body, headers={"Content-Type": "application/json"}, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 data = json.loads(response.read())
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+        except (OSError, TimeoutError, json.JSONDecodeError) as error:
             raise RuntimeError("Similarity service unavailable") from error
         scores = data.get("scores")
+        if data.get("checkpoint_id") != self.checkpoint_id:
+            raise RuntimeError("Similarity service checkpoint mismatch")
         allowed = {row["id"] for row in candidates}
         if not isinstance(scores, list) or any(
             not isinstance(item, dict) or item.get("id") not in allowed

@@ -115,6 +115,7 @@ def start_pulse(root: Path, db: Path, laya_url: str, mode="laya"):
     env.update({
         "PYTHONPATH": str(root), "DATABASE_PATH": str(db),
         "P109_AUTH_DISABLED": "1",
+        "P109_DEMO_MODE": "1",
         "P109_DECISION_PROVIDER": mode, "P109_LAYA_BASE_URL": laya_url,
         "P109_LAYA_MODEL": "multilingual", "P109_LAYA_TIMEOUT": ".08",
         "P109_LAYA_CHECKPOINT_ID": CHECKPOINT_ID,

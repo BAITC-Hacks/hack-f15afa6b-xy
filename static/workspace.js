@@ -1,12 +1,11 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260928-3';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260928-5';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260927-2';
-import {caseView} from './case.js?v=20260928-2';
+import {caseView} from './case.js?v=20260928-3';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
 import {authFetch,bootstrapAuth} from './auth.js?v=20260927-2';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260927-13';
 import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260927-12';
 import {handleVoiceAction} from './voice.js?v=20260927-18';
-
 async function mediaData(input) {
   const file=input.files[0];
   if(!file) return {photo_data:null,video_data:null};
@@ -17,13 +16,12 @@ async function mediaData(input) {
   const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Не удалось прочитать файл'));reader.readAsDataURL(file);});
   return images.includes(file.type)?{photo_data:data,video_data:null}:{photo_data:null,video_data:data};
 }
-
-const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[],analytics:{alerts:{items:[]},forecast:null,query:null}};
+const state={page:'queue',group:'',search:'',region:'KZ-ALA',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[],analytics:{alerts:{items:[]},forecast:null,query:null,alertsError:null,forecastError:null,filters:{region_id:'',topic:'',data_origin:'synthetic_demo'},alertHistory:[]}};
 Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
 const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent=document.querySelector('#playbook-content');
-let loadVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer, pendingIntake=null;
+let loadVersion=0, analyticsVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer, pendingIntake=null;
 const commandDialog=document.querySelector('#command-dialog');
 Object.assign(state,{routingHealth:null,healthRegion:'',regions:[],cities:[]});
 const titles={routing:'Маршрутизация',queue:'Обращения',radar:'Радар',incidents:'Инциденты',map:'Карта обращений',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Кабинет гражданина'};
@@ -40,6 +38,45 @@ function toast(text, error=false) {
   node.textContent=text; node.className=error?'error':''; node.hidden=false;
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>node.hidden=true,6000);
 }
+function alertKey(item) {return [item.data_origin||state.analytics.alerts.data_origin||'organizer',item.region_id,item.topic,item.observed_month].join('|');}
+function saveAlertHistory() {
+  try {localStorage.setItem('pulse109-alert-history',JSON.stringify(state.analytics.alertHistory.slice(0,20)));} catch { /* History remains available for this session. */ }
+}
+function recordAlerts(payload) {
+  const items=payload.items||[], keys=items.map(alertKey);
+  const scope=[payload.data_origin||state.analytics.filters.data_origin,state.analytics.filters.region_id,state.analytics.filters.topic].join('|');
+  let previous=null;
+  try {
+    const raw=localStorage.getItem('pulse109-alert-snapshot');
+    const snapshots=raw&&!Array.isArray(JSON.parse(raw))?JSON.parse(raw):{};
+    previous=snapshots[scope]||null;snapshots[scope]=keys;
+    localStorage.setItem('pulse109-alert-snapshot',JSON.stringify(snapshots));
+  } catch { /* Automatic signals still render without browser storage. */ }
+  const known=new Set(state.analytics.alertHistory.map(item=>item.key));
+  const fresh=previous===null?[]:items.filter(item=>!previous.includes(alertKey(item)));
+  const additions=(previous===null?items.slice(0,4):fresh).filter(item=>!known.has(alertKey(item))).map(item=>({key:alertKey(item),region_id:item.region_id,topic:item.topic,observed_month:item.observed_month,increase_percent:item.increase_percent,detected_at:new Date().toISOString(),acknowledged:previous===null,baseline:previous===null}));
+  if(additions.length) {state.analytics.alertHistory=[...additions,...state.analytics.alertHistory].slice(0,20);saveAlertHistory();}
+  if(!fresh.length) return;
+  toast(`Новый сигнал: ${fresh.length} ${fresh.length===1?'всплеск':'всплеска'} в данных`);
+  if('Notification' in window&&Notification.permission==='granted') try {new Notification('Pulse 109 · новый сигнал',{body:`Обнаружено всплесков: ${fresh.length}`});} catch { /* The in-app notification remains visible. */ }
+}
+function analyticsParams() {
+  const params=new URLSearchParams({horizon_months:'3',data_origin:state.analytics.filters.data_origin});
+  if(state.analytics.filters.region_id) params.set('region_id',state.analytics.filters.region_id);
+  if(state.analytics.filters.topic) params.set('topic',state.analytics.filters.topic);
+  return params;
+}
+async function loadAnalytics(renderPage=true) {
+  const version=++analyticsVersion, params=analyticsParams();
+  const [alerts,forecast]=await Promise.allSettled([api(`/api/alerts?${params}`),api(`/api/forecast?${params}`)]);
+  if(version!==analyticsVersion) return;
+  if(alerts.status==='fulfilled') {state.analytics.alerts=alerts.value;state.analytics.alertsError=null;recordAlerts(alerts.value);}
+  else state.analytics.alertsError=alerts.reason.message;
+  if(forecast.status==='fulfilled') {state.analytics.forecast=forecast.value;state.analytics.forecastError=null;}
+  else {state.analytics.forecast=null;state.analytics.forecastError=forecast.reason.message;}
+  if(renderPage&&state.page==='dashboard') render();
+}
+try {state.analytics.alertHistory=JSON.parse(localStorage.getItem('pulse109-alert-history')||'[]');} catch { /* Start with an empty notification history. */ }
 let subscriberId;
 function subscriberKey() {
   if(subscriberId) return subscriberId;
@@ -70,11 +107,17 @@ async function registerIntake(form,payload) {
   const result=await api('/api/workspace/intake',payload);
   state.trackingId=result.id;pendingIntake=null;
   try {localStorage.setItem('pulse109-last-receipt',result.id);} catch { /* The receipt is usable without storage. */ }
-  document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · Ожидает решения оператора</p>${button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`)}</div>`;
-  document.querySelector('#tracking-id').value=result.id;
+  const synthetic=result.data_origin==='synthetic';
+  document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · ${synthetic?'Ожидает решения оператора':'Приватное обращение; публикация возможна только после согласия и проверки оператором'}</p>${synthetic?button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`):''}</div>`;
+  if(synthetic) document.querySelector('#tracking-id').value=result.id;
   document.querySelector('#citizen-notice').hidden=true;
-  try {await subscribeCase(result.id);} catch {toast('Обращение создано, но подписку на обновления не удалось включить.',true);}
-  await trackCase(result.id);
+  if(synthetic) {
+    try {await subscribeCase(result.id);} catch {toast('Обращение создано, но подписку на обновления не удалось включить.',true);}
+    await trackCase(result.id);
+  } else {
+    state.tracking=null;
+    document.querySelector('#tracking-result').innerHTML='<p class="micro">Статус реального обращения будет доступен после подключения защищённого кабинета заявителя.</p>';
+  }
   form.querySelector('textarea').value='';form.elements.address.value='';form.elements.media.value='';resetLocationPicker(form);await refresh(false);
 }
 function render() {
@@ -96,12 +139,12 @@ function render() {
 }
 async function refresh(renderPage=true) {
   const version=++loadVersion;
-  const [queue,incidents,operators,metrics,radar,alerts,forecast]=await Promise.all([
-    api('/api/workspace/queue'),api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar'),api('/api/alerts'),api('/api/forecast?horizon_months=3')]);
+  const [queue,incidents,operators,metrics,radar]=await Promise.all([
+    api('/api/workspace/queue'),api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar')]);
   if(version!==loadVersion) return;
   Object.assign(state,{items:queue.items,incidents:incidents.items,operators:operators.items,metrics,radar});
-  Object.assign(state.analytics,{alerts,forecast});
   if(renderPage) render();
+  await loadAnalytics(renderPage);
 }
 async function openCase(id) {
   const version=++caseVersion;
@@ -221,6 +264,15 @@ function openCommands() {
 }
 async function handleAction(node) {
   const action=node.dataset.action, d=state.detail, c=d?.complaint;
+  if(action==='enable-alert-notifications') {
+    if(!('Notification' in window)) {toast('Системные уведомления не поддерживаются этим браузером',true);return;}
+    const permission=await Notification.requestPermission();
+    toast(permission==='granted'?'Системные уведомления включены':'Разрешение не выдано; сигналы останутся внутри Pulse 109',permission!=='granted');render();return;
+  }
+  if(action==='acknowledge-alert'||action==='acknowledge-all-alerts') {
+    state.analytics.alertHistory=state.analytics.alertHistory.map(item=>({...item,acknowledged:action==='acknowledge-all-alerts'||item.key===node.dataset.key?true:item.acknowledged}));
+    saveAlertHistory();render();return;
+  }
   if(action==='voice-record'||action==='voice-stop') {await handleVoiceAction(node,api,toast);return;}
   if(action==='commands') {openCommands();return;}
   if(action==='close-commands') {commandDialog.close();return;}
@@ -289,6 +341,17 @@ async function handleAction(node) {
     await registerIntake(form,pendingIntake);return;
   }
   if(action==='track') {await trackCase(node.dataset.id);document.querySelector('#tracking-result')?.scrollIntoView({block:'nearest'});return;}
+  if(action==='approve-public'||action==='reject-public') {
+    const request={status:action==='approve-public'?'approved':'rejected'};
+    if(action==='approve-public') {
+      request.public_text=document.querySelector('#public-review-text')?.value.trim();
+      if(!request.public_text) throw new Error('Введите проверенный текст для публичной карты');
+    }
+    const version=caseVersion;
+    await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/moderation`,request);
+    await refresh();if(dialog.open&&version===caseVersion) await openCase(c.id);
+    toast(action==='approve-public'?'Обезличенная версия опубликована':'Публикация отклонена');return;
+  }
   if(action==='reload-case') {const draft=document.querySelector('#reply-text')?.value;await openCase(c.id);if(draft && document.querySelector('#reply-text')) document.querySelector('#reply-text').value=draft;return;}
   if(action==='category') {
     d.selectedTopic=node.dataset.topic;
@@ -362,6 +425,11 @@ document.addEventListener('change',async e=>{
   if(e.target.id==='show-ignored') {state.showIgnored=e.target.checked;render();}
   if(e.target.id==='incident-status') document.querySelector('#incident-next').required=e.target.value!=='Завершён';
   if(e.target.id==='queue-region') {state.region=e.target.value;render();}
+  if(['analytics-region','analytics-topic','analytics-origin'].includes(e.target.id)) {
+    const names={"analytics-region":'region_id',"analytics-topic":'topic',"analytics-origin":'data_origin'};
+    state.analytics.filters[names[e.target.id]]=e.target.value;state.analytics.query=null;
+    await loadAnalytics(true);return;
+  }
   if(e.target.id==='citizen-region') {
     const citySelect=document.querySelector('#citizen-city');
     const cities=state.cities.filter(city=>city.region_id===e.target.value).sort((a,b)=>a.name_ru.localeCompare(b.name_ru,'ru'));
@@ -381,7 +449,7 @@ document.addEventListener('submit',async e=>{
     e.preventDefault();
     const question=new FormData(e.target).get('question').trim();
     if(!question) {toast('Введите вопрос к данным',true);return;}
-    try {state.analytics.query=await api('/api/query',{question});render();} catch(err) {toast(err.message,true);}
+    try {state.analytics.query=await api('/api/query',{question,...state.analytics.filters});render();} catch(err) {toast(err.message,true);}
     return;
   }
   if(e.target.id==='incident-update-form') {
@@ -405,7 +473,7 @@ document.addEventListener('submit',async e=>{
     const number=name=>data.get(name)?Number(data.get(name)):null;
     if(!data.get('latitude')||!data.get('longitude')) throw new Error('Выберите место проблемы на карте');
     const media=await mediaData(form.elements.media);
-    const payload={text,address:data.get('address')?.trim()||null,city_code:data.get('city_code'),district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m'),...media};
+    const payload={text,address:data.get('address')?.trim()||null,city_code:data.get('city_code'),district:data.get('district')?.trim()||null,language:data.get('language'),region_id:data.get('region_id'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m'),public_consent:data.get('public_consent')==='on',...media};
     const {photo_data,video_data,...probe}=payload, similar=await api('/api/workspace/public/similar',probe);
     if(similar.items.length) {pendingIntake=payload;showSimilar(similar.items);return;}
     await registerIntake(form,payload);

@@ -3,23 +3,64 @@
 from __future__ import annotations
 
 import csv
-import io
+import hashlib
 import math
+import re
 import statistics
-import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
-from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, Field
+
+from report_exports import pdf_report, xlsx_report
 
 
 class DataQuestion(BaseModel):
     question: str = Field(min_length=3, max_length=500)
     region_id: str | None = None
     topic: str | None = None
+    data_origin: str = "synthetic_demo"
+
+
+DATA_ORIGINS = {"organizer", "synthetic_demo"}
+DEMO_REGIONS = (
+    "KZ-ABA", "KZ-AKM", "KZ-AKT", "KZ-ALM", "KZ-ATY", "KZ-VKO", "KZ-ZHA", "KZ-ZHE", "KZ-ZKO", "KZ-KAR",
+    "KZ-KOS", "KZ-KZY", "KZ-MAN", "KZ-PAV", "KZ-SEV", "KZ-TUR", "KZ-ULY", "KZ-AST", "KZ-ALA", "KZ-SHY",
+)
+DEMO_TOPICS = (
+    "heating", "water_supply", "electricity", "roads", "street_lighting", "waste_management",
+    "public_transport", "housing_maintenance", "landscaping", "sewerage",
+)
+DEMO_GENERATOR = "pulse109_deterministic_national_v1"
+DEMO_SOURCE_HASH = hashlib.sha256(DEMO_GENERATOR.encode()).hexdigest()
+REGION_TERMS = {
+    "KZ-ABA": ("абай",), "KZ-AKM": ("акмолинск", "акмола", "ақмола"),
+    "KZ-AKT": ("актюбинск", "актобе", "ақтөбе"),
+    "KZ-ALM": ("алматинск", "алматы облыс"), "KZ-ATY": ("атырауск", "атырау облыс"),
+    "KZ-VKO": ("восточно казахстан", "шығыс қазақстан", "шыгыс казахстан"),
+    "KZ-ZHA": ("жамбылск", "жамбыл облыс"), "KZ-ZHE": ("жетісу", "жетису"),
+    "KZ-ZKO": ("западно казахстан", "батыс қазақстан", "батыс казахстан"),
+    "KZ-KAR": ("карагандинск", "караганда", "қарағанды"),
+    "KZ-KOS": ("костанайск", "костанай", "қостанай"),
+    "KZ-KZY": ("кызылординск", "кызылорда", "қызылорда"),
+    "KZ-MAN": ("мангистауск", "мангистау", "маңғыстау"),
+    "KZ-PAV": ("павлодарск", "павлодар облыс"),
+    "KZ-SEV": ("северо казахстан", "солтүстік қазақстан", "солтустик казахстан"),
+    "KZ-TUR": ("туркестанск", "туркестан облыс", "түркістан облыс"),
+    "KZ-ULY": ("улытау", "ұлытау"),
+    "KZ-AST": ("город астана", "астана қаласы"),
+    "KZ-ALA": ("город алматы", "алматы қаласы"),
+    "KZ-SHY": ("город шымкент", "шымкент қаласы"),
+}
+MONTH_TERMS = {
+    1: ("январ", "қаңтар", "кантар"), 2: ("феврал", "ақпан", "акпан"),
+    3: ("март", "наурыз"), 4: ("апрел", "сәуір", "сауир"), 5: ("май", "мамыр"),
+    6: ("июн", "маусым"), 7: ("июл", "шілде", "шилде"), 8: ("август", "тамыз"),
+    9: ("сентябр", "қыркүйек", "кыркуйек"), 10: ("октябр", "қазан", "казан"),
+    11: ("ноябр", "қараша", "караша"), 12: ("декабр", "желтоқсан", "желтоксан"),
+}
 
 
 def init_analytics(conn) -> None:
@@ -39,6 +80,20 @@ def init_analytics(conn) -> None:
                 "INSERT INTO regional_monthly_counts VALUES (:month,:region_id,:topic,:count,'organizer',:source_sha256)",
                 csv.DictReader(stream),
             )
+    current = datetime.now(timezone.utc).strftime("%Y-%m")
+    first = _next_month(current, -23)
+    rows, month = [], first
+    while month <= current:
+        absolute_month = int(month[:4]) * 12 + int(month[5:])
+        for region_index, region_id in enumerate(DEMO_REGIONS):
+            for topic_index, topic in enumerate(DEMO_TOPICS):
+                seasonal = ((absolute_month + topic_index * 2) % 7) - 3
+                count = 18 + region_index * 2 + topic_index * 3 + seasonal
+                if month == current and (region_index + topic_index) % 19 == 0:
+                    count *= 2
+                rows.append((month, region_id, topic, count, "synthetic_demo", DEMO_SOURCE_HASH))
+        month = _next_month(month)
+    conn.executemany("INSERT OR REPLACE INTO regional_monthly_counts VALUES (?,?,?,?,?,?)", rows)
     conn.commit()
 
 
@@ -47,13 +102,66 @@ def _validate(value: str | None, allowed: set[str], label: str) -> None:
         raise HTTPException(status_code=422, detail=f"Unknown {label}")
 
 
+def _normal(value: str) -> str:
+    return re.sub(r"[^0-9a-zа-яәіңғүұқөһё]+", " ", value.casefold().replace("ё", "е")).strip()
+
+
+def _question_filters(conn, request: DataQuestion, region_terms: dict[str, tuple[str, ...]]) -> tuple[str | None, str | None]:
+    raw_text = request.question.casefold().replace("ё", "е")
+    text = _normal(raw_text)
+    matched_regions = {
+        region_id for region_id, terms in region_terms.items() if any(term in text for term in terms)
+    }
+    if "алматы" in text and "алматы облыс" not in text and "алматинск" not in text:
+        matched_regions.add("KZ-ALA")
+    if re.search(r"\bастан(?:а|е|ы|у|ой)\b", text):
+        matched_regions.add("KZ-AST")
+    if re.search(r"\bшымкент(?:е|а|у|ом)?\b", text):
+        matched_regions.add("KZ-SHY")
+    if len(matched_regions) > 1:
+        raise HTTPException(status_code=422, detail="Укажите один регион: в вопросе найдено несколько регионов")
+    inferred_region = next(iter(matched_regions), None)
+    if request.region_id and inferred_region and request.region_id != inferred_region:
+        raise HTTPException(status_code=422, detail="Регион в вопросе не совпадает с выбранным фильтром")
+
+    periods = {f"{year}-{int(month):02d}" for year, month in re.findall(r"\b(20\d{2})[-./](0?[1-9]|1[0-2])\b", raw_text)}
+    periods |= {f"{year}-{int(month):02d}" for month, year in re.findall(r"\b(0?[1-9]|1[0-2])[-./](20\d{2})\b", raw_text)}
+    word_months = {month for month, terms in MONTH_TERMS.items() if any(term in text for term in terms)}
+    years = set(re.findall(r"\b20\d{2}\b", text))
+    if len(word_months) > 1 or len(years) > 1 or len(periods) > 1:
+        raise HTTPException(status_code=422, detail="Укажите один месяц и год")
+    if word_months:
+        if not years:
+            raise HTTPException(status_code=422, detail="Для месяца укажите год")
+        periods.add(f"{next(iter(years))}-{next(iter(word_months)):02d}")
+    if len(periods) > 1:
+        raise HTTPException(status_code=422, detail="Числовая и текстовая даты в вопросе не совпадают")
+    period = next(iter(periods), next(iter(years), None))
+    if period:
+        operator = "=" if len(period) == 7 else "LIKE"
+        value = period if len(period) == 7 else f"{period}-%"
+        conditions, values = ["data_origin=?", f"month {operator} ?"], [request.data_origin, value]
+        resolved_region = request.region_id or inferred_region
+        if resolved_region:
+            conditions.append("region_id=?")
+            values.append(resolved_region)
+        if request.topic:
+            conditions.append("topic=?")
+            values.append(request.topic)
+        if not conn.execute(
+            f"SELECT 1 FROM regional_monthly_counts WHERE {' AND '.join(conditions)} LIMIT 1", values,
+        ).fetchone():
+            raise HTTPException(status_code=422, detail=f"Для выбранных фильтров нет данных за {period}")
+    return request.region_id or inferred_region, period
+
+
 def _next_month(period: str, step: int = 1) -> str:
     year, month = map(int, period.split("-"))
     index = year * 12 + month - 1 + step
     return f"{index // 12:04d}-{index % 12 + 1:02d}"
 
 
-def _series(conn, region_id=None, topic=None, origin="organizer") -> list[dict]:
+def _series(conn, region_id=None, topic=None, origin="synthetic_demo", period=None) -> list[dict]:
     conditions, values = ["data_origin = ?"], [origin]
     if region_id:
         conditions.append("region_id = ?")
@@ -61,6 +169,9 @@ def _series(conn, region_id=None, topic=None, origin="organizer") -> list[dict]:
     if topic:
         conditions.append("topic = ?")
         values.append(topic)
+    if period:
+        conditions.append("month = ?" if len(period) == 7 else "month LIKE ?")
+        values.append(period if len(period) == 7 else f"{period}-%")
     rows = conn.execute(
         f"SELECT month, SUM(count) count FROM regional_monthly_counts WHERE {' AND '.join(conditions)} "
         "GROUP BY month ORDER BY month",
@@ -99,21 +210,59 @@ def _forecast_values(values: list[int], horizon: int, method: str) -> list[int]:
     return _linear_forecast(values, horizon)
 
 
-def _backtest(values: list[int], method: str) -> tuple[list[int], list[float]]:
+def _backtest(values: list[int], method: str, horizon: int) -> tuple[list[int], list[float]]:
     errors, percentages = [], []
-    for index in range(max(4, len(values) - 6), len(values)):
-        estimate = _forecast_values(values[:index], 1, method)[0]
-        actual = values[index]
+    for cutoff in range(max(4, len(values) - horizon - 5), len(values) - horizon + 1):
+        estimate = _forecast_values(values[:cutoff], horizon, method)[-1]
+        actual = values[cutoff + horizon - 1]
         errors.append(abs(estimate - actual))
         if estimate + actual:
             percentages.append(200 * abs(estimate - actual) / (estimate + actual))
     return errors, percentages
 
 
-def forecast(conn, horizon: int, region_id=None, topic=None) -> dict:
-    history = _series(conn, region_id, topic)
-    if len(history) < 6:
-        raise HTTPException(status_code=409, detail="At least six monthly observations are required")
+def _freshness(conn, origin: str) -> dict:
+    latest = conn.execute(
+        "SELECT MAX(month) FROM regional_monthly_counts WHERE data_origin=?", (origin,)
+    ).fetchone()[0]
+    current = datetime.now(timezone.utc).strftime("%Y-%m")
+    months_behind = None
+    if latest:
+        current_index = int(current[:4]) * 12 + int(current[5:])
+        latest_index = int(latest[:4]) * 12 + int(latest[5:])
+        months_behind = max(0, current_index - latest_index)
+    return {
+        "last_observation_month": latest,
+        "as_of_month": current,
+        "months_behind": months_behind,
+        "status": "unavailable" if months_behind is None else "current" if months_behind == 0 else "stale",
+    }
+
+
+def _provenance(conn, origin: str, filters=None) -> dict:
+    coverage = conn.execute(
+        "SELECT COUNT(DISTINCT region_id),MIN(month),MAX(month) FROM regional_monthly_counts WHERE data_origin=?",
+        (origin,),
+    ).fetchone()
+    synthetic = origin == "synthetic_demo"
+    return {
+        "data_origin": origin,
+        "source": DEMO_GENERATOR if synthetic else "organizer_monthly_aggregates.csv",
+        "synthetic": synthetic,
+        "claim": "deterministic product demonstration; not organizer data" if synthetic else "organizer-provided aggregate fixture",
+        "coverage_regions": coverage[0],
+        "first_observation_month": coverage[1],
+        "last_observation_month": coverage[2],
+        "freshness": _freshness(conn, origin),
+        "filters": filters or {},
+    }
+
+
+def forecast(conn, horizon: int, region_id=None, topic=None, origin="synthetic_demo") -> dict:
+    history = _series(conn, region_id, topic, origin)
+    minimum = max(6, horizon + 4)
+    if len(history) < minimum:
+        raise HTTPException(status_code=409, detail=f"At least {minimum} monthly observations are required")
     excluded_partial_month = None
     recent_baseline = statistics.median(item["count"] for item in history[-4:-1])
     if len(history) > 6 and recent_baseline >= 10 and history[-1]["count"] < recent_baseline * .35:
@@ -121,36 +270,57 @@ def forecast(conn, horizon: int, region_id=None, topic=None) -> dict:
     values = [item["count"] for item in history]
     candidates = {}
     for method in ("last_value", "moving_average_3", "linear_trend"):
-        method_errors, method_percentages = _backtest(values, method)
+        method_errors, method_percentages = _backtest(values, method, horizon)
         candidates[method] = {
+            "horizon_months": horizon,
             "mae": round(statistics.mean(method_errors), 2),
             "smape_percent": round(statistics.mean(method_percentages), 2) if method_percentages else 0.0,
         }
     method = min(candidates, key=lambda name: (candidates[name]["mae"], candidates[name]["smape_percent"]))
     predicted = _forecast_values(values, horizon, method)
-    errors, percentages = _backtest(values, method)
+    evaluations = {}
+    intervals = []
+    for step in range(1, horizon + 1):
+        step_errors, step_percentages = _backtest(values, method, step)
+        evaluations[str(step)] = {
+            "horizon_months": step,
+            "backtest_points": len(step_errors),
+            "mae": round(statistics.mean(step_errors), 2),
+            "smape_percent": round(statistics.mean(step_percentages), 2) if step_percentages else 0.0,
+        }
+        intervals.append(max(1, round(1.96 * math.sqrt(statistics.mean(error * error for error in step_errors)))))
+    errors, percentages = _backtest(values, method, horizon)
     mae = round(statistics.mean(errors), 2)
     smape = round(statistics.mean(percentages), 2) if percentages else 0.0
-    interval = max(1, round(1.96 * math.sqrt(statistics.mean(error * error for error in errors))))
     points = [
         {"month": _next_month(history[-1]["month"], step + 1), "value": value,
-         "lower": max(0, value - interval), "upper": value + interval}
+         "lower": max(0, value - intervals[step]), "upper": value + intervals[step]}
         for step, value in enumerate(predicted)
     ]
+    filters = {"region_id": region_id, "topic": topic}
     return {
-        "data_origin": "organizer", "method": method, "horizon_months": horizon,
-        "filters": {"region_id": region_id, "topic": topic}, "history_months": len(history),
-        "forecast": points, "evaluation": {"backtest_points": len(errors), "mae": mae, "smape_percent": smape},
-        "model_selection": {"criterion": "lowest rolling backtest MAE", "candidates": candidates},
+        "data_origin": origin, "method": method, "horizon_months": horizon,
+        "filters": filters, "history_months": len(history), "forecast": points,
+        "evaluation": {"horizon_months": horizon, "backtest_points": len(errors), "mae": mae,
+                       "smape_percent": smape, "by_horizon": evaluations},
+        "model_selection": {"criterion": f"lowest {horizon}-month rolling backtest MAE", "candidates": candidates},
         "excluded_partial_month": excluded_partial_month,
-        "interval_method": "1.96 × rolling backtest RMSE",
+        "interval_method": "1.96 × horizon-specific rolling backtest RMSE",
+        "provenance": _provenance(conn, origin, filters),
     }
 
 
-def alerts(conn) -> dict:
+def alerts(conn, origin="synthetic_demo", region_id=None, topic=None) -> dict:
+    conditions, values = ["data_origin=?"], [origin]
+    if region_id:
+        conditions.append("region_id=?")
+        values.append(region_id)
+    if topic:
+        conditions.append("topic=?")
+        values.append(topic)
     rows = conn.execute(
         "SELECT month,region_id,topic,count FROM regional_monthly_counts "
-        "WHERE data_origin='organizer' ORDER BY region_id,topic,month"
+        f"WHERE {' AND '.join(conditions)} ORDER BY region_id,topic,month", values
     ).fetchall()
     groups: dict[tuple[str, str], list] = {}
     for row in rows:
@@ -169,89 +339,58 @@ def alerts(conn) -> dict:
                 "supporting_months": [row["month"] for row in values[-4:-1]],
             })
     items.sort(key=lambda item: item["increase_percent"], reverse=True)
-    return {"data_origin": "organizer", "method": "latest month vs median of prior 3 months", "items": items[:20]}
+    filters = {"region_id": region_id, "topic": topic}
+    return {"data_origin": origin, "method": "latest month vs median of prior 3 months", "items": items[:20],
+            "provenance": _provenance(conn, origin, filters)}
 
 
-def _rank(conn, field: str, region_id=None, topic=None) -> list[dict]:
-    conditions, values = ["data_origin='organizer'"], []
+def _rank(conn, field: str, region_id=None, topic=None, origin="synthetic_demo", period=None) -> list[dict]:
+    conditions, values = ["data_origin=?"], [origin]
     if region_id:
         conditions.append("region_id=?")
         values.append(region_id)
     if topic:
         conditions.append("topic=?")
         values.append(topic)
+    if period:
+        conditions.append("month=?" if len(period) == 7 else "month LIKE ?")
+        values.append(period if len(period) == 7 else f"{period}-%")
     return [dict(row) for row in conn.execute(
         f"SELECT {field} id,SUM(count) value FROM regional_monthly_counts WHERE {' AND '.join(conditions)} "
         f"GROUP BY {field} ORDER BY value DESC LIMIT 5", values
     ).fetchall()]
 
 
-def answer_question(conn, request: DataQuestion, region_names: dict, topic_names: dict) -> dict:
-    text = request.question.lower()
+def answer_question(conn, request: DataQuestion, region_names: dict, topic_names: dict,
+                    region_terms: dict[str, tuple[str, ...]]) -> dict:
+    text = _normal(request.question)
+    region_id, period = _question_filters(conn, request, region_terms)
+    filters = {"region_id": region_id, "topic": request.topic, "period": period}
+    provenance = _provenance(conn, request.data_origin, filters)
     if any(word in text for word in ("прогноз", "болжам", "forecast")):
-        result = forecast(conn, 3, request.region_id, request.topic)
+        if period:
+            raise HTTPException(status_code=422, detail="Для прогноза не указывайте исторический месяц или год")
+        result = forecast(conn, 3, region_id, request.topic, request.data_origin)
         points = result["forecast"]
+        provenance = result["provenance"] | {"operation": "forecast", "method": result["method"]}
         return {"answer": f"Прогноз на 3 месяца: {', '.join(str(p['value']) for p in points)} обращений.",
-                "value": points[-1]["value"], "chart": {"type": "line", "labels": [p["month"] for p in points], "values": [p["value"] for p in points]}, "provenance": result}
-    if any(word in text for word in ("регион", "област", "өңір")) and any(word in text for word in ("топ", "больше", "көп", "лидер", "лидир")):
-        rows = _rank(conn, "region_id", request.region_id, request.topic)
-        return {"answer": "Больше всего обращений: " + ", ".join(f"{region_names.get(r['id'], r['id'])} — {r['value']}" for r in rows),
-                "value": rows[0]["value"] if rows else 0, "chart": {"type": "bar", "labels": [region_names.get(r["id"], r["id"]) for r in rows], "values": [r["value"] for r in rows]}, "provenance": {"data_origin": "organizer", "operation": "sum_by_region"}}
-    if any(word in text for word in ("категор", "тем", "санат")) and any(word in text for word in ("топ", "больше", "көп", "лидер", "лидир")):
-        rows = _rank(conn, "topic", request.region_id, request.topic)
+                "value": points[-1]["value"], "chart": {"type": "line", "labels": [p["month"] for p in points], "values": [p["value"] for p in points]}, "provenance": provenance}
+    if any(word in text for word in ("категор", "тем", "санат")):
+        rows = _rank(conn, "topic", region_id, request.topic, request.data_origin, period)
+        provenance["operation"] = "sum_by_topic"
         return {"answer": "Ведущие категории: " + ", ".join(f"{topic_names.get(r['id'], r['id'])} — {r['value']}" for r in rows),
-                "value": rows[0]["value"] if rows else 0, "chart": {"type": "bar", "labels": [topic_names.get(r["id"], r["id"]) for r in rows], "values": [r["value"] for r in rows]}, "provenance": {"data_origin": "organizer", "operation": "sum_by_topic"}}
+                "value": rows[0]["value"] if rows else 0, "chart": {"type": "bar", "labels": [topic_names.get(r["id"], r["id"]) for r in rows], "values": [r["value"] for r in rows]}, "provenance": provenance}
+    if any(word in text for word in ("регион", "област", "өңір")) and any(word in text for word in ("топ", "больше", "көп", "лидер", "лидир")):
+        rows = _rank(conn, "region_id", region_id, request.topic, request.data_origin, period)
+        provenance["operation"] = "sum_by_region"
+        return {"answer": "Больше всего обращений: " + ", ".join(f"{region_names.get(r['id'], r['id'])} — {r['value']}" for r in rows),
+                "value": rows[0]["value"] if rows else 0, "chart": {"type": "bar", "labels": [region_names.get(r["id"], r["id"]) for r in rows], "values": [r["value"] for r in rows]}, "provenance": provenance}
     if any(word in text for word in ("динами", "тренд", "ай сайын", "месяц")):
-        rows = _series(conn, request.region_id, request.topic)[-18:]
+        rows = _series(conn, region_id, request.topic, request.data_origin, period)[-18:]
+        provenance["operation"] = "monthly_sum"
         return {"answer": f"Динамика за {len(rows)} месяцев; последнее значение — {rows[-1]['count'] if rows else 0}.",
-                "value": rows[-1]["count"] if rows else 0, "chart": {"type": "line", "labels": [r["month"] for r in rows], "values": [r["count"] for r in rows]}, "provenance": {"data_origin": "organizer", "operation": "monthly_sum"}}
+                "value": rows[-1]["count"] if rows else 0, "chart": {"type": "line", "labels": [r["month"] for r in rows], "values": [r["count"] for r in rows]}, "provenance": provenance}
     raise HTTPException(status_code=422, detail="Поддерживаются вопросы о топ-регионах, топ-категориях, динамике и прогнозе")
-
-
-def _pdf(lines: list[str]) -> bytes:
-    safe = [line.encode("ascii", "replace").decode().replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)") for line in lines]
-    stream = "BT /F1 11 Tf 50 790 Td 14 TL " + " ".join(f"({line}) Tj T*" for line in safe) + " ET"
-    objects = [
-        "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        f"<< /Length {len(stream.encode())} >>\nstream\n{stream}\nendstream",
-    ]
-    output = bytearray(b"%PDF-1.4\n")
-    offsets = [0]
-    for index, obj in enumerate(objects, 1):
-        offsets.append(len(output)); output.extend(f"{index} 0 obj\n{obj}\nendobj\n".encode())
-    xref = len(output)
-    output.extend(f"xref\n0 {len(objects)+1}\n0000000000 65535 f \n".encode())
-    output.extend("".join(f"{offset:010d} 00000 n \n" for offset in offsets[1:]).encode())
-    output.extend(f"trailer << /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
-    return bytes(output)
-
-
-def _xlsx(rows: list[list[str | int]]) -> bytes:
-    cells = []
-    for row_index, row in enumerate(rows, 1):
-        content = []
-        for column, value in enumerate(row, 1):
-            letters, number = "", column
-            while number:
-                number, remainder = divmod(number - 1, 26); letters = chr(65 + remainder) + letters
-            ref = f"{letters}{row_index}"
-            content.append(f'<c r="{ref}"><v>{value}</v></c>' if isinstance(value, int) else f'<c r="{ref}" t="inlineStr"><is><t>{escape(str(value))}</t></is></c>')
-        cells.append(f'<row r="{row_index}">{"".join(content)}</row>')
-    sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' + "".join(cells) + "</sheetData></worksheet>"
-    files = {
-        "[Content_Types].xml": '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
-        "_rels/.rels": '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
-        "xl/workbook.xml": '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Pulse 109" sheetId="1" r:id="rId1"/></sheets></workbook>',
-        "xl/_rels/workbook.xml.rels": '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
-        "xl/worksheets/sheet1.xml": sheet,
-    }
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        for name, content in files.items():
-            archive.writestr(name, content)
-    return output.getvalue()
 
 
 def build_analytics_router(get_connection: Callable, regions: list[dict], topics: list[dict]) -> APIRouter:
@@ -259,36 +398,52 @@ def build_analytics_router(get_connection: Callable, regions: list[dict], topics
     region_ids, topic_ids = {item["id"] for item in regions}, {item["id"] for item in topics}
     region_names = {item["id"]: item["name_ru"] for item in regions}
     topic_names = {item["id"]: item["name_ru"] for item in topics}
+    region_terms = {
+        item["id"]: tuple({_normal(item["name_ru"]), _normal(item["name_kk"]), *REGION_TERMS.get(item["id"], ())})
+        for item in regions
+    }
 
     @router.get("/alerts")
-    def get_alerts():
+    def get_alerts(data_origin: str = "synthetic_demo", region_id: str | None = None,
+                   topic: str | None = None):
+        _validate(region_id, region_ids, "region_id"); _validate(topic, topic_ids, "topic"); _validate(data_origin, DATA_ORIGINS, "data_origin")
         with get_connection() as conn:
-            return alerts(conn)
+            return alerts(conn, data_origin, region_id, topic)
 
     @router.get("/forecast")
-    def get_forecast(horizon_months: int = Query(1, ge=1, le=3), region_id: str | None = None, topic: str | None = None):
-        _validate(region_id, region_ids, "region_id"); _validate(topic, topic_ids, "topic")
+    def get_forecast(horizon_months: int = Query(1, ge=1, le=3), region_id: str | None = None,
+                     topic: str | None = None, data_origin: str = "synthetic_demo"):
+        _validate(region_id, region_ids, "region_id"); _validate(topic, topic_ids, "topic"); _validate(data_origin, DATA_ORIGINS, "data_origin")
         with get_connection() as conn:
-            return forecast(conn, horizon_months, region_id, topic)
+            return forecast(conn, horizon_months, region_id, topic, data_origin)
 
     @router.post("/query")
     def natural_query(request: DataQuestion):
-        _validate(request.region_id, region_ids, "region_id"); _validate(request.topic, topic_ids, "topic")
+        _validate(request.region_id, region_ids, "region_id"); _validate(request.topic, topic_ids, "topic"); _validate(request.data_origin, DATA_ORIGINS, "data_origin")
         with get_connection() as conn:
-            return answer_question(conn, request, region_names, topic_names)
+            return answer_question(conn, request, region_names, topic_names, region_terms)
 
     @router.get("/reports")
-    def get_report(format: str = Query("pdf", pattern="^(pdf|xlsx)$"), region_id: str | None = None, topic: str | None = None):
-        _validate(region_id, region_ids, "region_id"); _validate(topic, topic_ids, "topic")
+    def get_report(format: str = Query("pdf", pattern="^(pdf|xlsx)$"), region_id: str | None = None,
+                   topic: str | None = None, data_origin: str = "synthetic_demo"):
+        _validate(region_id, region_ids, "region_id"); _validate(topic, topic_ids, "topic"); _validate(data_origin, DATA_ORIGINS, "data_origin")
         with get_connection() as conn:
-            series = _series(conn, region_id, topic)
+            series = _series(conn, region_id, topic, data_origin)
+            provenance = _provenance(conn, data_origin, {"region_id": region_id, "topic": topic})
         total = sum(row["count"] for row in series)
         filters = f"region={region_id or 'all'}; topic={topic or 'all'}"
         if format == "pdf":
-            body = _pdf(["Pulse 109 analytics report", f"Generated UTC: {datetime.now(timezone.utc).isoformat()}", "Data origin: organizer", filters, f"Total mapped complaints: {total}", "Month | Count", *[f"{row['month']} | {row['count']}" for row in series[-36:]]])
+            body = pdf_report(["Pulse 109 — аналитический отчёт", f"Сформирован UTC: {datetime.now(timezone.utc).isoformat()}",
+                         f"Источник данных: {data_origin}", f"Набор: {provenance['source']}", f"Граница вывода: {provenance['claim']}",
+                         f"Актуальность: {provenance['freshness']['status']} ({provenance['last_observation_month']})",
+                         filters, f"Всего обращений в срезе: {total}", "Месяц | Количество",
+                         *[f"{row['month']} | {row['count']}" for row in series[-36:]]])
             media = "application/pdf"
         else:
-            body = _xlsx([["Pulse 109 analytics report"], ["Data origin", "organizer"], ["Filters", filters], ["Total mapped complaints", total], [], ["Month", "Count"], *[[row["month"], row["count"]] for row in series]])
+            body = xlsx_report([["Pulse 109 analytics report"], ["Data origin", data_origin], ["Source", provenance["source"]],
+                          ["Claim", provenance["claim"]], ["Freshness", provenance["freshness"]["status"]],
+                          ["Last observation", provenance["last_observation_month"]], ["Filters", filters],
+                          ["Total mapped complaints", total], [], ["Month", "Count"], *[[row["month"], row["count"]] for row in series]])
             media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         return Response(body, media_type=media, headers={"Content-Disposition": f'attachment; filename="pulse109-analytics.{format}"'})
 

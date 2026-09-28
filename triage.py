@@ -17,6 +17,36 @@ SERVICE_NAMES = {
     "srv_transit": "Общественный транспорт", "srv_parks": "Благоустройство",
 }
 
+REGION_NAMES = {
+    "KZ-ABA": "область Абай", "KZ-AKM": "Акмолинская область",
+    "KZ-AKT": "Актюбинская область", "KZ-ALM": "Алматинская область",
+    "KZ-ATY": "Атырауская область", "KZ-VKO": "Восточно-Казахстанская область",
+    "KZ-ZHA": "Жамбылская область", "KZ-ZHE": "область Жетісу",
+    "KZ-ZKO": "Западно-Казахстанская область", "KZ-KAR": "Карагандинская область",
+    "KZ-KOS": "Костанайская область", "KZ-KZY": "Кызылординская область",
+    "KZ-MAN": "Мангистауская область", "KZ-PAV": "Павлодарская область",
+    "KZ-SEV": "Северо-Казахстанская область", "KZ-TUR": "Туркестанская область",
+    "KZ-ULY": "область Ұлытау", "KZ-AST": "город Астана",
+    "KZ-ALA": "город Алматы", "KZ-SHY": "город Шымкент",
+}
+
+REGIONAL_SERVICE_NAMES = {
+    "srv_vodokanal": "Служба водоснабжения", "srv_sewerage": "Служба канализации",
+    "srv_energo": "Электросетевая служба", "srv_roads": "Дорожная служба",
+    "srv_lighting": "Служба наружного освещения", "srv_clean": "Служба вывоза отходов",
+    "srv_teplo": "Теплоснабжающая служба", "srv_housing": "Жилищная инспекция / ОСИ-КСК",
+    "srv_transit": "Управление общественного транспорта", "srv_parks": "Служба благоустройства",
+}
+
+
+def responsible_service_name(region_id, service_id):
+    """Canonical service profile; the local legal entity remains an operator decision."""
+    if region_id == "KZ-ALA":
+        return SERVICE_NAMES.get(service_id, "Старший оператор")
+    service = REGIONAL_SERVICE_NAMES.get(service_id, "Профильная коммунальная служба")
+    region = REGION_NAMES.get(region_id, region_id)
+    return f"{service} · {region} (местного исполнителя подтверждает оператор)"
+
 # Synthetic DEMO effort weights. Not calibrated labour estimates; tune only here.
 # Case weight precedence, first match wins:
 #   linked duplicate 15 (already covered by an open incident) -> phone 100 -> telegram/whatsapp 50
@@ -82,7 +112,7 @@ def analyze(c, classifier, topic_services, extra_text=""):
         "mode": "mock", "training_status": "not_trained", "checkpoint_id": None,
         "confidence_kind": "synthetic_demo", "category": topic, "category_confidence": confidence,
         "urgency": urgency, "urgency_confidence": .91 if urgency == "urgent" else .72,
-        "suggested_service": service, "service_name": SERVICE_NAMES.get(service, "Старший оператор") if c["region_id"] == "KZ-ALA" else "Региональная очередь — служба требует проверки",
+        "suggested_service": service, "service_name": responsible_service_name(c["region_id"], service),
         "summary": (f"Житель сообщает об отсутствии воды. Адрес: {extracted or 'не указан'}. Масштаб: {scope.lower()}." if topic == "water_supply" and symptom(text) == "outage" else text.strip()[:220]),
         "extracted_address": extracted, "scope": scope, "onset": onset,
         "reasoning_short": "Две возможные причины: нужна проверка оператора." if ambiguous else
@@ -237,13 +267,17 @@ def route(c, ai, operators):
         else:
             entry["reason"] = f"Этап {stage} ниже приоритета этапа {chosen_level}"
         candidates.append(entry)
+    service_name = responsible_service_name(c.get("region_id"), ai.get("suggested_service"))
+    local_verification = c.get("region_id") != "KZ-ALA"
     if chosen is None:
         return {"operator": None, "reason": "Все подходящие операторы заняты. Оставить в общей очереди.",
                 "level": 4, "route_type": "queue", "queue": True, "incoming_weight": incoming,
-                "candidates": candidates}
+                "candidates": candidates, "responsible_service": service_name,
+                "requires_local_service_verification": local_verification}
     return {"operator": chosen, "reason": chosen_reason, "level": chosen_level,
             "route_type": "primary" if chosen_level < 4 else "fallback", "queue": False,
-            "incoming_weight": incoming, "candidates": candidates}
+            "incoming_weight": incoming, "candidates": candidates, "responsible_service": service_name,
+            "requires_local_service_verification": local_verification}
 
 
 def tokens(text):
@@ -251,31 +285,67 @@ def tokens(text):
     return set(w for w in words if len(w) > 2)
 
 
-def related_cases(c, ai, rows, classifier, topic_services):
-    if not ai["category"] or c.get("incident_dismissed"):
-        return []
-    found = []
-    # ponytail: exact scan for a 50-case demo; add indexed candidate retrieval beyond 10k active rows.
+def related_cases(c, ai, rows, classifier, topic_services, similarity_client=None, limit=8):
+    if c.get("incident_dismissed"):
+        return [], {"mode": "not_scored", "checkpoint_id": None, "candidate_pool": 0}
+    pool = []
+    target_time = moment(c["received_at"] or c["ingested_at"])
+    target_symptom = symptom(c["text"])
+    target_address = c.get("address") or ai.get("extracted_address") or address_in(c["text"])
+    # ponytail: bounded recent-region scan; add an indexed vector store beyond 10k active rows.
     for other in rows:
         if other["id"] == c["id"] or other["resolved_at"] or other.get("quarantined"):
             continue
-        if other["region_id"] != c["region_id"] or not c.get("district") or other.get("district") != c["district"]:
+        if other["region_id"] != c["region_id"]:
             continue
-        minutes = abs((moment(c["received_at"] or c["ingested_at"]) - moment(other["received_at"] or other["ingested_at"])).total_seconds() / 60)
-        if minutes > 360:
+        if c.get("district") and other.get("district") and other["district"] != c["district"]:
+            continue
+        minutes = abs((target_time - moment(other["received_at"] or other["ingested_at"])).total_seconds() / 60)
+        if minutes > 720:
             continue
         topic = other["topic"] or other["proposed_topic"] or analyze(other, classifier, topic_services)["category"]
-        if topic != ai["category"] or symptom(other["text"]) != symptom(c["text"]):
+        other_address = other.get("address") or address_in(other["text"])
+        pool.append({"id": other["id"], "text": other["text"], "address": other_address,
+                     "incident_id": other["incident_id"], "topic": topic, "minutes_apart": minutes,
+                     "same_address": bool(target_address and target_address == other_address),
+                     "same_district": bool(c.get("district") and c.get("district") == other.get("district")),
+                     "same_symptom": target_symptom != "unknown" and target_symptom == symptom(other["text"])})
+    pool.sort(key=lambda row: (row["minutes_apart"], row["id"]))
+    pool = pool[:40]
+    if not pool:
+        return [], {"mode": "not_scored", "checkpoint_id": None, "candidate_pool": 0}
+
+    from similarity import rank_candidates
+    ranked, mode, checkpoint_id = rank_candidates(c["text"], ai.get("category"), pool, similarity_client, len(pool))
+    found = []
+    for other in ranked:
+        semantic = max(0.0, other["similarity"])
+        same_topic = bool(ai.get("category") and other.get("topic") == ai["category"])
+        anchored = other["same_address"] or other["same_district"]
+        incident_eligible = other["same_symptom"] or target_symptom == "unknown"
+        threshold = .62 if mode == "trained" else .08
+        plausible = (
+            other["same_address"] and (other["same_symptom"] or semantic >= threshold)
+            or other["same_district"] and other["same_symptom"] and semantic >= threshold
+            or other["same_district"] and semantic >= (.82 if mode == "trained" else .32)
+        )
+        if not anchored or not plausible:
             continue
-        a, b = tokens(c["text"]), tokens(other["text"])
-        lexical = len(a & b) / max(1, len(a | b))
-        same_address = ai["extracted_address"] and ai["extracted_address"] == (other.get("address") or address_in(other["text"]))
-        if lexical < .12 and not same_address and symptom(c["text"]) != "outage":
-            continue
-        found.append({"id": other["id"], "text": other["text"], "address": other.get("address"),
-                      "incident_id": other["incident_id"], "similarity": round(.55 + .25 * lexical + .1 * bool(same_address), 2),
-                      "reason": "Одна категория, район, симптом и временное окно; требуется подтверждение."})
-    return sorted(found, key=lambda r: (-r["similarity"], r["id"]))
+        score = min(1.0, semantic + .14 * other["same_address"] + .08 * other["same_symptom"]
+                    + .04 * same_topic)
+        signals = [name for ok, name in ((other["same_address"], "адрес"),
+                                         (other["same_district"], "район"),
+                                         (other["same_symptom"], "характер проблемы"),
+                                         (same_topic, "категория")) if ok]
+        found.append({"id": other["id"], "text": other["text"], "address": other["address"],
+                      "incident_id": other["incident_id"], "similarity": round(score, 4),
+                      "model_similarity": round(other["similarity"], 4), "scoring_mode": mode,
+                      "incident_eligible": incident_eligible,
+                      "checkpoint_id": checkpoint_id, "requires_human_confirmation": True,
+                      "reason": f"Кандидат: совпали {', '.join(signals)}; общий инцидент подтверждает оператор."})
+    found.sort(key=lambda row: (-row["similarity"], row["id"]))
+    return found[:limit], {"mode": mode, "checkpoint_id": checkpoint_id,
+                           "candidate_pool": len(pool), "human_confirmation_required": True}
 
 
 def risk_for(c, rows):

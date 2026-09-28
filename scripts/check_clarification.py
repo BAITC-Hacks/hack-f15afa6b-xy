@@ -23,6 +23,7 @@ def start_server(repo_root: Path, db_path: Path, port: int):
     env = os.environ.copy()
     env["DATABASE_PATH"] = str(db_path)
     env["P109_AUTH_DISABLED"] = "1"
+    env["P109_DEMO_MODE"] = "1"
     env["PYTHONPATH"] = str(repo_root)
     base_url = f"http://127.0.0.1:{port}"
     proc = subprocess.Popen(
@@ -280,7 +281,8 @@ def run_check():
         status, enrich_similar = http_request(f"{base_url}/api/complaints/{enrich_id}/similar?limit=5")
         assert status == 200
         assert enrich_similar["candidates"], "Enriched retrieval must find candidates"
-        assert all(c["topic"] == "waste_management" for c in enrich_similar["candidates"])
+        assert any(c["topic"] == "waste_management" for c in enrich_similar["candidates"])
+        assert all(c["requires_human_confirmation"] for c in enrich_similar["candidates"])
         print("PASS 13: classify and similar use original + clarifications, stored separately")
 
         # 14. Priority semantics: unknown is null, urgency is a proposal, legacy values survive

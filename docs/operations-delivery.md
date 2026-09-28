@@ -1,117 +1,131 @@
-# Pulse 109 — отчёт о реализации · 24 сентября 2026
+# Pulse 109 — operations delivery
 
-Репозиторий: https://github.com/Eliasans02/pulse109, ветка `feat/operator-demo`, основа `ba5d8fd`.
-GovTech / Pulse 109 не связан с HackAlem. Backend трёх этапов реализован через DeepSeek Flash v4.1;
-интерфейс, интеграция и финальная проверка выполнены основным агентом. Новых runtime-зависимостей нет.
+Текущий checkout: `feat/laya-gpu-training`. Production: https://xy.govtech-kz.com. Backend — FastAPI и SQLite, frontend — vanilla JS. Все решения, изменяющие обращение или инцидент, подтверждаются оператором и записываются в аудит.
 
-## Implemented
+## Delivered
 
-- **Action Playbooks:** объединение с инцидентом, направление службе, уточнение, карантин, закрытие типового FAQ; также возврат из карантина, снятие связи и повторное открытие FAQ. Сначала показ действий, затем явное подтверждение. Ошибка откатывает всю транзакцию; повтор запроса не дублирует действие. Устаревший preview отклоняется. При недоступной рекомендации доступна ручная категория.
-- **Incident Radar:** сигналы по недавнему временному окну, категории, региону, району и характеру проблемы. Повторы одного отправителя не увеличивают счётчик. Неуверенные предложения не считаются подтверждённой категорией. Оператор просматривает оригиналы, создаёт инцидент или подтверждает связи; сигнал можно отклонить и восстановить. Кнопка «Демо-всплеск» создаёт шесть новых RU/KK-обращений.
-- **Incident Control Center:** ответственный, статус, важность, первое/последнее обращение, срок следующего обновления, просрочка, комментарии и история. Новые события показаны первыми; старые раскрываются. Изменение сначала показывается в preview. Версия защищает от перезаписи чужого обновления. Закрытие инцидента не закрывает обращения.
-- **Weighted routing:** сохранены четыре уровня — служба/район/язык → служба/язык → служба → старший оператор/общая очередь. Семь операторов включают отсутствующего и перегруженного. Сравнивается прогнозная нагрузка после назначения, свободные слоты проверяются отдельно. Альтернативы объясняют отказы.
-- **Command palette:** Ctrl/Cmd+K в карточке, текстовый поиск, клавиатурный выбор сценария и приоритета; команда открывает preview, а не выполняет действие сразу.
-- **Presence:** два окна видят просмотр/редактирование коллеги; сохранённое изменение вызывает уведомление, текущий черновик не подменяется. Явная загрузка изменений также сохраняет текст ответа.
-- **Routing health:** 1600 комбинаций (10 тем × 20 регионов × 4 языка × 2 приоритета), профильные и резервные маршруты, отсутствие маршрута, фильтр примеров. Все занятые операторы приводят к видимой общей очереди.
+- Citizen intake: RU/KK текст, область → город, адрес, координаты, фото/видео и согласие на публикацию.
+- Public map: только синтетические либо согласованные и прошедшие модерацию обращения.
+- Operator workspace: очередь, карточка, уточнения, категория, приоритет, routing, reply draft и audit.
+- Similarity: обученный multilingual E5 ранжирует решённые аналоги; оператор решает, является ли обращение дублем или частью общего инцидента.
+- Laya: обученный и откалиброванный checkpoint предлагает категорию, уточнение, spam и urgency в shadow; существующее решение и human review остаются authoritative.
+- Qwen Copilot: приватный self-hosted draft assistant с PII sanitation, pinned revision, строгой JSON schema и запретом выдуманных действий/сроков.
+- Radar / incidents: объяснимый сигнал, просмотр исходных обращений, создание/связь инцидента, владелец, статус, severity, следующее обновление и version conflict protection.
+- Analytics: alerts, 1–3 month forecast с rolling backtest, ограниченные RU/KK data questions, source/freshness metadata и настоящие PDF/XLSX.
+- Operations: native authentication, private service endpoints, health timer и ежедневная SQLite backup rotation.
 
-## Changed files
+## Analytics contract
 
-| Файлы | Назначение |
-|---|---|
-| `playbooks.py` | Планы, сохранённые preview, атомарное исполнение, защита от конфликтов и повторов |
-| `radar.py`, `incidents.py` | Обнаружение сигналов, человеческое подтверждение, состояние и история инцидента |
-| `triage.py`, `support_api.py` | Веса, кандидаты маршрутизации, матрица покрытия и presence |
-| `app.py`, `demo_data.py` | Подключение API и идемпотентные миграции SQLite |
-| `workspace_api.py`, `clarification.py` | Общие проверки, выбранная человеком категория/приоритет, запрет изменения закрытого FAQ |
-| `static/workspace.html`, `static/workspace.js` | Навигация, модальные preview, команды и обработка ошибок |
-| `static/views.js`, `static/case.js`, `static/workspace.css` | Очередь, карточка, ручное решение и нагрузка команды |
-| `static/incidents.js`, `static/support.js`, `static/operations.css` | Radar, центр управления, покрытие, presence, адаптивная вёрстка |
-| `scripts/check_playbooks.py`, `scripts/check_incidents.py`, `scripts/check_routing.py` | API, валидация, атомарность, конфликты и сохранение после restart |
-| `scripts/check_playbooks_ui.cjs`, `scripts/check_incidents_ui.cjs`, `scripts/check_support_ui.cjs` | Реальные браузерные сценарии новых функций |
-| `scripts/check_demo_ui.cjs`, `.github/workflows/ci.yml` | Регрессия существующего пути и запуск новых проверок в CI |
-| `README.md`, `docs/handoff.md`, этот отчёт | Запуск, текущая передача и проверяемые границы результата |
+`synthetic_demo` — рекомендуемый режим выступления. Он содержит 24 месяца детерминированных синтетических агрегатов всех 20 регионов до текущего месяца и нужен для демонстрации национальной витрины, alerts и свежего прогноза. Это не официальная статистика и не смешивается с данными организаторов.
 
-## Architecture decisions
+`organizer` содержит устаревший time-series aggregate шести регионов. В исходном пакете организаторов есть 7 регионов / 8 CSV, но седьмой регион пока не представлен проверенными временными агрегатами. Назначение режима — честно раскрыть coverage/freshness; недостающие регионы не восстанавливаются выдуманными нулями.
 
-Существующий FastAPI обслуживает SQLite и обычные JS-модули. Данные и действия остаются локальными.
-Новые таблицы: `playbook_previews`, `incident_events`, `radar_ignored`, `case_presence`.
-Поля владельца, версии и времени добавляются к прежней таблице инцидентов при старте без сброса данных.
+API:
 
-Playbook хранит токен и отпечаток обращения/выбранного оператора. `BEGIN IMMEDIATE` захватывается до
-повторного чтения; изменение, аудит и результат записываются вместе. Токен действует 30 минут;
-повтор выполненного токена возвращает сохранённый результат. Инциденты используют номер версии.
-Presence не меняет обращения или аудит и не инвалидирует preview.
+```sh
+curl -fsS 'http://127.0.0.1:8769/api/alerts?data_origin=synthetic_demo'
+curl -fsS 'http://127.0.0.1:8769/api/forecast?horizon_months=3&data_origin=synthetic_demo'
+curl -fsS -X POST http://127.0.0.1:8769/api/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Какие категории лидируют в Карагандинской области?","data_origin":"synthetic_demo"}'
+curl -fLo /tmp/pulse109.pdf 'http://127.0.0.1:8769/api/reports?format=pdf&data_origin=synthetic_demo'
+curl -fLo /tmp/pulse109.xlsx 'http://127.0.0.1:8769/api/reports?format=xlsx&data_origin=synthetic_demo'
+```
 
-Radar использует индекс `COALESCE(received_at, ingested_at)` и ограничение по времени: по умолчанию
-15 минут сигнала + предыдущие 60 минут для сравнения. Порог по умолчанию — 5 обращений.
-При недостаточной истории базовая линия и отношение темпов остаются null. При наличии истории её
-счётчик нормализуется к длине текущего окна; полнота истории всё равно не утверждается.
+## AI runtime and fallback
 
-Веса синтетические, применяется первое подходящее правило: связанный дубль 15 → звонок 100 →
-Telegram/WhatsApp 50 → срочное или сложная тема 40 → обычное 30. Фоновая нагрузка и ёмкость:
-слоты × 30. Polling присутствия — 5 секунд, срок жизни записи — 20 секунд.
+| Компонент | GPU online | GPU offline / invalid response |
+|---|---|---|
+| Laya | trained checkpoint, `shadow` audit | existing classifier remains visible; failure recorded |
+| Similarity | trained multilingual E5 | explicit `lexical_fallback` |
+| Qwen | private self-hosted copilot | deterministic summary/reply draft |
+| STT/TTS | private RU/KK voice services | voice UI reports unavailability; text form remains available |
 
-## Tests
+`/api/health` is the source of truth. A top-level `status: ok` means the web application is alive; inspect the nested component statuses before claiming that a GPU model is online.
 
-Последние запуски завершились с exit 0:
+Selected checkpoints:
 
-| Набор | Результат |
-|---|---|
-| Playbooks API | 15 сценариев |
-| Radar / incidents API | 18 сценариев + отрицательный случай неоднозначной категории и проверка использования индекса |
-| Routing / presence API | 13 сценариев, включая 1600 комбинаций и restart |
-| Smoke / clarification / queue / demo API | 14 / 16 / 8 / 10 |
-| Coverage / synthetic CSV audit | 10 / 8 |
-| Demo UI | 7 сценариев, ширины 320–1440 px |
-| Playbooks / incidents / support UI | 4 / 4 / 4 |
-| Прежние operator UI / operator flow | 32 / 6, проверены ранее в этом сеансе |
-| Planning / JS syntax / diff whitespace | PASS |
+- Laya shadow: `f56bcae3d1270eb4ca271569eb7e3c3ce4b997c7ae0bd6f510f8f79c42480062`.
+- E5 similarity: `8df810a25f82e17aaa47ef07479c1be50f11efb4521b6b73c594b448acdc755e`.
+- Qwen: `Qwen/Qwen3-4B-Instruct-2507`, pinned revision `cdbee75f17c01a7cc42f958dc650907174af0554`.
 
-Проверки выполнялись на временных синтетических БД с настоящим HTTP-сервером и headless Chrome.
-Проверены откат при ошибке записи аудита, одновременные подтверждения, устаревшие preview,
-replay, перезапуск, ручная работа при ошибке AI, два окна оператора и сохранение черновика.
-На рабочем локальном сервере проверены HTTP 200 для health, Radar и routing-health.
+## Exact runbook
 
-Известное исключение: прежний `check_coverage_ui.cjs` на macOS/headless падает на UI 2 — клавиша End
-не меняет native select. Этот тест не ослаблялся; его прежний Linux CI проходил. Новый удалённый CI
-для текущей ветки не запускался. Число операторов и подписи нагрузки в demo-тесте обновлены под новую
-функцию; проверяются исходные 2/5 и 3/5 слота и соответствующие 60/150 и 75/150 баллов.
+Local application:
 
-## Demo flow
+```sh
+cd /Users/eliasansariy/Documents/Codex/2026-09-24/new-chat/outputs/pulse109
+. .venv/bin/activate
+DATABASE_PATH=data/pulse109.db P109_DEMO_MODE=1 P109_AUTH_DISABLED=1 \
+P109_DECISION_PROVIDER=shadow \
+P109_LAYA_BASE_URL=http://127.0.0.1:8001 \
+P109_LAYA_CHECKPOINT_ID=f56bcae3d1270eb4ca271569eb7e3c3ce4b997c7ae0bd6f510f8f79c42480062 \
+python -m uvicorn app:app --host 127.0.0.1 --port 8769
+```
 
-1. Открыть `/`: показать очередь и обращения, требующие внимания.
-2. «Радар» → «Демо-всплеск»: появляется сигнал Бостандыкского района с шестью обращениями RU/KK.
-3. «Посмотреть обращения»: показать свидетельства и объяснение. До подтверждения ни одно обращение не связано с новым инцидентом.
-4. «Создать инцидент и связать 6 обращений»: открывается центр управления; оригиналы сохранены.
-5. Назначить владельца, указать «Работы ведутся», следующее обновление и подтверждённый комментарий. Проверить preview и подтвердить.
-6. Открыть обращение: объяснение оператора и альтернатив; Ctrl/Cmd+K → сценарий → preview → подтверждение.
-7. Открыть одну карточку в двух окнах, выбрать разных демо-операторов. Изменить ответ во втором — первое покажет уведомление и сохранит черновик.
-8. «Маршрутизация»: показать все 1600 комбинаций, резервные пути и различие со сведениями о реальном покрытии данных.
+Optional private GPU services, each in its own shell and with model files already present:
 
-Для повторного выступления создайте новый `DATABASE_PATH`. Существующая база намеренно сохраняет
-прошлые решения; кнопка всплеска добавляет новые обращения и не сбрасывает историю.
+```sh
+.venv/bin/python scripts/serve_pulse_laya.py \
+  --checkpoint /srv/pulse109/laya/f56bcae3d1270eb4ca271569eb7e3c3ce4b997c7ae0bd6f510f8f79c42480062 \
+  --device cuda --host 127.0.0.1 --port 8001
+P109_SIMILARITY_CHECKPOINT_ID=8df810a25f82e17aaa47ef07479c1be50f11efb4521b6b73c594b448acdc755e \
+P109_SIMILARITY_MODEL_PATH=/srv/pulse109/similarity/seed-29-best \
+  .venv/bin/python -m uvicorn scripts.serve_similarity:app --host 127.0.0.1 --port 8004
+P109_COPILOT_PORT=8005 P109_COPILOT_API_KEY="$P109_COPILOT_API_KEY" \
+  scripts/run_qwen_copilot.sh
+```
 
-## Known limitations
+Production application:
 
-- Это синтетический прототип, без обученных classifier/retriever, измеренной точности или экономии времени.
-- Radar — объяснимые лексические правила, без геокластеризации и калибровки на реальном потоке.
-  Количество обращений не равно количеству уникальных граждан. Счётчик улиц основан на строке адреса;
-  варианты написания RU/KK могут считаться отдельно.
-- Базовая линия — оценка по имеющейся короткой истории, не доказанный обычный уровень. Открытые обращения
-  учитываются; это не анализ всех исторических поступлений. Правила сходства потребуют оценки при росте потока.
-- Очередь нового интерфейса рассчитана на компактное демо и загружает активный набор в память;
-  серверная пагинация прежней очереди сохраняется. Масштаб на миллион записей этим не подтверждён.
-- Маршруты и веса демонстрационные. 100% структурного fallback не означает 100% реального покрытия служб.
-- Presence — предупреждение, не блокировка карточки. Нет авторизации/ролей; выбор имени относится только
-  к демонстрации присутствия, аудит действий использует демо-идентичность. Возможны задержки до интервала polling.
-- FAQ закрывается только по небольшому утверждённому списку точных формулировок. Остальные вопросы требуют человека.
-- Внешние сообщения, интеграция со службами, полноценные прогнозы и экспорт не подключены.
-- Коммиты локальные; push, PR, merge и удалённый CI не выполнялись.
+```sh
+ssh xy@82.115.43.223
+cd ~/pulse109
+systemctl --user daemon-reload
+systemctl --user restart pulse109.service
+systemctl --user enable --now pulse109-health.timer pulse109-backup.timer
+curl -fsS http://127.0.0.1:8025/api/health | python3 -m json.tool
+curl -fsS https://xy.govtech-kz.com/api/health | python3 -m json.tool
+systemctl --user --no-pager --full status pulse109.service
+journalctl --user -u pulse109.service -n 100 --no-pager
+```
 
-## Next 5 improvements
+Production `.env` must keep authentication enabled, leave `P109_DEMO_MODE` unset and keep secrets outside Git. The national `synthetic_demo` analytics source remains available independently.
 
-1. Проверить права и семантику реальных исходных текстов; собрать размеченные RU/KK-наборы и пары инцидентов без утечки исходов.
-2. Обучить и независимо оценить classifier и retriever; откалибровать отказ от решения, пороги Radar и ложные объединения.
-3. Подключить подтверждённый реестр служб и доставку сообщений с идемпотентностью, повтором и состоянием доставки.
-4. Добавить авторизацию, роли, реальную атрибуцию аудита и ограничения доступа к обращениям.
-5. Перевести новый список на существующую серверную пагинацию, проверить нагрузку на реальном объёме и измерить время работы операторов для настройки весов.
+## Live-demo sequence
+
+1. In the local demo, open **Гражданин**, select region/city, describe a RU/KK issue, place the map point and attach a photo; submit and copy the tracking ID. In production, show that citizen intake remains private and requires consent plus authenticated operator moderation before public-map publication; number-only tracking is synthetic-demo only until owner authentication is added.
+2. Open **Очередь**, select the new card and run analysis. Explain that Laya is trained but shadow: category/spam/urgency are proposals.
+3. Show **Похожие решённые обращения** and its scoring mode. Review evidence and choose either duplicate/common incident or separate issue; do not auto-link.
+4. Select category, priority and recommended operator. Open preview and confirm. Show the audit event with proposed and confirmed values.
+5. Open **Радар** or the alert panel, inspect supporting cases, then create/update an incident and set its next update. Original complaints remain intact.
+6. Open **Ситуационный центр**, choose **Синтетика · 20 регионов**, show an alert and the three-month forecast, then ask: «Какие категории лидируют в Карагандинской области?»
+7. Download PDF and XLSX. Switch to **Организаторы · 6 регионов** and point out stale freshness and incomplete coverage.
+
+Presentation artifact: `deliverables/pulse109-govtech-demo.pptx` (10 slides, all ML and national metrics marked as synthetic).
+
+## Verification gate
+
+```sh
+python3 scripts/smoke.py
+python3 scripts/check_demo.py
+python3 scripts/check_laya.py
+python3 scripts/check_similarity.py
+python3 scripts/check_copilot.py
+python3 scripts/check_auth.py
+python3 scripts/check_voice.py
+python3 scripts/check_coverage.py
+python3 scripts/check_backup.py
+git diff --check
+```
+
+Expected safety behavior: existing SQLite data survives restart; failed GPU calls use named fallback; no model confirms a decision; organizer and synthetic aggregates never merge; downloads include source and freshness; public-server citizen text stays private until consent and moderation.
+
+## Limits to state during review
+
+- Synthetic ML metrics and national analytics demonstrate capability, not field accuracy.
+- Laya is shadow-only and E5 is decision support; both need approved human holdouts for production QA.
+- Qwen drafts are operator-reviewed; no external service action or deadline is inferred.
+- External message/service delivery is demo-only.
+- Organizer coverage is incomplete and stale; no claim of complete national history is made.
+- Economic/time savings have not been measured on real operators.
