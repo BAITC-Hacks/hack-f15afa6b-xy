@@ -3,6 +3,7 @@
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root))
@@ -24,4 +25,6 @@ assert data["weight_change_proof"] is True and "not production accuracy" in data
 unavailable = SimilarityClient("http://127.0.0.1:1", "a" * 64, timeout=.05).status()
 assert unavailable["configured"] is True and unavailable["status"] == "unavailable"
 assert unavailable["mode"] == "lexical_fallback"
+with patch("similarity.urllib.request.urlopen", side_effect=ConnectionResetError):
+    assert SimilarityClient("http://127.0.0.1:1", "a" * 64).status()["mode"] == "lexical_fallback"
 print("PASS: 3 GPU runs, validation-only selection, weight change and improved held-out retrieval metrics")

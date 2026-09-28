@@ -36,7 +36,7 @@ class SimilarityClient:
                 data = json.loads(response.read())
             if data.get("status") == "ok" and data.get("checkpoint_id") == self.checkpoint_id:
                 result.update({"mode": "trained", "status": "healthy"})
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, AttributeError):
+        except (OSError, TimeoutError, json.JSONDecodeError, AttributeError):
             pass
         return result
 
