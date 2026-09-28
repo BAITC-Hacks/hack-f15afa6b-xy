@@ -96,7 +96,7 @@ function resetDialogue(clearFields=true) {
   conversation.replaceChildren();message('agent','Здравствуйте! Я задам два коротких вопроса и заполню обращение вместе с вами.');
   if(clearFields) {
     settleTranscriptPreview(form.elements.text);settleTranscriptPreview(form.elements.address);
-    form.elements.text.value='';form.elements.address.value='';form.elements.media.value='';
+    form.elements.text.value='';form.elements.address.value='';form.elements.media.value='';form.elements.public_consent.checked=false;
     document.querySelector('#voice-ai-insight').hidden=true;
     document.querySelector('[data-geocode-results]').replaceChildren();resetLocationPicker(form);
   }
@@ -151,14 +151,15 @@ form.addEventListener('submit',async event=>{
     const data=new FormData(form),number=name=>data.get(name)?Number(data.get(name)):null;
     if(!data.get('text').trim()) throw new Error('Сначала расскажите, что произошло');
     if(!data.get('latitude')||!data.get('longitude')) throw new Error('Проверьте адрес и выберите точку на карте');
-    const payload={text:data.get('text').trim(),address:data.get('address').trim()||null,region_id:data.get('region_id'),city_code:data.get('city_code'),district:data.get('district')||null,language:data.get('language'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m'),...await mediaData()};
+    const payload={text:data.get('text').trim(),address:data.get('address').trim()||null,region_id:data.get('region_id'),city_code:data.get('city_code'),district:data.get('district')||null,language:data.get('language'),channel:'web',latitude:number('latitude'),longitude:number('longitude'),location_accuracy_m:number('location_accuracy_m'),public_consent:data.get('public_consent')==='on',...await mediaData()};
     const {photo_data,video_data,...probe}=payload;
     if(!duplicateApproved) {
       const similar=await api('/api/workspace/public/similar',probe);
       if(similar.items.length) {duplicateApproved=true;submit.textContent='Отправить как отдельную проблему';throw new Error(`Найдено похожих обращений: ${similar.items.length}. Проверьте карту или нажмите отправить ещё раз.`);}
     }
     const result=await api('/api/workspace/intake',payload);
-    document.querySelector('#voice-receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${result.id} · номер можно использовать для проверки статуса</p><a href="/#citizen">Открыть кабинет гражданина</a></div>`;
+    const synthetic=result.data_origin==='synthetic';
+    document.querySelector('#voice-receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${result.id} · ${synthetic?'номер можно использовать для проверки статуса':'приватное обращение; публикация возможна только после согласия и проверки оператором'}</p>${synthetic?'<a href="/#citizen">Открыть кабинет гражданина</a>':'<small>Защищённый кабинет заявителя ещё не подключён.</small>'}</div>`;
     message('agent',`Готово. Обращение ${result.id} зарегистрировано.`);submit.textContent='Обращение отправлено';
   } catch(error) {toast(error.message);}
   finally {submit.disabled=false;}

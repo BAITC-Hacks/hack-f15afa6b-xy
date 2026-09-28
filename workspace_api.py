@@ -206,8 +206,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                     "resolved_at": c["resolved_at"], "resolution_text": c["resolution_text"] if c["resolved_at"] else None,
                     "data_origin": "synthetic", "delivery": "demo_only"}
 
-    @router.post("/intake", status_code=201)
-    def intake(req: Intake):
+    def save_intake(req: Intake, force_demo=False):
         if not req.text.strip() or req.region_id not in valid_regions:
             raise HTTPException(422, "Укажите текст обращения и известный регион")
         city = CITY_BY_CODE.get(req.city_code) if req.city_code else None
@@ -218,8 +217,11 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         cid = "PULSE-" + uuid.uuid4().hex[:6].upper()
         now = datetime.now(timezone.utc).isoformat()
         cleaned = req.text.strip()
-        origin, consent, moderation, public_text = intake_privacy(cleaned, req.public_consent)
-        source = "local_demo_intake_v2" if origin == "synthetic" else "citizen_web"
+        if force_demo:
+            origin, consent, moderation, public_text = "synthetic", 1, "approved", cleaned
+        else:
+            origin, consent, moderation, public_text = intake_privacy(cleaned, req.public_consent)
+        source = "operator_demo_v1" if force_demo else "local_demo_intake_v2" if origin == "synthetic" else "citizen_web"
         uploaded = []
         try:
             with get_connection() as conn:
@@ -254,7 +256,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                                             "has_photo": bool(photo), "has_video": bool(video),
                                             "media_backend": ("s3" if any(uploaded) else
                                                               "sqlite" if photo or video else None)},
-                      "citizen_demo" if origin == "synthetic" else "citizen_intake")
+                      "operator_demo" if force_demo else "citizen_demo" if origin == "synthetic" else "citizen_intake")
         except Exception as error:
             for key in filter(None, uploaded):
                 try:
@@ -266,6 +268,18 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             raise
         return {"id": cid, "data_origin": origin, "decision_status": "pending",
                 "moderation_status": moderation}
+
+    @router.post("/intake", status_code=201)
+    def intake(req: Intake):
+        return save_intake(req)
+
+    @router.post("/demo/intake", status_code=201)
+    def demo_intake():
+        return save_intake(Intake(
+            text="Добрый день, на Абая 44 с утра нет воды, весь дом без холодной воды. Когда включат?",
+            region_id="KZ-ALA", city_code="750000000", district="Алмалинский", language="ru", address="Абая 44",
+            latitude=43.238949, longitude=76.917806, location_accuracy_m=25, channel="web", public_consent=True,
+        ), force_demo=True)
 
     def private_media(cid, table):
         with get_connection() as conn:

@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#102a24"><link rel="icon" href="data:,">
   <title>Pulse Voice — живое обращение</title>
-  <link rel="stylesheet" href="/static/workspace.css?v=20260927-14">
+  <link rel="stylesheet" href="/static/workspace.css?v=20260928-5">
   <link rel="stylesheet" href="/static/voice-live.css?v=20260927-2">
 </head>
 <body class="voice-live-body">
@@ -50,12 +50,13 @@
 
         <label for="citizen-media">Фото или видео проблемы</label>
         <input id="citizen-media" name="media" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" aria-describedby="media-help"><p id="media-help" class="micro photo-help">Фото до 4 МБ · видео MP4/WebM до 12 МБ</p>
+        <label class="consent-row"><input id="public-consent" name="public_consent" type="checkbox"><span>Разрешаю показать обезличенное описание и место на публичной карте после проверки оператором. Фото и видео останутся приватными.</span></label>
         <button id="voice-submit" class="button primary wide" type="submit">Проверить и отправить обращение</button>
         <div id="voice-receipt" role="status" aria-live="polite"></div>
       </form>
     </aside>
   </main>
   <div id="voice-toast" role="alert" hidden></div>
-  <script type="module" src="/static/voice-live.js?v=20260927-7"></script>
+  <script type="module" src="/static/voice-live.js?v=20260928-1"></script>
 </body>
 </html>

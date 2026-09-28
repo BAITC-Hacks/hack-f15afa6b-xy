@@ -167,6 +167,13 @@ def real_mode_check(db_path):
 
         operator, csrf, actor = signup(base)
         headers = {"X-CSRF-Token": csrf}
+        assert anonymous.request(base + "/api/workspace/demo/intake", "POST", {})[0] == 401
+        status, demo = operator.request(base + "/api/workspace/demo/intake", "POST", {}, headers)
+        assert status == 201 and demo["data_origin"] == "synthetic"
+        assert demo["moderation_status"] == "approved"
+        status, feed = anonymous.request(base + "/api/workspace/public/complaints")
+        assert demo["id"] in {item["id"] for item in feed["items"]}
+        print("PASS 2b: authenticated jury demo creates an explicitly synthetic public record")
         assert operator.request(base + f"/api/workspace/complaints/{cid}/photo", raw=True) == (200, b"\x89PNG\r\n\x1a\n")
         status, approved = operator.request(base + f"/api/workspace/complaints/{cid}/moderation", "POST",
                                              {"status": "approved", "public_text": PRIVATE_TEXT}, headers)
