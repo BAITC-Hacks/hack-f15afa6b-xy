@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#102a24"><link rel="icon" href="data:,">
-  <title>Pulse Voice — живое обращение</title>
+  <title>Pulse 109 — голосовое обращение</title>
   <link rel="stylesheet" href="/static/workspace.css?v=20260928-5">
   <link rel="stylesheet" href="/static/voice-live.css?v=20260927-2">
 </head>
@@ -15,18 +15,18 @@
   </header>
   <main id="voice-main" class="voice-live-main">
     <section class="voice-room" aria-labelledby="voice-title">
-      <div class="voice-room-heading"><p class="eyebrow">PULSE VOICE · LIVE</p><h1 id="voice-title">Расскажите — агент заполнит заявку</h1><p>Диалог идёт на русском или казахском. Аудиозапись не сохраняется.</p></div>
+      <div class="voice-room-heading"><p class="eyebrow">ГОЛОСОВОЕ ОБРАЩЕНИЕ</p><h1 id="voice-title">Расскажите — помощник заполнит заявку</h1><p>Говорите на русском или казахском без предварительного выбора. Аудио не добавляется к обращению.</p></div>
       <div class="live-orb" data-live-orb aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
       <div id="voice-conversation" class="voice-conversation" aria-live="polite"></div>
       <div class="voice-live-controls">
-        <label for="live-language">Язык диалога</label>
+        <label for="live-language">Язык</label>
         <select id="live-language" name="language" form="voice-live-form">
-          <option value="ru">Русский</option><option value="kk">Қазақша</option><option value="mixed">Қазақша + Русский</option>
+          <option value="auto" selected>Определять автоматически</option><option value="kk">Қазақша</option><option value="ru">Русский</option>
         </select>
         <button id="voice-control" class="live-control" type="button"><span aria-hidden="true">●</span> Начать разговор</button>
         <button id="voice-reset" class="button ghost" type="button">Начать заново</button>
       </div>
-      <p id="voice-live-status" class="voice-live-status" role="status" aria-live="polite">Агент готов помочь</p>
+      <p id="voice-live-status" class="voice-live-status" role="status" aria-live="polite">Язык: определять автоматически</p>
     </section>
 
     <aside class="voice-draft" aria-labelledby="draft-title">
@@ -57,6 +57,6 @@
     </aside>
   </main>
   <div id="voice-toast" role="alert" hidden></div>
-  <script type="module" src="/static/voice-live.js?v=20260928-1"></script>
+  <script type="module" src="/static/voice-live.js?v=20260928-2"></script>
 </body>
 </html>

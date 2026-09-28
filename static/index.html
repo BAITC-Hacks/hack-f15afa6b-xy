@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pulse 109 — Synthetic Demo</title>
+  <title>Pulse 109 — демонстрационное рабочее место</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <div class="top-banner" role="banner">
-    ⚠️ SYNTHETIC DEMO — OPERATOR REVIEW REQUIRED ⚠️
+    ДЕМОНСТРАЦИОННЫЕ ДАННЫЕ · РЕШЕНИЕ ПОДТВЕРЖДАЕТ ОПЕРАТОР
   </div>
 
   <header class="app-header">
@@ -17,7 +17,8 @@
       <span class="sub-title">Ассистент оператора 109 и ситуационный центр</span>
     </div>
     <div class="system-badge" id="system-badge" aria-live="polite">
-      Режим: <strong id="app-mode">mock</strong> | Модели: <strong id="app-training">not_trained</strong>
+      Демонстрационный режим · рекомендации требуют проверки
+      <strong id="app-mode" hidden></strong><strong id="app-training" hidden></strong>
     </div>
   </header>
 
@@ -72,8 +73,8 @@
     </section>
     <!-- Section 1: Intake -->
     <section class="panel intake-panel" aria-labelledby="intake-heading">
-      <h2 id="intake-heading">1. Приём обращения (Intake)</h2>
-      <p class="panel-desc">Синтетический ввод обращения гражданина без персональных данных.</p>
+      <h2 id="intake-heading">1. Приём обращения</h2>
+      <p class="panel-desc">Демонстрационный ввод обращения гражданина без персональных данных.</p>
 
       <form id="intake-form" novalidate>
         <div class="form-group">
@@ -152,7 +153,7 @@
           <p id="active-text" class="complaint-text">Выберите обращение из очереди слева или создайте новое через форму приёма.</p>
           <div class="meta-row">
             <span>Регион: <strong id="active-region">—</strong></span>
-            <span>Источник: <strong id="active-origin">synthetic</strong></span>
+          <span>Источник: <strong id="active-origin">Демонстрационные данные</strong></span>
           </div>
           <div class="meta-row" id="active-clarification" hidden>
             <span>Уточнение: <strong id="active-clarification-text">—</strong></span>
@@ -162,11 +163,11 @@
 
       <div class="proposal-box">
         <div class="box-header">
-          <h3>Предложение модели (Mock)</h3>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-classify" disabled>Запросить предложение</button>
+          <h3>Рекомендация по категории</h3>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-classify" disabled>Получить рекомендацию</button>
         </div>
         <div class="mock-meta-note">
-          <small>mode: <strong>mock</strong> | confidence: <strong>null</strong> (не выдумываем точность)</small>
+          <small>Категорию проверяет и подтверждает оператор.</small>
         </div>
         <div id="proposal-content" class="proposal-details">
           <p class="empty-state">Нажмите «Запросить предложение» для анализа текста.</p>
@@ -175,7 +176,7 @@
       </div>
 
       <div class="confirm-box" id="clarification-box">
-        <h3>Нужно уточнение (Needs clarification)</h3>
+        <h3>Нужно уточнение</h3>
         <p class="meta-note"><small>Причина и вопрос сохраняются в истории. Гражданину ничего не отправляется автоматически.</small></p>
         <form id="clarification-form" novalidate>
           <div class="form-group">
@@ -207,7 +208,7 @@
       </div>
 
       <div class="similar-box">
-        <h3>Похожие обращения (Mock Retrieval)</h3>
+        <h3>Похожие обращения</h3>
         <p class="meta-note"><small>Аналогичные случаи не означают дубликат или один инцидент.</small></p>
         <div id="similar-list" class="similar-items">
           <p class="empty-state">Кандидаты не загружены.</p>
@@ -215,7 +216,7 @@
       </div>
 
       <div class="confirm-box">
-        <h3>3. Подтверждение человеком (Human-in-the-loop)</h3>
+        <h3>3. Подтверждение оператором</h3>
         <form id="confirm-form" novalidate>
           <div class="form-row">
             <div class="form-group col">

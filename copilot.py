@@ -245,10 +245,12 @@ def attach_copilot_routes(router, get_connection, complaint, detail, suggested_r
                 "mode": "deterministic_fallback", "available": False,
             }
             if not copilot:
-                return {**fallback, "fallback_reason": "Self-hosted Qwen не настроен"}
+                return {**fallback, "fallback_reason":
+                        "ИИ-помощник не настроен. Показан безопасный шаблон; можно продолжить вручную."}
             if c["language"] != "ru":
                 return {**fallback, "fallback_reason":
-                        "Qwen для казахского и смешанного текста остаётся за quality gate до дообучения"}
+                        "Для этого языка рекомендация ИИ пока недоступна. Показан безопасный шаблон; "
+                        "можно продолжить вручную."}
             context = {
                 "language": c["language"],
                 "complaint": sanitize_text(c["text"], c.get("address")),
@@ -261,7 +263,8 @@ def attach_copilot_routes(router, get_connection, complaint, detail, suggested_r
             try:
                 result = copilot.assist(context).dict()
             except CopilotError:
-                return {**fallback, "fallback_reason": "Qwen временно недоступен; показан безопасный шаблон"}
+                return {**fallback, "fallback_reason":
+                        "ИИ-помощник временно недоступен. Показан безопасный шаблон; можно продолжить вручную."}
             event(conn, cid, "copilot_generated", {
                 "result_id": result["result_id"], "model": result["model"],
                 "model_revision": result["model_revision"],
@@ -278,7 +281,7 @@ def attach_copilot_routes(router, get_connection, complaint, detail, suggested_r
                 WHERE complaint_id = ? AND event_type = 'copilot_generated'
                 ORDER BY rowid DESC LIMIT 1""", (cid,)).fetchone()
             if not generated or json.loads(generated["payload"]).get("result_id") != req.result_id:
-                raise HTTPException(409, "Сначала получите актуальную рекомендацию Copilot")
+                raise HTTPException(409, "Сначала получите актуальную рекомендацию ИИ")
             event(conn, cid, "copilot_feedback", {
                 "result_id": req.result_id, "helpful": req.helpful,
             })

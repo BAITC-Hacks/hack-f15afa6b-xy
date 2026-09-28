@@ -68,7 +68,7 @@ class Intake(BaseModel):
     text: str = Field(min_length=1, max_length=10000)
     region_id: str
     city_code: str | None = Field(default=None, min_length=9, max_length=9, pattern=r"^\d{9}$")
-    language: Literal["ru", "kk", "mixed", "unknown"] = "ru"
+    language: Literal["auto", "ru", "kk", "mixed", "unknown"] = "auto"
     address: str | None = Field(default=None, max_length=200)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)

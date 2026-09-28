@@ -1,4 +1,4 @@
-let recording=null, playback=null, processing=false;
+let recording=null, playback=null, processing=false, failedTurn=null;
 const voiceThreshold=.008, silenceMs=1400, previewMs=4500;
 
 export const voicePrompts={
@@ -99,25 +99,28 @@ async function previewVoice(current) {
   current.previewPromise=(async()=>{
     try {
       const samples=prepareSpeech(flatten(chunks),current.context.sampleRate);
-      const result=await current.api('/api/voice/transcribe',{audio_data:await dataUrl(wav(samples)),language:current.language,field:current.field});
-      if(recording===current&&result.text) current.onPartial(result.text);
+      const result=await current.api('/api/voice/transcribe',{audio_data:await dataUrl(wav(samples)),language:current.language,hint_language:current.hintLanguage,field:current.field});
+      if(recording===current&&result.text) {
+        if(current.language==='auto'&&result.response_language) current.hintLanguage=result.response_language;
+        current.onPartial(result.text,result);
+      }
     } catch { /* A partial transcript is optional; the final pass still runs. */ }
   })();
   await current.previewPromise;
   if(recording===current) current.previewPromise=null;
 }
 
-export async function beginVoiceTurn({field,language,api,skipPrompt=false,onState=()=>{},onTimeout=()=>{},onPartial=()=>{},onSpeech=()=>{},onSilence=()=>{}}) {
+export async function beginVoiceTurn({field,language,hintLanguage=null,api,onState=()=>{},onTimeout=()=>{},onPartial=()=>{},onSpeech=()=>{},onSilence=()=>{}}) {
   if(recording||processing) throw new Error('Дождитесь завершения текущего ответа');
   if(!navigator.mediaDevices?.getUserMedia) throw new Error('Браузер не поддерживает запись с микрофона');
-  if(!skipPrompt) {
-    onState('prompting');
-    await speakPrompt(voicePrompts[language][field],language,`${language}_${field}`,api);
-  }
+  const promptLanguage=language==='auto'?(hintLanguage||'mixed'):language;
+  onState('prompting');
+  await speakPrompt(voicePrompts[promptLanguage][field],promptLanguage,`${promptLanguage}_${field}`,api);
   const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
   const context=new AudioContext(), source=context.createMediaStreamSource(stream);
   const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];
-  const current={field,language,stream,context,source,processor,mute,chunks,api,onPartial,activity:{heard:false,lastVoiceAt:0},silenceTriggered:false,previewPromise:null};
+  const current={field,language,hintLanguage,stream,context,source,processor,mute,chunks,api,onPartial,activity:{heard:false,lastVoiceAt:0},silenceTriggered:false,previewPromise:null};
+  failedTurn=null;
   recording=current;
   mute.gain.value=0;source.connect(processor);processor.connect(mute);mute.connect(context.destination);
   processor.onaudioprocess=event=>{
@@ -139,8 +142,55 @@ export async function finishVoiceTurn(onState=()=>{}) {
   try {
     if(current.previewPromise) await current.previewPromise;
     const samples=prepareSpeech(flatten(current.chunks),sampleRate);
-    return await current.api('/api/voice/transcribe',{audio_data:await dataUrl(wav(samples)),language:current.language,field:current.field});
+    const payload={audio_data:await dataUrl(wav(samples)),language:current.language,hint_language:current.hintLanguage,field:current.field};
+    failedTurn={api:current.api,payload};
+    const result=await current.api('/api/voice/transcribe',payload);failedTurn=null;return result;
   } finally {processing=false;}
+}
+
+export async function retrySavedVoiceTurn(onState=()=>{}) {
+  if(!failedTurn||processing) return null;
+  processing=true;onState('transcribing');
+  try {
+    const result=await failedTurn.api('/api/voice/transcribe',failedTurn.payload);
+    failedTurn=null;return result;
+  } finally {processing=false;}
+}
+
+export function discardSavedVoiceTurn() {failedTurn=null;}
+
+export function languageStatusText(result) {
+  if(result?.needs_language_choice) return 'Не удалось определить язык · выберите вручную или повторите фразу';
+  if(result?.language==='kk') return 'Язык определён автоматически: Қазақша';
+  if(result?.language==='ru') return 'Язык определён автоматически: Русский';
+  if(result?.language==='mixed') return `Смешанная речь · отвечаем ${result.response_language==='kk'?'на казахском':'на русском'}`;
+  return 'Определяем язык…';
+}
+
+export function applyLanguageResult(select,result) {
+  if(!select||select.value!=='auto') return '';
+  if(result?.needs_language_choice) {
+    delete select.dataset.detectedLanguage;delete select.dataset.responseLanguage;
+  } else if(result?.language) {
+    select.dataset.detectedLanguage=result.language;
+    if(result.response_language) select.dataset.responseLanguage=result.response_language;
+  }
+  return languageStatusText(result);
+}
+
+export function clearLanguageResult(select) {
+  if(!select) return;
+  delete select.dataset.detectedLanguage;delete select.dataset.responseLanguage;
+}
+
+export function selectedVoiceLanguage(select) {
+  const language=select?.value||'auto';
+  return {language,hintLanguage:language==='auto'?select.dataset.responseLanguage||null:null};
+}
+
+export function selectedIntakeLanguage(select) {
+  if(!select||select.value!=='auto') return select?.value||'unknown';
+  return select.dataset.detectedLanguage||'auto';
 }
 
 export function previewTranscript(input,text) {
@@ -212,11 +262,12 @@ function restoreDrafts() {
 async function start(field,language,api,toast) {
   restoreDrafts();setControls('busy');
   try {
-    await beginVoiceTurn({field,language,api,onState:mode=>{
-      status(mode==='prompting'?'Агент задаёт вопрос…':'Слушаю… Нажмите «Готово», когда закончите.');
+    const select=document.querySelector('#citizen-language'),hintLanguage=select?.dataset.responseLanguage||null;
+    await beginVoiceTurn({field,language,hintLanguage,api,onState:mode=>{
+      status(mode==='prompting'?'Помощник задаёт вопрос…':language==='auto'?'Определяем язык…':'Слушаю… Нажмите «Готово», когда закончите.');
       if(mode==='listening') setControls('listening');
-    },onSpeech:()=>status('Слышу вас… Остановлю запись после паузы.'),onPartial:text=>{
-      previewTranscript(target(field),text);status('Черновик обновляется во время разговора…');
+    },onSpeech:()=>status('Слышу вас… Остановлю запись после паузы.'),onPartial:(text,result)=>{
+      previewTranscript(target(field),text);status(applyLanguageResult(select,result)||'Черновик обновляется во время разговора…');
     },onSilence:()=>finish(api,toast),onTimeout:()=>finish(api,toast)});
   } catch(error) {setControls('idle');status('Готов к записи');throw error;}
 }
@@ -232,6 +283,10 @@ async function finish(api,toast) {
       throw new Error('Расшифровка сохранена. Вернитесь к форме, чтобы вставить её.');
     }
     try {sessionStorage.removeItem(`pulse109-voice-${result.field}`);} catch { /* no-op */ }
+    const select=document.querySelector('#citizen-language');status(applyLanguageResult(select,result));
+    if(result.needs_language_choice) {
+      await speakPrompt(result.assistant_message,'mixed',result.assistant_prompt,api);return;
+    }
     if(result.field==='address') {await applyDetectedCity(result.detected_city);document.querySelector('[data-address-search]')?.click();}
     status(result.assistant_message);
     await speakPrompt(result.assistant_message,result.language,result.assistant_prompt,api);
@@ -244,7 +299,7 @@ async function finish(api,toast) {
 }
 
 export async function handleVoiceAction(node,api,toast) {
-  const language=document.querySelector('#citizen-language')?.value||'mixed';
+  const language=document.querySelector('#citizen-language')?.value||'auto';
   if(node.dataset.action==='voice-stop') {await finish(api,toast);return;}
   await start(node.dataset.field,language,api,toast);
 }

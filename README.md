@@ -13,8 +13,6 @@ GovTech / Pulse 109 не связан с HackAlem. Канонический ре
 - обученный multilingual E5 для похожих решённых обращений и проверки дублей;
 - приватный self-hosted Qwen Copilot с проверкой схемы и безопасным fallback;
 - голосовой RU/KK flow через приватные STT/TTS endpoints;
-- live operator call: semantic checkpoints, Laya shadow signal, incident candidate and human Apply/Ignore;
-- internal hex Operations Map, 15–120 minute queue forecast, staffing advice and seeded what-if simulation;
 - alerts, прогноз на 1–3 месяца, ограниченные RU/KK-вопросы и PDF/XLSX.
 
 Обучение Laya и E5 действительно выполнялось на NVIDIA GPU. Evidence хранится в `training/evidence/`. Метрики получены на group-separated синтетических RU/KK наборах и показывают работоспособность ML pipeline, но не production accuracy на реальных обращениях.
@@ -59,7 +57,6 @@ python scripts/smoke.py
 python scripts/check_laya.py
 python scripts/check_similarity.py
 python scripts/check_copilot.py
-python scripts/check_operations.py
 ```
 
 Laya, E5 и Qwen запускаются отдельно на приватном GPU или через SSH tunnel. Если GPU выключен, Pulse остаётся доступен: Laya shadow не меняет решение существующего классификатора, E5 явно переходит в `lexical_fallback`, Qwen — в `deterministic_fallback`. `/api/health` показывает фактический режим каждого сервиса.

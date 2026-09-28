@@ -16,6 +16,7 @@ from public_issues import attach_public_issue_routes, redact_public_text
 from similarity import SimilarityClient
 from triage import (analyze, address_in, operators_with_load, queue_state, related_cases,
                     risk_for, route, responsible_service_name, moment)
+from voice_api import resolve_language
 from workspace_support import (Decision, Intake, Link, Moderation, Reply, Safety, Subscription,
                                ai_evidence, decode_photo, decode_video, event, suggested_response)
 
@@ -96,11 +97,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         risk = risk_for(c, rows)
         spam = ai.get("spam_suspected") or {}
         if spam.get("value") and not c.get("safety_reviewed"):
-            threshold = spam.get("threshold", .5)
-            risk["reasons"].append(
-                f"Laya: подозрение на спам {round(100 * spam['probability_true'])}% "
-                f"(порог {round(100 * threshold)}%)"
-            )
+            risk["reasons"].append("Автоматическая проверка нашла признаки нежелательного сообщения. Решение принимает оператор.")
             risk["score"] = max(risk["score"], spam["probability_true"])
             risk["kind"] = "deterministic_plus_laya_signal"
         ops = operators if operators is not None else operators_with_load(conn)
@@ -218,6 +215,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         cid = "PULSE-" + uuid.uuid4().hex[:6].upper()
         now = datetime.now(timezone.utc).isoformat()
         cleaned = req.text.strip()
+        stored_language = resolve_language(cleaned, req.language)["language"] if req.language == "auto" else req.language
         if force_demo:
             origin, consent, moderation, public_text = "synthetic", 1, "approved", cleaned
         else:
@@ -231,7 +229,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                      language, address, city_code, latitude, longitude, location_accuracy_m, district, channel, sender_key,
                      public_consent, moderation_status, public_text)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (cid, origin, source, cleaned, req.region_id, now, now, req.language,
+                    (cid, origin, source, cleaned, req.region_id, now, now, stored_language,
                      req.address.strip() if req.address else address_in(req.text),
                      req.city_code,
                      round(req.latitude, 6) if req.latitude is not None else None,
@@ -251,7 +249,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                         (complaint_id, mime_type, content, created_at, object_key) VALUES (?, ?, ?, ?, ?)""",
                                  (cid, video[0], b"" if key else video[1], now, key))
                 event(conn, cid, "intake", {"channel": req.channel, "city_code": req.city_code,
-                                            "text_len": len(req.text),
+                                            "text_len": len(req.text), "language": stored_language,
                                             "has_location": req.latitude is not None,
                                             "public_consent": bool(consent),
                                             "has_photo": bool(photo), "has_video": bool(video),
@@ -267,8 +265,8 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             if isinstance(error, ObjectStorageError):
                 raise HTTPException(503, "Не удалось сохранить вложение. Повторите отправку") from error
             raise
-        return {"id": cid, "data_origin": origin, "decision_status": "pending",
-                "moderation_status": moderation}
+        return {"id": cid, "data_origin": origin, "decision_status": "pending", "moderation_status": moderation,
+                "language": stored_language}
 
     @router.post("/intake", status_code=201)
     def intake(req: Intake):

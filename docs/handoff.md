@@ -11,8 +11,6 @@
 - multilingual E5 checkpoint `8df810…755e` обучен для RU/KK similarity. При недоступном приватном endpoint приложение явно использует lexical fallback.
 - self-hosted Qwen Copilot работает только через private/loopback endpoint. Невалидный ответ, timeout или выключенный GPU дают deterministic fallback; действия и сроки не выдумываются.
 - GPU можно выключать: основное приложение, очередь, операторские решения и аналитика продолжают работать. Health честно показывает fallback.
-- P0 operations layer работает в текущем FastAPI/SQLite: live transcript semantic checkpoints → Laya shadow/fallback signal → `INC-204` candidate → operator Apply/Ignore; затем internal `local_hex_v1` map, 15/30/60/120-minute deterministic forecast, staffing recommendation и seeded what-if simulation.
-- Live partials не попадают в основной audit. `live_sessions` хранит текущий transcript, а `live_session_events` — только meaningful state changes. Основной audit создаётся после Apply; category остаётся pending до существующего human confirmation flow.
 
 ## Проверяемые ML evidence
 
@@ -39,7 +37,6 @@ python3 scripts/check_similarity.py
 python3 scripts/check_copilot.py
 python3 scripts/check_auth.py
 python3 scripts/check_voice.py
-python3 scripts/check_operations.py
 python3 scripts/check_coverage.py
 git diff --check
 ```
@@ -67,6 +64,6 @@ journalctl --user -u pulse109.service -n 100 --no-pager
 
 ## Demo acceptance
 
-Главный проход: **Live Call** → partial transcript → Laya shadow/fallback signal → `INC-204` candidate → Apply → **Operations Map** hotspot → **Command Center** 60-minute overload → staffing action → seeded what-if. Затем показать существующий human confirmation, 1–3 month analytics и source switch `synthetic_demo` / `organizer`. Подробный сценарий находится в [operations-delivery.md](operations-delivery.md).
+Один проход должен показать: intake → Laya proposal → E5 similar/duplicate → human confirmation → alert/Radar → incident → 3-month forecast → RU/KK data question → PDF и XLSX. Затем переключить источник с `synthetic_demo` на `organizer` и показать, что UI не скрывает шесть регионов и stale freshness. Подробный сценарий находится в [operations-delivery.md](operations-delivery.md).
 
 Не заявлять: официальное национальное покрытие, production accuracy, автоматическое принятие решений, реальную доставку службе или доказанную экономию времени.

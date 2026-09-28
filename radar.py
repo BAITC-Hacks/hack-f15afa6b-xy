@@ -25,7 +25,6 @@ from pydantic import BaseModel, Field
 
 from auth import current_actor
 from incidents import ACTIVE_INCIDENT_STATUSES, attach_incident_routes, incident_detail, incident_event
-from operations_core import cell_neighbors, operations_cell
 from triage import HIGH_CONFIDENCE, address_in, analyze, moment, symptom, tokens
 
 RADAR_MIN_CASES = int(os.environ.get("P109_RADAR_MIN_CASES", "5"))
@@ -136,30 +135,20 @@ def collect_cases(conn, classifier, topic_services, previous_start: datetime) ->
         # signals; only a confident rule/proposal or a category a human confirmed.
         if category not in topic_services or confidence < HIGH_CONFIDENCE:
             continue
-        cell_id = row.get("ops_cell")
-        if not cell_id and row.get("latitude") is not None and row.get("longitude") is not None:
-            cell_id = operations_cell(row["latitude"], row["longitude"])
         cases.append({"id": row["id"], "text": row["text"], "address": row["address"] or address_in(row["text"]),
                       "district": row["district"], "region_id": row["region_id"], "at": at,
                       "sender_key": row["sender_key"], "incident_id": row["incident_id"], "category": category,
-                      "confidence": confidence, "source": source, "symptom": symptom(row["text"]),
-                      "ops_cell": cell_id})
+                      "confidence": confidence, "source": source, "symptom": symptom(row["text"])})
     cases.sort(key=lambda case: (case["at"], case["id"]))
     return cases
 
 
 def group_cases(cases: list[dict]) -> dict[tuple, list[dict]]:
-    """Group by category, place and symptom; exact coordinates use adjacent hex cells."""
+    """Group by category + region + district + symptom; an unclear symptom needs word overlap."""
     # ponytail: lexical comparison within recent groups; index candidate tokens for high-volume streams.
     groups: dict[tuple, list[dict]] = {}
     for case in cases:
-        base = (case["category"], case["region_id"], case["district"], case["symptom"])
-        key = base + (None,)
-        if case["ops_cell"]:
-            nearby = {case["ops_cell"], *cell_neighbors(case["ops_cell"])}
-            key = next((candidate for candidate in groups if candidate[:4] == base and candidate[4] in nearby),
-                       base + (case["ops_cell"],))
-        members = groups.setdefault(key, [])
+        members = groups.setdefault((case["category"], case["region_id"], case["district"], case["symptom"]), [])
         if case["symptom"] == "unknown" and members and not any(_similar(case, other) for other in members):
             continue
         members.append(case)
@@ -178,17 +167,17 @@ def _active_links(conn, members: list[dict]) -> list[dict]:
 def _baseline(previous: list[dict], count: int, current_minutes: int) -> tuple[float | None, float | None, str]:
     window = PREVIOUS_WINDOW_MINUTES
     if len(previous) < BASELINE_MIN_CASES:
-        return None, None, (f"Базовая линия недоступна: за предыдущие {window} мин сопоставимых обращений меньше "
-                            f"{BASELINE_MIN_CASES}; уровень и рост не рассчитываются.")
+        return None, None, (f"Сравнить с недавней историей пока нельзя: за предыдущие {window} мин найдено меньше "
+                            f"{BASELINE_MIN_CASES} похожих обращений.")
     span = round((previous[-1]["at"] - previous[0]["at"]).total_seconds() / 60)
     if span < BASELINE_MIN_SPAN_MINUTES:
-        return None, None, (f"Базовая линия недоступна: частичная выборка — {len(previous)} обращения на интервале "
-                            f"{span} мин из {window}; по такому срезу обычный уровень не определяется.")
+        return None, None, (f"Сравнить с недавней историей пока нельзя: найдено {len(previous)} обращения только "
+                            f"за {span} мин из {window}, данных недостаточно.")
     baseline = len(previous) * current_minutes / window
     growth = round(count / baseline, 2)
-    return round(baseline, 2), growth, (f"В истории {len(previous)} обращений за предыдущие {window} мин "
-                                      f"(между первым и последним {span} мин). Это {baseline:g} за окно "
-                                      f"{current_minutes} мин; отношение темпов ×{growth}. Полнота истории не проверена.")
+    return round(baseline, 2), growth, (f"В недавней истории было {len(previous)} обращений за {window} мин. "
+                                      f"За такой же короткий период ожидалось около {baseline:g}; сейчас {count}. "
+                                      "Полнота истории не проверена.")
 
 
 def build_signals(conn, classifier, topic_services, min_cases: int | None = None,
@@ -205,22 +194,22 @@ def build_signals(conn, classifier, topic_services, min_cases: int | None = None
         if not current:
             continue
         case_ids = sorted(case["id"] for case in current)
-        signal_id = _hash_id([*(str(value or "") for value in key), *case_ids])
+        signal_id = _hash_id([*key, *case_ids])
         ignored = _is_ignored(conn, signal_id)
         if len(current) < minimum and not ignored:
             continue
         baseline, growth, baseline_note = _baseline(_dedup([c for c in members if c["at"] < current_start]), len(current), window)
         links = _active_links(conn, current)
+        category_note = ("Категория уже подтверждена оператором." if current[0]["source"] == "подтверждена оператором"
+                         else "Категория предложена системой и требует проверки перед объединением.")
         reasons = [
-            f"Правило: не менее {minimum} обращений одной категории, одного района и одного характера проблемы "
-            f"за {window} мин.",
-            f"В окне {len(current)} уникальных обращений из {len(raw_current)}: повтор одного текста от одного "
+            f"Сигнал появился: за {window} мин поступило не менее {minimum} обращений об одной проблеме "
+            "в одном районе.",
+            f"Учтено {len(current)} обращений из {len(raw_current)}: повтор одного текста от одного "
             "отправителя считается один раз.",
-            f"Категория: {key[0]} ({current[0]['source']}, уверенность {current[0]['confidence']:g}).",
+            category_note,
             baseline_note,
         ]
-        if key[4]:
-            reasons.insert(1, f"География: hex-cell {key[4]} и соседние ячейки local_hex_v1.")
         if len(links) > 1:
             reasons.append("Обращения связаны с несколькими активными инцидентами — автоматическое объединение "
                            "запрещено, нужно решение человека.")

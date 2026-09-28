@@ -162,8 +162,9 @@ def run():
                 call(f"/api/workspace/complaints/{kk}/triage", {})
                 kk_fallback = call(f"/api/workspace/complaints/{kk}/copilot", {})
                 assert not kk_fallback["available"] and kk_fallback["suggested_reply"].startswith("Өтінішіңіз")
-                assert len(FakeQwen.requests) == request_count and "quality gate" in kk_fallback["fallback_reason"]
-                print("PASS 4: KK stays behind the quality gate with a natural Kazakh fallback")
+                assert len(FakeQwen.requests) == request_count
+                assert "Для этого языка рекомендация ИИ пока недоступна" in kk_fallback["fallback_reason"]
+                print("PASS 4: KK uses a natural Kazakh fallback without exposing the internal quality gate")
 
                 bad = call("/api/workspace/intake", {
                     "text": "malformed: непонятная проблема", "region_id": "KZ-ALA", "language": "ru",

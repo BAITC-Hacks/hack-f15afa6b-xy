@@ -81,13 +81,13 @@ def run():
             assert all(m["id"] and m["text"] for m in almaly["members"]) and len(almaly["members"]) == 5
             assert almaly["incident_id"] == "INC-204", "Exactly one linked active incident must be exposed"
             assert almaly["unlinked_count"] == 0 and almaly["ignored"] is False
-            assert "Правило" in almaly["reason"] and "подтверждена оператором" in almaly["reason"]
+            assert "Сигнал появился" in almaly["reason"] and "подтверждена оператором" in almaly["reason"]
             assert not [m for m in almaly["case_ids"] if m.startswith("syn-")], "Old fixtures are outside the window"
             print("PASS 2: GET /api/workspace/radar detects the seeded outage signal, links INC-204, no duplicate")
 
             # 3. baseline honesty: 12 historical cases spanning only 22 minutes are a partial sample
             assert almaly["baseline_count"] is None and almaly["growth"] is None
-            assert "частичная выборка" in almaly["reason"], almaly["reason"]
+            assert "данных недостаточно" in almaly["reason"], almaly["reason"]
             print("PASS 3: partial 60-minute history yields baseline_count=null and growth=null, never a level")
 
             # 4. false positives: one sender repeating one text, unknown category, leak kept apart
@@ -124,7 +124,7 @@ def run():
             assert bostan["incident_id"] is None and bostan["unlinked_count"] == 6
             assert set(bostan["case_ids"]) == set(demo["ids"]) and len(bostan["members"]) == 6
             assert bostan["baseline_count"] is None and bostan["growth"] is None
-            assert "Базовая линия недоступна" in bostan["reason"]
+            assert "Сравнить с недавней историей пока нельзя" in bostan["reason"]
             assert bostan["id"] != almaly["id"], "Districts stay separate"
             assert [e["event_type"] for e in call(f"/api/complaints/{demo['ids'][0]}")["events"]] == ["intake"]
             print("PASS 5: POST /radar/demo inserted 6 audited cases; Бостандыкский is a separate signal")
@@ -147,7 +147,8 @@ def run():
             medeu_signal = signal_for(radar()["items"], "Медеуский", "отключение")
             assert medeu_signal["count"] == 5 and medeu_signal["similar_count"] == 5
             assert medeu_signal["baseline_count"] == 0.75 and medeu_signal["growth"] == 6.67
-            assert "В истории 3 обращений за предыдущие 60 мин" in medeu_signal["reason"] and medeu_signal["case_ids"] == sorted(medeu[3:])
+            assert "В недавней истории было" in medeu_signal["reason"], medeu_signal["reason"]
+            assert medeu_signal["case_ids"] == sorted(medeu[3:])
             print("PASS 7: 3 cases in the previous 60 min normalize to 0.75 per 15 min; rate ratio=6.67")
 
             # 8. stale preview, unknown signal and a mismatched incident are refused

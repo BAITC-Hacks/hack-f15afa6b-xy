@@ -34,6 +34,19 @@ VOICE_PROMPTS = {
     "mixed_problem": ("mixed", "Расскажите о проблеме. Мәселе туралы айтып беріңіз."),
     "mixed_address": ("mixed", "Теперь назовите адрес. Енді мекенжайды айтыңыз."),
     "mixed_review": ("mixed", "Проверьте данные. Мәліметтерді тексеріңіз."),
+    "mixed_language_retry": ("mixed", "Не удалось определить язык. Тілді таңдаңыз немесе фразаны қайталаңыз."),
+}
+
+KAZAKH_LETTERS = set("әғқңөұүһі")
+KAZAKH_WORDS = {
+    "біз", "бүгін", "және", "жоқ", "кеше", "көше", "көмектесіңіз", "қала", "қаласы",
+    "қашан", "қауіпті", "мекенжай", "мәселе", "не", "өтінемін", "су", "таңертең",
+    "тұр", "үй", "үйде", "шықты", "бар", "болды", "басталды",
+}
+RUSSIAN_WORDS = {
+    "адрес", "была", "было", "был", "в", "вчера", "вода", "воды", "город", "где",
+    "дом", "доме", "есть", "и", "когда", "мусор", "мы", "на", "началось", "не", "нет",
+    "опасно", "пожалуйста", "помогите", "проблема", "с", "сегодня", "свет", "улица", "утра",
 }
 
 NUMBER_WORDS = {
@@ -160,7 +173,8 @@ def clean_spoken_address(text: str, city: dict | None) -> str:
 
 class VoiceRequest(BaseModel):
     audio_data: str = Field(max_length=2_800_000)
-    language: Literal["ru", "kk", "mixed"] = "mixed"
+    language: Literal["auto", "ru", "kk", "mixed"] = "auto"
+    hint_language: Literal["ru", "kk"] | None = None
     field: Literal["problem", "address"]
 
 
@@ -170,8 +184,61 @@ class SpeechRequest(BaseModel):
 
 class DraftAnalysisRequest(BaseModel):
     text: str = Field(min_length=3, max_length=10000)
-    language: Literal["ru", "kk", "mixed"] = "mixed"
+    language: Literal["auto", "ru", "kk", "mixed"] = "auto"
     region_id: str = Field(default="KZ-ALA", pattern=r"^KZ-[A-Z]{3}$")
+
+
+def detect_text_language(text: str) -> dict:
+    words = re.findall(r"[а-яёәғқңөұүһі]+", text.lower())
+    scores = {"ru": 0, "kk": 0}
+    last_signal = None
+    for word in words:
+        if any(letter in KAZAKH_LETTERS for letter in word):
+            scores["kk"] += 3
+            last_signal = "kk"
+        if word in KAZAKH_WORDS:
+            scores["kk"] += 1
+            last_signal = "kk"
+        if word in RUSSIAN_WORDS:
+            scores["ru"] += 1
+            last_signal = "ru"
+    strongest = max(scores, key=scores.get)
+    weakest = "kk" if strongest == "ru" else "ru"
+    total = scores["ru"] + scores["kk"]
+    if scores[strongest] < 2 or not total:
+        return {"language": "unknown", "response_language": None, "confidence": 0.0,
+                "source": "text", "needs_language_choice": True}
+    if scores[weakest] >= 2 and scores[weakest] / scores[strongest] >= .45:
+        return {"language": "mixed", "response_language": last_signal or strongest,
+                "confidence": round(scores[weakest] / total, 3), "source": "text",
+                "needs_language_choice": False}
+    confidence = scores[strongest] / total
+    if confidence < .67:
+        return {"language": "unknown", "response_language": None,
+                "confidence": round(confidence, 3), "source": "text",
+                "needs_language_choice": True}
+    return {"language": strongest, "response_language": strongest,
+            "confidence": round(confidence, 3), "source": "text",
+            "needs_language_choice": False}
+
+
+def resolve_language(text: str, requested: str = "auto", provider_language=None,
+                     provider_confidence=None) -> dict:
+    if requested in {"ru", "kk"}:
+        return {"language": requested, "response_language": requested, "confidence": 1.0,
+                "source": "manual", "needs_language_choice": False}
+    detected = str(provider_language or "").lower()
+    if detected in {"ru", "kk"}:
+        confidence = provider_confidence if isinstance(provider_confidence, (int, float)) else 1.0
+        return {"language": detected, "response_language": detected,
+                "confidence": round(max(0.0, min(1.0, float(confidence))), 3),
+                "source": "provider", "needs_language_choice": False}
+    if detected == "mixed":
+        result = detect_text_language(text)
+        result.update(language="mixed", source="provider", needs_language_choice=False)
+        result["response_language"] = result["response_language"] or "ru"
+        return result
+    return detect_text_language(text)
 
 
 def decode_wav_data(value: str) -> bytes:
@@ -255,9 +322,9 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
                          timeout=timeout) as response:
                 result = json.loads(response.read())
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
-            raise HTTPException(503, "Голосовая модель сейчас недоступна") from None
+            raise HTTPException(503, "Распознавание речи временно недоступно") from None
         if not isinstance(result, dict):
-            raise HTTPException(503, "Голосовая модель вернула неверный ответ")
+            raise HTTPException(503, "Не удалось обработать голосовую запись")
         return result, round((time.perf_counter() - started) * 1000)
 
     def request_audio(path: str, payload: dict) -> tuple[bytes, str | None, int]:
@@ -273,11 +340,11 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
                 model = response.headers.get("X-Model")
                 content = response.read(MAX_TTS_AUDIO_BYTES + 1)
         except (HTTPError, URLError, TimeoutError):
-            raise HTTPException(503, "Голос OmniVoice сейчас недоступен") from None
+            raise HTTPException(503, "Озвучивание временно недоступно") from None
         if content_type != "audio/wav" or len(content) > MAX_TTS_AUDIO_BYTES:
-            raise HTTPException(503, "OmniVoice вернул неверное аудио")
+            raise HTTPException(503, "Не удалось подготовить голосовой ответ")
         if len(content) < 44 or not content.startswith(b"RIFF") or content[8:12] != b"WAVE":
-            raise HTTPException(503, "OmniVoice вернул повреждённое аудио")
+            raise HTTPException(503, "Не удалось подготовить голосовой ответ")
         return content, model, round((time.perf_counter() - started) * 1000)
 
     @router.get("/health")
@@ -292,7 +359,8 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
                           "latency_ms": latency}
             except HTTPException as error:
                 result = {"status": "unavailable", "detail": error.detail}
-        cache_ready = all(prompt_cache.values())
+        cache_ready = all(value for name, value in prompt_cache.items()
+                          if name != "mixed_language_retry")
         if cache_ready:
             result["tts"] = {"status": "healthy", "model": CACHED_TTS_MODEL,
                              "device": "local", "latency_ms": 0, "mode": "cache"}
@@ -313,15 +381,24 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
         limit(request)
         decode_wav_data(req.audio_data)
         if not stt_url:
-            raise HTTPException(503, "Голосовая модель не запущена")
+            raise HTTPException(503, "Распознавание речи временно недоступно")
+        upstream_request = req.model_dump(exclude={"hint_language"})
+        if req.language == "auto" and req.hint_language:
+            upstream_request["language"] = req.hint_language
         result, total_latency = request_json(
-            stt_url, stt_timeout, stt_key, "/v1/transcribe", req.model_dump()
+            stt_url, stt_timeout, stt_key, "/v1/transcribe", upstream_request
         )
         text = result.get("text")
         if not isinstance(text, str) or not text.strip() or len(text) > 10000:
-            raise HTTPException(503, "Голосовая модель не распознала речь")
-        assistant_prompt = f"{req.language}_{'address' if req.field == 'problem' else 'review'}"
+            raise HTTPException(503, "Не удалось распознать речь")
         text = normalize_address_numbers(text.strip()) if req.field == "address" else text.strip()
+        language = resolve_language(
+            text, req.language, result.get("language") or result.get("detected_language"),
+            result.get("language_confidence"),
+        )
+        response_language = language["response_language"]
+        assistant_prompt = (f"{response_language}_{'address' if req.field == 'problem' else 'review'}"
+                            if response_language else "mixed_language_retry")
         city = detect_spoken_city(text) if req.field == "address" else None
         if city:
             text = clean_spoken_address(text, city)
@@ -331,7 +408,7 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
                 "assistant_prompt": assistant_prompt,
                 "detected_city": ({"code": city["code"], "name_ru": city["name_ru"],
                                    "region_id": city["region_id"]} if city else None),
-                "language": req.language, "model": result.get("model"),
+                **language, "model": result.get("model"),
                 "stt_latency_ms": result.get("latency_ms"), "total_latency_ms": total_latency,
                 "audio_stored": False}
 
@@ -339,21 +416,28 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
     def analyze(req: DraftAnalysisRequest, request: FastAPIRequest):
         limit(request)
         if analyze_draft is None:
-            raise HTTPException(503, "AI-анализ обращения не подключён")
-        view = analyze_draft({"text": req.text.strip(), "language": req.language,
+            raise HTTPException(503, "ИИ-помощник временно недоступен")
+        language = resolve_language(req.text, req.language)
+        if language["needs_language_choice"]:
+            return {"category": None, "category_label": "Категория пока не определена",
+                    "confidence": None, "urgency": None, "needs_clarification": True,
+                    "spam_suspected": False, "ai_active": False,
+                    "assistant_message": VOICE_PROMPTS["mixed_language_retry"][1], **language}
+        response_language = language["response_language"]
+        view = analyze_draft({"text": req.text.strip(), "language": language["language"],
                               "region_id": req.region_id, "address": None})
         laya = (view.get("source_decisions") or {}).get("laya") or {}
         use_laya = bool(laya.get("category"))
         source = laya if use_laya else view
         category = source.get("category")
-        labels = {topic["id"]: topic["name_kk" if req.language == "kk" else "name_ru"]
+        labels = {topic["id"]: topic["name_kk" if response_language == "kk" else "name_ru"]
                   for topic in (topics or [])}
         needs = source.get("needs_clarification") or {}
         spam = source.get("spam_suspected") or {}
         needs_clarification = (bool(needs.get("value")) or not category or bool(spam.get("value")) or
                                source.get("decision") == "CLARIFY_OR_HUMAN_REVIEW")
         label = labels.get(category, "Категория пока не определена")
-        if req.language == "kk":
+        if response_language == "kk":
             assistant_message = ("Мәселені нақтырақ сипаттаңыз: не болды, қашан басталды және қауіп бар ма?"
                                  if needs_clarification else
                                  f"Түсіндім: «{label}». Енді оқиға орнын нақтылайық.")
@@ -368,7 +452,7 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
                 "provider": "laya_shadow" if use_laya else view.get("provider"),
                 "ai_active": use_laya or view.get("provider") in {"laya", "hybrid"},
                 "assistant_message": assistant_message,
-                "latency_ms": view.get("triage_total_latency_ms")}
+                "latency_ms": view.get("triage_total_latency_ms"), **language}
 
     @router.post("/speak")
     def speak(req: SpeechRequest, request: FastAPIRequest):
@@ -381,7 +465,7 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
             return {"audio_data": "data:audio/wav;base64," + base64.b64encode(audio).decode(),
                     "model": CACHED_TTS_MODEL, "tts_latency_ms": 0, "audio_stored": False}
         if not tts_url:
-            raise HTTPException(503, "OmniVoice не подключён")
+            raise HTTPException(503, "Озвучивание временно недоступно")
         language, text = prompt
         audio, model, latency = request_audio("/v1/speech", {"text": text, "language": language})
         return {"audio_data": "data:audio/wav;base64," + base64.b64encode(audio).decode(),

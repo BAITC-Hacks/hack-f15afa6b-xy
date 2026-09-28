@@ -13,9 +13,6 @@
 - Radar / incidents: объяснимый сигнал, просмотр исходных обращений, создание/связь инцидента, владелец, статус, severity, следующее обновление и version conflict protection.
 - Analytics: alerts, 1–3 month forecast с rolling backtest, ограниченные RU/KK data questions, source/freshness metadata и настоящие PDF/XLSX.
 - Operations: native authentication, private service endpoints, health timer и ежедневная SQLite backup rotation.
-- Live operator assist: persistent call session, debounced semantic checkpoints, Laya shadow/fallback signal, active-incident candidate, approved response draft and explicit Apply/Ignore. Apply creates a pending complaint and never confirms category.
-- Internal Operations Map: `local_hex_v1` cells and neighbours, complaints/incidents/heat/SLA/load/category modes, time slider and synthetic-location labels. The anonymous public map is unchanged.
-- Operational forecast and command center: deterministic 15/30/60/120-minute queue capacity, staffing recommendation, compact supervisor cards and seeded discrete-event what-if runs persisted in SQLite.
 
 ## Analytics contract
 
@@ -97,12 +94,13 @@ Production `.env` must keep authentication enabled, leave `P109_DEMO_MODE` unset
 
 ## Live-demo sequence
 
-1. Open **Live Call** and start the demo call: «На Абая 44 с утра нет холодной воды во всём доме». Watch partial transcript checkpoints, `Водоснабжение`, address/scope and `INC-204 · 17 похожих обращений` appear before completion.
-2. Click **Apply**. The complaint opens already linked to the operator-confirmed incident relation, while category remains pending for the existing confirmation/playbook flow.
-3. Open **Operations Map**. Show the water hotspot, hex neighbours, time slider and Heat / SLA Risk / Operator Load modes. State that missing synthetic coordinates are approximate and the public map remains separate.
-4. Open **Command Center**. Show the 60-minute water backlog and `+3 резервных операторов` recommendation. Run **SIMULATE** and compare current wait/SLA risk with the best tested 0…+4 operator scenario.
-5. Return to the case, select category, priority and recommended operator, then confirm through preview. Show the append-only audit.
-6. Continue with Radar/incident timeline, 1–3 month analytics, RU/KK data question, PDF/XLSX and the `synthetic_demo` / `organizer` source switch.
+1. In the local demo, open **Гражданин**, select region/city, describe a RU/KK issue, place the map point and attach a photo; submit and copy the tracking ID. In production, show that citizen intake remains private and requires consent plus authenticated operator moderation before public-map publication; number-only tracking is synthetic-demo only until owner authentication is added.
+2. Open **Очередь**, select the new card and run analysis. Explain that Laya is trained but shadow: category/spam/urgency are proposals.
+3. Show **Похожие решённые обращения** and its scoring mode. Review evidence and choose either duplicate/common incident or separate issue; do not auto-link.
+4. Select category, priority and recommended operator. Open preview and confirm. Show the audit event with proposed and confirmed values.
+5. Open **Радар** or the alert panel, inspect supporting cases, then create/update an incident and set its next update. Original complaints remain intact.
+6. Open **Ситуационный центр**, choose **Синтетика · 20 регионов**, show an alert and the three-month forecast, then ask: «Какие категории лидируют в Карагандинской области?»
+7. Download PDF and XLSX. Switch to **Организаторы · 6 регионов** and point out stale freshness and incomplete coverage.
 
 Presentation artifact: `deliverables/pulse109-govtech-demo.pptx` (10 slides, all ML and national metrics marked as synthetic).
 
@@ -116,9 +114,6 @@ python3 scripts/check_similarity.py
 python3 scripts/check_copilot.py
 python3 scripts/check_auth.py
 python3 scripts/check_voice.py
-python3 scripts/check_operations.py
-# With Playwright available and an isolated local server:
-node scripts/check_operations_ui.cjs http://127.0.0.1:8769
 python3 scripts/check_coverage.py
 python3 scripts/check_backup.py
 git diff --check

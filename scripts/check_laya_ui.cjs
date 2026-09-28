@@ -23,35 +23,32 @@ const mode=process.argv[3]||'laya';
     if(mode==='laya') {
       const high=await create('На Абая 44 с утра нет холодной воды во всём доме');
       await open(high);
-      await page.getByText('AI Classification · Laya',{exact:true}).waitFor();
+      await page.locator('.decision-section .field-label').getByText('Рекомендация ИИ',{exact:true}).waitFor();
       await page.getByText('Высокая уверенность · предварительный выбор, решение подтверждает оператор').waitFor();
       await page.locator('.routing-card').getByText('Айдана К.',{exact:true}).first().waitFor();
       await page.locator('[data-action="close"]').click();
 
       const medium=await create('Во дворе что-то течёт возле люка');
       await open(medium);
-      await page.getByText(/Вторичная проверка Laya: не подтверждено/).waitFor();
+      await page.getByText(/Дополнительная проверка: категорию нужно проверить вручную/).waitFor();
       await page.getByText('НУЖНО УТОЧНЕНИЕ',{exact:true}).waitFor();
       await page.locator('[data-action="close"]').click();
 
       const fallback=await create('invalid-json, но на Абая нет холодной воды');
       await open(fallback);
-      await page.getByText('AI Classification · DEMO FALLBACK',{exact:true}).waitFor();
-      await page.getByText(/Laya недоступна/).waitFor();
-      console.log('PASS LAYA UI 1: high confidence, clarification and visible offline fallback');
+      await page.getByText(/Основная рекомендация временно недоступна/).waitFor();
+      console.log('PASS LAYA UI 1: plain-language recommendation, clarification and visible offline fallback');
     } else if(mode==='shadow') {
       const shadow=await create('На Абая 44 с утра нет холодной воды во всём доме');
       await open(shadow);
-      await page.getByText('AI Classification · Laya shadow',{exact:true}).waitFor();
-      await page.getByText(/Laya shadow: Водоснабжение .* Маршрут не изменён/).waitFor();
-      console.log('PASS LAYA UI 2: shadow result and non-interference are visible to the operator');
+      await page.getByText(/Рекомендация ИИ · требуется проверка: Водоснабжение.*Маршрут автоматически не изменён/).waitFor();
+      console.log('PASS LAYA UI 2: additional recommendation and non-interference are visible in plain language');
     } else {
       const disagreement=await create('disagreement: нет холодной воды');
       await open(disagreement);
-      await page.getByText('AI Classification · Laya + classifier',{exact:true}).waitFor();
-      await page.getByText(/Models disagree/).waitFor();
-      await page.getByText(/Classifier: Водоснабжение 94% · Laya: Ливневая канализация 77%/).waitFor();
-      console.log('PASS LAYA UI 3: hybrid disagreement shows both model proposals');
+      await page.getByText(/ИИ-сервисы дали разные рекомендации · проверьте категорию/).waitFor();
+      await page.getByText(/Текущая рекомендация: Водоснабжение · Дополнительная рекомендация: Ливневая канализация/).waitFor();
+      console.log('PASS LAYA UI 3: disagreement shows both recommendations without model names');
     }
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}

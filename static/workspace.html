@@ -22,7 +22,7 @@
         <h1>Решения города<br>начинаются с сигнала</h1>
         <p>Защищённое рабочее пространство операторов Алматы 109.</p>
       </div>
-      <small>AI предлагает. Оператор решает.</small>
+      <small>ИИ предлагает. Оператор решает.</small>
     </div>
     <div class="auth-panel">
       <div class="auth-card">
@@ -63,7 +63,7 @@
           <button class="auth-submit" type="submit">Создать аккаунт</button>
         </form>
         <a class="public-map-link" href="/map">Посмотреть карту обращений →</a>
-        <p class="auth-footnote">Сессия хранится в защищённой cookie и завершается при выходе.</p>
+        <p class="auth-footnote">На общем компьютере обязательно выйдите из аккаунта после смены.</p>
       </div>
     </div>
   </main>
@@ -74,11 +74,8 @@
     <p class="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</p>
     <nav aria-label="Главное меню">
       <a href="#queue" data-nav="queue"><span aria-hidden="true">▤</span> Обращения <b id="nav-count">—</b></a>
-      <a href="#live" data-nav="live"><span aria-hidden="true">◉</span> Live Call</a>
       <a href="#radar" data-nav="radar"><span aria-hidden="true">◉</span> Радар <b id="radar-count">—</b></a>
       <a href="#incidents" data-nav="incidents"><span aria-hidden="true">◎</span> Инциденты <b id="incident-count">—</b></a>
-      <a href="#operations" data-nav="operations"><span aria-hidden="true">⬡</span> Operations Map</a>
-      <a href="#supervisor" data-nav="supervisor"><span aria-hidden="true">▦</span> Command Center</a>
       <a href="#map" data-nav="map"><span aria-hidden="true">⌖</span> Карта</a>
       <a href="#dashboard" data-nav="dashboard"><span aria-hidden="true">▥</span> Аналитика</a>
       <a href="#operators" data-nav="operators"><span aria-hidden="true">♧</span> Команда</a>
@@ -91,19 +88,19 @@
       <a href="/legacy#coverage-heading"><span aria-hidden="true">▦</span> Покрытие регионов</a>
       <a href="/legacy#intake-heading"><span aria-hidden="true">⊞</span> Исходный интерфейс</a>
     </nav>
-    <div class="sidebar-bottom"><div class="copilot-note"><span>✦</span><strong>AI предлагает.<br>Вы решаете.</strong><p>Каждое решение объяснимо<br>и сохраняется в истории.</p></div>
-    <div class="profile"><span id="profile-avatar" class="avatar">ОП</span><div class="profile-copy"><strong id="profile-name">Оператор 109</strong><small id="profile-email"><i></i> Демо-смена</small></div><button id="logout-button" type="button" aria-label="Выйти из аккаунта" title="Выйти">↪</button></div></div>
+    <div class="sidebar-bottom"><div class="copilot-note"><span>✦</span><strong>ИИ предлагает.<br>Вы решаете.</strong><p>Каждое решение объяснимо<br>и сохраняется в истории.</p></div>
+    <div class="profile"><span id="profile-avatar" class="avatar">ОП</span><div class="profile-copy"><strong id="profile-name">Оператор 109</strong><small id="profile-email"><i></i> Демонстрационная смена</small></div><button id="logout-button" type="button" aria-label="Выйти из аккаунта" title="Выйти">↪</button></div></div>
   </aside>
   <div class="shell">
     <header class="topbar"><span>Рабочее пространство <span class="crumb">/ <strong id="breadcrumb">Обращения</strong></span></span><div><span class="demo-badge"><i></i> Операционная база · источник в карточке</span><span id="today"></span></div></header>
     <main id="main" tabindex="-1"><div class="loading" role="status">Загружаем рабочее пространство…</div></main>
-    <footer class="disclaimer">КАЖДАЯ ЗАЯВКА ХРАНИТ ПРОИСХОЖДЕНИЕ · СИНТЕТИКА И ДАННЫЕ ОРГАНИЗАТОРОВ НЕ СМЕШИВАЮТСЯ · AI-РЕЗУЛЬТАТЫ ТРЕБУЮТ ПРОВЕРКИ.</footer>
+    <footer class="disclaimer">КАЖДАЯ ЗАЯВКА ХРАНИТ ПРОИСХОЖДЕНИЕ · ДЕМОНСТРАЦИОННЫЕ ДАННЫЕ И ДАННЫЕ ОРГАНИЗАТОРОВ НЕ СМЕШИВАЮТСЯ · РЕКОМЕНДАЦИИ ИИ ТРЕБУЮТ ПРОВЕРКИ.</footer>
   </div>
   <dialog id="case-dialog" aria-labelledby="case-title"><div id="case-content"></div></dialog>
   <dialog id="playbook-dialog" aria-labelledby="playbook-title"><div id="playbook-content"></div></dialog>
-  <dialog id="command-dialog" aria-labelledby="command-title"><div class="case-header"><h2 id="command-title">Команды карточки</h2><button class="button icon-button" data-action="close-commands" aria-label="Закрыть команды">×</button></div><div class="command-body"><label for="command-search">Найти действие</label><input id="command-search" type="search" autocomplete="off" placeholder="Например: уточнение"><p class="micro">Команда открывает preview. Для выполнения потребуется подтверждение.</p><div id="command-options"></div></div></dialog>
+  <dialog id="command-dialog" aria-labelledby="command-title"><div class="case-header"><h2 id="command-title">Команды карточки</h2><button class="button icon-button" data-action="close-commands" aria-label="Закрыть команды">×</button></div><div class="command-body"><label for="command-search">Найти действие</label><input id="command-search" type="search" autocomplete="off" placeholder="Например: уточнение"><p class="micro">Сначала вы увидите все изменения. Для выполнения потребуется подтверждение.</p><div id="command-options"></div></div></dialog>
   <div id="toast" role="status" aria-live="polite" hidden></div>
   </div>
-  <script type="module" src="/static/workspace.js?v=20260928-11"></script>
+  <script type="module" src="/static/workspace.js?v=20260928-12"></script>
 </body>
 </html>

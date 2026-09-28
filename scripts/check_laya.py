@@ -238,7 +238,10 @@ def run():
                 assert spam_detail["triage"]["spam_suspected"] == {
                     "value": True, "confidence": .92, "probability_true": .92, "threshold": .9,
                 }
-                assert any("порог 90%" in reason for reason in spam_detail["risk"]["reasons"])
+                assert spam_detail["risk"]["reasons"][-1] == (
+                    "Автоматическая проверка нашла признаки нежелательного сообщения. "
+                    "Решение принимает оператор."
+                )
                 borderline = intake("borderline-spam: пограничное сообщение")
                 borderline_detail = call(f"/api/workspace/complaints/{borderline}/triage", {})
                 assert "spam_suspected" not in borderline_detail["flags"]

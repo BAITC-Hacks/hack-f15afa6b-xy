@@ -304,7 +304,7 @@ function selectComplaint(c) {
   document.getElementById("active-text").textContent = c.text;
   const regionObj = cachedRegions.find(r => r.id === c.region_id);
   document.getElementById("active-region").textContent = regionObj ? regionObj.name_ru : c.region_id;
-  document.getElementById("active-origin").textContent = c.data_origin;
+  document.getElementById("active-origin").textContent = c.data_origin === "synthetic" ? "Демонстрационные данные" : c.data_origin === "organizer" ? "Данные организаторов" : "Обращение гражданина";
 
   const badge = document.getElementById("active-status-badge");
   const statusValue = typeof c.decision_status === "string" ? c.decision_status : "";
@@ -444,7 +444,7 @@ function renderProposal(proposal) {
   if (!proposal || !proposal.topic) {
     container.innerHTML = `
       <div class="proposal-pill" style="background:#fee2e2;color:#991b1b;">Тема не распознана</div>
-      <p style="font-size:0.85rem;margin-top:0.4rem;">Требуется ручной выбор темы оператором (needs_review).</p>
+      <p style="font-size:0.85rem;margin-top:0.4rem;">Недостаточно информации · выберите тему вручную.</p>
     `;
     return;
   }
@@ -475,8 +475,8 @@ async function loadSimilar(complaintId) {
       div.className = "similar-item";
       const excerpt = document.createElement("div");
       excerpt.append(textElement("strong", `[${cand.complaint_id}]`), ` ${cand.excerpt}`);
-      const statusText = typeof cand.decision_status === "string" ? cand.decision_status : "—";
-      const originText = typeof cand.origin === "string" ? cand.origin : "—";
+      const statusText = STATUS_LABELS[cand.decision_status] || "На проверке";
+      const originText = cand.origin === "synthetic" ? "Демонстрационные данные" : cand.origin === "organizer" ? "Данные организаторов" : "Обращение гражданина";
       const metadata = textElement("div", `Статус: ${statusText} | Источник: ${originText}`);
       metadata.style.cssText = "color:#64748b;font-size:0.75rem;";
       div.append(excerpt, metadata);
