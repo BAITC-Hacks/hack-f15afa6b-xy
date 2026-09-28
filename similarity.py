@@ -23,9 +23,22 @@ class SimilarityClient:
     def __init__(self, base_url: str, checkpoint_id: str, timeout: float = 8):
         if not re.fullmatch(r"[0-9a-f]{64}", checkpoint_id):
             raise ValueError("P109_SIMILARITY_CHECKPOINT_ID must be a 64-character SHA-256")
-        self.url = base_url.rstrip("/") + "/rank"
+        self.base_url = base_url.rstrip("/")
+        self.url = self.base_url + "/rank"
         self.checkpoint_id = checkpoint_id
         self.timeout = timeout
+
+    def status(self) -> dict:
+        result = {"configured": True, "mode": "lexical_fallback", "status": "unavailable",
+                  "checkpoint_id": self.checkpoint_id}
+        try:
+            with urllib.request.urlopen(self.base_url + "/health", timeout=min(self.timeout, 1)) as response:
+                data = json.loads(response.read())
+            if data.get("status") == "ok" and data.get("checkpoint_id") == self.checkpoint_id:
+                result.update({"mode": "trained", "status": "healthy"})
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, AttributeError):
+            pass
+        return result
 
     @classmethod
     def from_env(cls):

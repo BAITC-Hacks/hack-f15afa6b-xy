@@ -221,8 +221,9 @@ def health_check():
         **model,
         "laya": decision_service.health(),
         "copilot": copilot.status() if copilot else {"configured": False, "mode": "deterministic_fallback"},
-        "similarity": {"configured": bool(similarity_client), "mode": "trained" if similarity_client else "lexical_fallback",
-                       "checkpoint_id": similarity_client.checkpoint_id if similarity_client else None},
+        "similarity": similarity_client.status() if similarity_client else {
+            "configured": False, "mode": "lexical_fallback", "status": "not_configured", "checkpoint_id": None,
+        },
         "object_storage": object_storage().status(),
         "banner": BANNER_TEXT,
     }
