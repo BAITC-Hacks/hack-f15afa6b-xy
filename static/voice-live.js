@@ -67,11 +67,11 @@ function setMode(next,text='') {
   control.textContent=labels[next];liveStatus.textContent=text||({listening:'Слушаю вас · закончу запись после короткой паузы',transcribing:'Перевожу речь в текст…',review:'Проверьте заполненную форму и точку на карте',retry:'Повторите запись или исправьте текст в форме'}[next]||'Нажмите «Начать разговор»');
 }
 
-async function beginTurn(field) {
+async function beginTurn(field,promptText=null) {
   const selected=selectedVoiceLanguage(language),promptLanguage=selected.language==='auto'?(selected.hintLanguage||'mixed'):selected.language;
-  stage=field;message('agent',voicePrompts[promptLanguage][field]);
+  stage=field;message('agent',promptText||voicePrompts[promptLanguage][field]);
   try {
-    await beginVoiceTurn({field,...selected,api,realtime:realtimeAvailable,onState:state=>setMode(state,state==='listening'&&language.value==='auto'?'Определяем язык…':''),onSpeech:()=>setMode('listening','Слышу вас · определяем язык'),onPartial:(text,result)=>{
+    await beginVoiceTurn({field,...selected,promptText,api,realtime:realtimeAvailable,onState:state=>setMode(state,state==='listening'&&language.value==='auto'?'Определяем язык…':''),onSpeech:()=>setMode('listening','Слышу вас · определяем язык'),onPartial:(text,result)=>{
       previewTranscript(document.querySelector(field==='problem'?'#citizen-text':'#citizen-address'),text);
       liveStatus.textContent=applyLanguageResult(language,result)||'Заполняем черновик…';
       scheduleLiveAnalysis(text,result);
@@ -96,11 +96,11 @@ async function useTranscript(field,result) {
       try {
         analysis=await api('/api/voice/analyze',{text:input.value,language:result.language,region_id:form.elements.region_id.value});
         applyLanguageResult(language,analysis);
-        showAnalysis(analysis);message('agent',analysis.assistant_message);
+        showAnalysis(analysis);
       } catch(error) {toast(`ИИ-помощник временно недоступен: ${error.message}`);}
       if(analysis?.needs_clarification&&!clarificationAsked) {
-        clarificationAsked=true;await beginTurn('problem');
-      } else await beginTurn('address');
+        clarificationAsked=true;await beginTurn('problem',analysis.assistant_message);
+      } else await beginTurn('address',analysis?.needs_clarification?null:analysis?.assistant_message);
     }
     else {
       stage='review';message('agent',result.assistant_message);setMode('speaking');

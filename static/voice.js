@@ -22,6 +22,7 @@ function browserSpeak(text,language) {
 
 export async function speakPrompt(text,language,prompt,api) {
   if(playback) {playback.pause();playback=null;}
+  if(!prompt) return browserSpeak(text,language);
   try {
     const result=await api('/api/voice/speak',{prompt});
     if(!result.audio_data?.startsWith('data:audio/wav;base64,')) throw new Error('Invalid audio');
@@ -145,12 +146,12 @@ async function previewVoice(current) {
   if(recording===current) current.previewPromise=null;
 }
 
-export async function beginVoiceTurn({field,language,hintLanguage=null,api,realtime=false,onState=()=>{},onTimeout=()=>{},onPartial=()=>{},onSpeech=()=>{},onSilence=()=>{}}) {
+export async function beginVoiceTurn({field,language,hintLanguage=null,promptText=null,api,realtime=false,onState=()=>{},onTimeout=()=>{},onPartial=()=>{},onSpeech=()=>{},onSilence=()=>{}}) {
   if(recording||processing) throw new Error('Дождитесь завершения текущего ответа');
   if(!navigator.mediaDevices?.getUserMedia) throw new Error('Браузер не поддерживает запись с микрофона');
   const promptLanguage=language==='auto'?(hintLanguage||'mixed'):language;
   onState('prompting');
-  await speakPrompt(voicePrompts[promptLanguage][field],promptLanguage,`${promptLanguage}_${field}`,api);
+  await speakPrompt(promptText||voicePrompts[promptLanguage][field],promptLanguage,promptText?null:`${promptLanguage}_${field}`,api);
   const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
   const context=new AudioContext(), source=context.createMediaStreamSource(stream);
   const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];

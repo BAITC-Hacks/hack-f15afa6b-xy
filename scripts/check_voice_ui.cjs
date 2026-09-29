@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const base=process.argv[2]||'http://127.0.0.1:8769';
 
 (async()=>{
-  let fixture='ru';
+  let fixture='ru',clarificationTurns=0;
   const browser=await chromium.launch({headless:true,channel:process.env.P109_BROWSER||'chrome'});
   const page=await browser.newPage({viewport:{width:1440,height:900}});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -37,13 +37,14 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
       const unknown=detected==='unknown';
       const language=unknown?'unknown':detected;
       const responseLanguage=unknown?null:language;
-      const text=unknown?'Абай 44':language==='kk'?'Абай көшесінде таңертең су жоқ':'На Абая с утра нет воды';
+      const text=unknown?'Абай 44':fixture==='clarify'?(++clarificationTurns===1?'Нет воды':'Это началось утром'):language==='kk'?'Абай көшесінде таңертең су жоқ':'На Абая с утра нет воды';
       const next=body.field==='problem'?'address':'review';
       const prompt=responseLanguage?`${responseLanguage}_${next}`:'mixed_language_retry';
       return route.fulfill({json:{text,field:body.field,next_field:next,assistant_message:unknown?'Не удалось определить язык. Тілді таңдаңыз немесе фразаны қайталаңыз.':responseLanguage==='kk'?'Енді мекенжайды айтыңыз.':'Теперь назовите адрес.',assistant_prompt:prompt,detected_city:null,language,response_language:responseLanguage,source:requested==='auto'?'text':'manual',needs_language_choice:unknown,audio_stored:false}});
     }
     if(path.endsWith('/analyze')) {
       const body=route.request().postDataJSON(), kk=body.language==='kk';
+      if(fixture==='clarify') return route.fulfill({json:{category:null,category_label:'Категория пока не определена',confidence:.3,urgency:'normal',needs_clarification:true,spam_suspected:false,ai_active:true,assistant_message:'Опишите точнее, что произошло, когда началось и есть ли опасность.',language:'ru',response_language:'ru',source:'text',needs_language_choice:false}});
       return route.fulfill({json:{category:'water_supply',category_label:kk?'Сумен жабдықтау':'Водоснабжение',confidence:.9,urgency:'normal',needs_clarification:false,spam_suspected:false,ai_active:true,assistant_message:kk?'Түсіндім: «Сумен жабдықтау». Енді оқиға орнын нақтылайық.':'Похоже, это «Водоснабжение». Теперь уточним место.',language:body.language,response_language:body.language,source:'text',needs_language_choice:false}});
     }
     return route.continue();
@@ -83,12 +84,23 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     assert.match(await page.locator('#voice-conversation').innerText(),/Похоже, это «Водоснабжение»/);
     console.log('PASS VOICE UI 3: manual Russian overrides automatic detection');
 
+    fixture='clarify';clarificationTurns=0;await page.reload();await language.selectOption('ru');
+    await record();
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
+    await page.evaluate(()=>globalThis.__feedVoice());
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).click();
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
+    const dialogue=await page.locator('#voice-conversation').innerText();
+    assert.equal((dialogue.match(/Опишите точнее/g)||[]).length,1);
+    assert.match(dialogue,/Теперь назовите адрес/);
+    console.log('PASS VOICE UI 4: answered clarification is not asked again');
+
     fixture='unknown';await page.reload();await language.selectOption('auto');
     await record();
     await page.waitForFunction(()=>document.querySelector('#voice-live-status').textContent.includes('выберите вручную'));
     assert.equal(await page.getByLabel('Что произошло?',{exact:true}).inputValue(),'Абай 44');
     assert.equal(await language.isEnabled(),true);
-    console.log('PASS VOICE UI 4: uncertain language preserves text and asks for a manual choice');
+    console.log('PASS VOICE UI 5: uncertain language preserves text and asks for a manual choice');
 
     fixture='unavailable';await page.reload();
     await record();
@@ -96,7 +108,7 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     await page.getByLabel('Что произошло?',{exact:true}).fill('Ввожу обращение вручную');
     assert.equal(await page.getByLabel('Что произошло?',{exact:true}).inputValue(),'Ввожу обращение вручную');
     assert.deepEqual(errors,[]);
-    console.log('PASS VOICE UI 5: STT failure keeps manual input usable');
+    console.log('PASS VOICE UI 6: STT failure keeps manual input usable');
   } finally {await browser.close();}
-  console.log('ALL 5 VOICE UI CHECKS PASSED');
+  console.log('ALL 6 VOICE UI CHECKS PASSED');
 })().catch(error=>{console.error(error);process.exitCode=1;});
