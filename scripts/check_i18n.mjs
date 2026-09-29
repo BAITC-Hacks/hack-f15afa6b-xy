@@ -23,6 +23,7 @@ const en=translator('en');
 assert.equal(en('Очередь обращений'),'Request queue');
 assert.equal(en('Все города · обращений: 45'),'All cities · requests: 45');
 assert.equal(en('Просрочено 2 ч 16 мин'),'Overdue by 2h 16m');
+assert.equal(en('Загружаем обращения…'),'Loading requests…');
 
 const kk=translator('kk');
 assert.equal(kk('Очередь обращений'),'Өтініштер кезегі');
