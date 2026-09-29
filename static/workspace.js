@@ -4,8 +4,8 @@ import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} f
 import {caseView} from './case.js?v=20260929-2gis';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260929-radar';
 import {authFetch,bootstrapAuth} from './auth.js?v=20260929-copy';
-import {mountMaps,resetLocationPicker} from './map.js?v=20260929-heat-demo-2';
-import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260929-heat-demo-2';
+import {mountMaps,resetLocationPicker} from './map.js?v=20260930-incident-area';
+import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260930-incident-area';
 import {clearLanguageResult,handleVoiceAction,selectedIntakeLanguage} from './voice.js?v=20260929-copy';
 import {mountThinkingOrbs} from './thinking-orb.js?v=20260929-brand';
 import {registerAnalyticsActions} from './analytics-actions.js?v=20260929-copy';

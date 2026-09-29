@@ -15,7 +15,7 @@ from copilot import attach_copilot_routes
 from demo_data import intake_privacy, seed_workspace
 from object_storage import ObjectStorageError, object_storage
 from playbooks import attach_playbook_routes
-from public_issues import attach_public_issue_routes, redact_public_text
+from public_issues import attach_public_issue_routes, distance_metres, public_location, redact_public_text
 from similarity import SimilarityClient
 from triage import (analyze, address_in, operators_with_load, queue_state, related_cases,
                     risk_for, route, responsible_service_name, moment)
@@ -51,11 +51,26 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         result = []
         for row in conn.execute("SELECT * FROM incidents ORDER BY started_at DESC"):
             item = dict(row)
-            members = conn.execute("SELECT id, address, text FROM complaints WHERE incident_id = ?", (item["id"],)).fetchall()
+            members = conn.execute(
+                "SELECT id, address, text, latitude, longitude FROM complaints WHERE incident_id = ?",
+                (item["id"],),
+            ).fetchall()
+            points = [(r["latitude"], r["longitude"]) for r in members
+                      if r["latitude"] is not None and r["longitude"] is not None]
+            if points:
+                latitude = sum(point[0] for point in points) / len(points)
+                longitude = sum(point[1] for point in points) / len(points)
+                radius = max(500, *(distance_metres(latitude, longitude, *point) for point in points))
+                location_source = "complaint_area"
+                latitude, longitude = round(latitude, 3), round(longitude, 3)
+            else:
+                latitude, longitude, radius, location_source = public_location(item)
             item.update(count=len(members), members=[dict(r) for r in members],
                         streets=len({(r["address"] or "").rsplit(" ", 1)[0] for r in members if r["address"]}),
                         minutes=round((datetime.now(timezone.utc) - moment(item["started_at"])).total_seconds() / 60),
-                        service_name=responsible_service_name(item["region_id"], item["service_id"]))
+                        service_name=responsible_service_name(item["region_id"], item["service_id"]),
+                        latitude=latitude, longitude=longitude, radius_m=radius,
+                        location_source=location_source)
             result.append(item)
         return result
 

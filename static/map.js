@@ -182,22 +182,35 @@ async function searchViewerAddress(element, map, maplibregl) {
 async function mountViewer(element) {
   const maplibregl=await loadLibrary();
   if(!element.isConnected || element.dataset.mounted) return;
-  const byAddress=element.dataset.mapMode==='address';
+  const byAddress=element.dataset.mapMode==='address', area=element.dataset.mapMode==='area';
   const latitude=Number(element.dataset.latitude), longitude=Number(element.dataset.longitude);
+  const radius=Number(element.dataset.radiusM);
   const point=element.dataset.latitude!=null&&element.dataset.longitude!=null&&Number.isFinite(latitude)&&Number.isFinite(longitude);
   if(!byAddress&&!point) return;
   element.dataset.mounted='true';
-  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:point?[longitude,latitude]:[67.5,48],zoom:point?17:3.5,pitch:0,interactive:true,renderWorldCopies:false});
+  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:point?[longitude,latitude]:[67.5,48],zoom:point?(area?11:17):3.5,pitch:0,interactive:true,renderWorldCopies:false});
   element._pulseMap=map;
   element.setAttribute('aria-busy','true');
   map.on('idle',()=>element.setAttribute('aria-busy','false'));
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
   const resize=new ResizeObserver(()=>map.resize());resize.observe(element);map.on('remove',()=>resize.disconnect());
-  if(point) {
-    element.dataset.pointLabel=element.closest('.location-card').querySelector('[data-map-status]').textContent;
+  if(point&&!area) {
+    element.dataset.pointLabel=element.closest('.location-card')?.querySelector('[data-map-status]')?.textContent||element.dataset.label||'Место обращения';
     const popup=new maplibregl.Popup({offset:28,closeButton:false}).setText(element.dataset.label||'Место обращения');
     element._pulseMarker=new maplibregl.Marker({color:'#3982c1'}).setLngLat([longitude,latitude]).setPopup(popup).addTo(map);
   }
+  if(point&&area&&Number.isFinite(radius)&&radius>0) map.on('load',()=>{
+    const coordinates=[];
+    const latStep=radius/111320, lngStep=radius/(111320*Math.max(.2,Math.cos(latitude*Math.PI/180)));
+    for(let degree=0;degree<=360;degree+=6) {
+      const angle=degree*Math.PI/180;
+      coordinates.push([longitude+Math.cos(angle)*lngStep,latitude+Math.sin(angle)*latStep]);
+    }
+    map.addSource('incident-area',{type:'geojson',data:{type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[coordinates]}}});
+    map.addLayer({id:'incident-area-fill',type:'fill',source:'incident-area',paint:{'fill-color':'#3982c1','fill-opacity':.2}});
+    map.addLayer({id:'incident-area-line',type:'line',source:'incident-area',paint:{'line-color':'#2f6fa8','line-width':2}});
+    map.fitBounds([[longitude-lngStep,latitude-latStep],[longitude+lngStep,latitude+latStep]],{padding:24,maxZoom:14,duration:0});
+  });
   if(!byAddress||!element.dataset.cityCode) return;
   const card=element.closest('.location-card'), button=card.querySelector('[data-map-search]');
   button.addEventListener('click',()=>searchViewerAddress(element,map,maplibregl));
