@@ -52,6 +52,9 @@ def run():
             queue = call("/api/workspace/queue")
             assert len(queue["items"]) == 50, "Seed must be idempotent and retain 20 originals"
             assert all(item["similarity_scoring"]["mode"] != "trained" for item in queue["items"])
+            incident = next(item for item in call("/api/workspace/incidents")["items"] if item["id"] == "INC-204")
+            assert incident["location_source"] == "district_approximate"
+            assert incident["radius_m"] == 2500 and incident["latitude"] and incident["longitude"]
             print("PASS 1: 50 synthetic complaints; idempotent seed and 90-city KATO directory")
 
             cid = intake("Добрый день, на Абая 44 с утра нет воды, весь дом без воды, когда включат?",

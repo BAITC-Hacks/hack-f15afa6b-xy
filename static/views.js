@@ -30,11 +30,13 @@ export function heading(title, subtitle, actions='') {
   return `<div class="page-heading"><div><h1>${title}</h1><p class="subtitle">${subtitle}</p></div><div class="heading-actions">${actions}</div></div>`;
 }
 export function incidentCard(i, compact=false) {
+  const radius=Number(i.radius_m), latitude=Number(i.latitude), longitude=Number(i.longitude);
+  const area=Number.isFinite(radius)&&Number.isFinite(latitude)&&Number.isFinite(longitude);
+  const radiusLabel=radius>=1000?`${(radius/1000).toLocaleString(globalThis.pulseLocale||'ru-RU',{maximumFractionDigits:1})} км`:`${Math.round(radius)} м`;
   return `<article class="incident-card ${compact?'compact':''}"><div class="section-top"><span class="eyebrow">МАССОВЫЙ ИНЦИДЕНТ</span>${badge(i.status,'green')}</div>
     <span class="incident-symbol" aria-hidden="true">≈</span><h3>${esc(i.title)}</h3><p class="muted">${esc(i.id)} · ${esc(i.service_name)}</p>
     <div class="incident-numbers"><div><strong>${i.count}</strong><span>обращений</span></div><div><strong>${i.streets}</strong><span>улицы</span></div><div><strong>${i.minutes}</strong><span>минут</span></div></div>
-    <div class="street-map" aria-hidden="true"><span>Абая</span><i></i><span>Масанчи</span><i></i><span>Шевченко</span></div>
-    <p class="micro">Связи между обращениями подтверждены в демо.</p>
+    ${area?`<div class="incident-area-map issue-map" data-map-mode="area" data-latitude="${latitude}" data-longitude="${longitude}" data-radius-m="${radius}" data-label="${esc(i.district)} район" aria-label="Примерная зона инцидента: ${esc(i.district)} район"></div><p class="micro">Примерная зона · радиус ${radiusLabel}. Не означает точную границу аварии.</p>`:'<p class="micro">Место инцидента пока не определено.</p>'}
     ${button('incident', 'Открыть инцидент <span>↗</span>', 'wide ghost', `data-id="${esc(i.id)}"`)}</article>`;
 }
 export function queueView(s) {

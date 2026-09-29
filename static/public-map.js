@@ -1,4 +1,4 @@
-import {mountPublicMap,mountTimeMachine} from './map.js?v=20260929-heat-demo-2';
+import {mountPublicMap,mountTimeMachine} from './map.js?v=20260930-incident-area';
 import {demoIncidentHistory} from './incident-time-machine.js?v=20260929-heat-demo-2';
 
 const labels={pending:'На рассмотрении',confirmed:'Принято в работу',needs_clarification:'Нужно уточнение',resolved:'Решено'};
