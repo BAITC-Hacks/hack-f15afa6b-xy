@@ -161,6 +161,17 @@ def run() -> None:
             assert session_token not in (token_hash, stored_csrf)
             print("PASS 3: invited operator bootstrap creates an admin with scrypt password and hashed session secrets")
 
+            assert anonymous.request(base_url + "/api/workspace/radar/demo", "POST", {})[0] == 401
+            status, demo, _ = account.request(
+                base_url + "/api/workspace/radar/demo", "POST", {},
+                {"X-CSRF-Token": csrf_token},
+            )
+            assert status == 200 and demo["count"] == len(demo["ids"]) == 6
+            status, radar, _ = account.request(base_url + "/api/workspace/radar?source=synthetic")
+            assert status == 200 and radar["demo_available"] is True
+            assert any(set(demo["ids"]) == set(item["case_ids"]) for item in radar["items"])
+            print("PASS 3a: authenticated operator can add a synthetic Radar scenario; anonymous access is denied")
+
             status, closed_config, _ = anonymous.request(base_url + "/api/auth/config")
             assert status == 200 and closed_config["signup_available"] and not closed_config["first_account"]
             duplicate_status, _, _ = anonymous.request(
@@ -218,8 +229,6 @@ def run() -> None:
             status, claimed, _ = account.request(radar_path, "POST", body, {"X-CSRF-Token": csrf_token})
             assert status == 200 and claimed["signal"]["owner_id"] == signup["user"]["id"]
             assert claimed["signal"]["owner_name"] == "Ayan Operator"
-            assert account.request(base_url + "/api/workspace/radar/demo", "POST", {},
-                                   {"X-CSRF-Token": csrf_token})[0] == 403
             citizen = Client()
             assert citizen.request(base_url + "/api/auth/signup", "POST", {
                 "name": "Test Citizen", "email": "radar-citizen@example.kz", "password": valid_password,
@@ -227,7 +236,7 @@ def run() -> None:
             assert citizen.request(base_url + "/api/workspace/radar")[0] == 403
             assert citizen.request(radar_path, "POST", body,
                                    {"X-CSRF-Token": citizen.cookie("pulse109_csrf")})[0] == 403
-            print("PASS 5b: Radar is operator-only; CSRF enforced; real account owns signal; demo blocked")
+            print("PASS 5b: Radar is operator-only; CSRF enforced; real account owns signal")
 
             status, logout, _ = account.request(
                 base_url + "/api/auth/logout", "POST", {}, {"X-CSRF-Token": csrf_token}

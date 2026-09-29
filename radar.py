@@ -24,7 +24,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from auth import current_actor
-from demo_data import demo_mode
 from radar_state import (SOURCES, SignalAction, check_revision, finish_signal, stored_signals,
                          sync_signal, update_signal)
 from incidents import ACTIVE_INCIDENT_STATUSES, attach_incident_routes, incident_detail, incident_event
@@ -319,7 +318,7 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
             coverage = {}
             items = build_signals(conn, classifier, topic_services, origins=SOURCES[source], coverage=coverage)
             return {"items": items, "min_cases": RADAR_MIN_CASES, "window_minutes": RADAR_WINDOW_MINUTES,
-                    "data_origin": source, "coverage": coverage, "demo_available": demo_mode()}
+                    "data_origin": source, "coverage": coverage, "demo_available": True}
 
     @router.post("/radar/{signal_id}/action")
     def signal_action(signal_id: str, req: SignalAction):
@@ -334,9 +333,7 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
 
     @router.post("/radar/demo")
     def radar_demo():
-        """One fresh synthetic RU/KK water-outage batch per click; the seed fixtures stay untouched."""
-        if not demo_mode():
-            raise HTTPException(403, "Демонстрационные обращения доступны только в локальном демо.")
+        """One fresh synthetic RU/KK water-outage batch per operator click."""
         batch = uuid.uuid4().hex[:6].upper()
         now = datetime.now(timezone.utc)
         ids, inserted = [], 0
