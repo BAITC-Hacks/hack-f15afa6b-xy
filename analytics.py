@@ -267,6 +267,8 @@ def forecast(conn, horizon: int, region_id=None, topic=None, origin="synthetic_d
     recent_baseline = statistics.median(item["count"] for item in history[-4:-1])
     if len(history) > 6 and recent_baseline >= 10 and history[-1]["count"] < recent_baseline * .35:
         excluded_partial_month = history.pop()
+    if len(history) < minimum:
+        raise HTTPException(status_code=409, detail=f"At least {minimum} complete monthly observations are required")
     values = [item["count"] for item in history]
     candidates = {}
     for method in ("last_value", "moving_average_3", "linear_trend"):
@@ -344,7 +346,7 @@ def alerts(conn, origin="synthetic_demo", region_id=None, topic=None) -> dict:
             "provenance": _provenance(conn, origin, filters)}
 
 
-def _rank(conn, field: str, region_id=None, topic=None, origin="synthetic_demo", period=None) -> list[dict]:
+def _rank(conn, field: str, region_id=None, topic=None, origin="synthetic_demo", period=None, limit=5) -> list[dict]:
     conditions, values = ["data_origin=?"], [origin]
     if region_id:
         conditions.append("region_id=?")
@@ -357,8 +359,38 @@ def _rank(conn, field: str, region_id=None, topic=None, origin="synthetic_demo",
         values.append(period if len(period) == 7 else f"{period}-%")
     return [dict(row) for row in conn.execute(
         f"SELECT {field} id,SUM(count) value FROM regional_monthly_counts WHERE {' AND '.join(conditions)} "
-        f"GROUP BY {field} ORDER BY value DESC LIMIT 5", values
+        f"GROUP BY {field} ORDER BY value DESC, {field} LIMIT ?", [*values, limit]
     ).fetchall()]
+
+
+def report_data(conn, region_names, topic_names, region_id=None, topic=None, origin="synthetic_demo"):
+    series = _series(conn, region_id, topic, origin)
+    projection = None
+    try:
+        projection = forecast(conn, 3, region_id, topic, origin)
+    except HTTPException as error:
+        if error.status_code != 409:
+            raise
+    excluded = projection and projection["excluded_partial_month"]
+    history = series[:-1] if excluded else series
+    period = history[-1]["month"] if history else None
+    categories = _rank(conn, "topic", region_id, topic, origin, period, 10) if period else []
+    regions = _rank(conn, "region_id", region_id, topic, origin, period, 20) if period else []
+    for rows, names in ((categories, topic_names), (regions, region_names)):
+        for row in rows:
+            row["label"] = names.get(row["id"], row["id"])
+    signals = alerts(conn, origin, region_id, topic)["items"]
+    for signal in signals:
+        signal["region_name"] = region_names.get(signal["region_id"], signal["region_id"])
+        signal["topic_name"] = topic_names.get(signal["topic"], signal["topic"])
+    return {
+        "generated_at": datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC"),
+        "region": region_names.get(region_id, "Все регионы"),
+        "topic": topic_names.get(topic, "Все категории"),
+        "series": series, "history": history, "forecast": projection,
+        "categories": categories, "regions": regions, "alerts": signals,
+        "provenance": _provenance(conn, origin, {"region_id": region_id, "topic": topic}),
+    }
 
 
 def answer_question(conn, request: DataQuestion, region_names: dict, topic_names: dict,
@@ -430,14 +462,11 @@ def build_analytics_router(get_connection: Callable, regions: list[dict], topics
         with get_connection() as conn:
             series = _series(conn, region_id, topic, data_origin)
             provenance = _provenance(conn, data_origin, {"region_id": region_id, "topic": topic})
+            report = report_data(conn, region_names, topic_names, region_id, topic, data_origin) if format == "pdf" else None
         total = sum(row["count"] for row in series)
         filters = f"region={region_id or 'all'}; topic={topic or 'all'}"
         if format == "pdf":
-            body = pdf_report(["Pulse 109 — аналитический отчёт", f"Сформирован UTC: {datetime.now(timezone.utc).isoformat()}",
-                         f"Источник данных: {data_origin}", f"Набор: {provenance['source']}", f"Граница вывода: {provenance['claim']}",
-                         f"Актуальность: {provenance['freshness']['status']} ({provenance['last_observation_month']})",
-                         filters, f"Всего обращений в срезе: {total}", "Месяц | Количество",
-                         *[f"{row['month']} | {row['count']}" for row in series[-36:]]])
+            body = pdf_report(report)
             media = "application/pdf"
         else:
             body = xlsx_report([["Pulse 109 analytics report"], ["Data origin", data_origin], ["Source", provenance["source"]],

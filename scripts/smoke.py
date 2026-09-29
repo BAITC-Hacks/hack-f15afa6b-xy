@@ -285,7 +285,9 @@ def run_smoke():
             pdf_path.write_bytes(pdf)
             extracted = subprocess.run(["pdftotext", str(pdf_path), "-"], check=True,
                                        capture_output=True, text=True).stdout
-            assert "аналитический отчёт" in extracted and "Источник данных" in extracted
+            assert "Аналитический отчёт" in extracted and "Источник данных" in extracted
+            assert "Где сосредоточена нагрузка" in extracted and "Диапазон" in extracted
+            assert "MAE" in extracted and "synthetic_demo" in extracted
         with urllib.request.urlopen(f"{base_url}/api/reports?format=xlsx") as response:
             assert response.headers.get_content_type() == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" and response.read().startswith(b"PK")
         print("PASS 13e: Unicode PDF and XLSX exports are real downloadable files")
