@@ -1,4 +1,4 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260929-accounts';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260929-accounts&analytics=1';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260929-unified-login';
 import {caseView} from './case.js?v=20260929-clarity';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
@@ -7,6 +7,8 @@ import {mountMaps,resetLocationPicker} from './map.js?v=20260929-brand';
 import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260929-brand';
 import {clearLanguageResult,handleVoiceAction,selectedIntakeLanguage} from './voice.js?v=20260928-motion-orb';
 import {mountThinkingOrbs} from './thinking-orb.js?v=20260929-brand';
+import {registerAnalyticsActions} from './analytics-actions.js?v=1';
+registerAnalyticsActions(authFetch,esc);
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 if(globalThis.gsap&&globalThis.Flip) globalThis.gsap.registerPlugin(globalThis.Flip);
 async function mediaData(input) {
@@ -541,7 +543,7 @@ async function start(user=state.user) {
 }
 document.addEventListener('click',e=>{if(e.target.closest('[data-action="retry"]')) start();});
 setInterval(async()=>{
-  if(document.hidden||document.querySelector('#workspace-screen').hidden||dialog.open||state.page==='citizen'||document.activeElement?.tagName==='INPUT') return;
+  if(document.hidden||document.querySelector('#workspace-screen').hidden||dialog.open||state.page==='citizen'||document.activeElement?.matches('input,textarea,select')) return;
   try {await refresh();} catch { /* Preserve last usable queue during a temporary connection failure. */ }
 },60000);
 bootstrapAuth(start);

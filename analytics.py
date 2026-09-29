@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from report_exports import pdf_report, xlsx_report
+from analytics_actions import build_actions_router, init_actions
 
 
 class DataQuestion(BaseModel):
@@ -64,6 +65,7 @@ MONTH_TERMS = {
 
 
 def init_analytics(conn) -> None:
+    init_actions(conn)
     conn.execute(
         """CREATE TABLE IF NOT EXISTS regional_monthly_counts (
             month TEXT NOT NULL, region_id TEXT NOT NULL, topic TEXT NOT NULL,
@@ -476,4 +478,5 @@ def build_analytics_router(get_connection: Callable, regions: list[dict], topics
             media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         return Response(body, media_type=media, headers={"Content-Disposition": f'attachment; filename="pulse109-analytics.{format}"'})
 
+    router.include_router(build_actions_router(get_connection, region_names, topic_names))
     return router
