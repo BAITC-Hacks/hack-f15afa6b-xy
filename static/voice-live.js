@@ -1,4 +1,4 @@
-import {applyDetectedCity,applyLanguageResult,beginVoiceTurn,clearLanguageResult,discardSavedVoiceTurn,finishVoiceTurn,mergeTranscript,previewTranscript,retrySavedVoiceTurn,selectedIntakeLanguage,selectedVoiceLanguage,settleTranscriptPreview,speakPrompt,voicePrompts} from './voice.js?v=20260929-copy';
+import {applyDetectedCity,applyLanguageResult,beginVoiceTurn,clearLanguageResult,discardSavedVoiceTurn,finishVoiceTurn,mergeTranscript,previewTranscript,retrySavedVoiceTurn,selectedIntakeLanguage,selectedVoiceLanguage,settleTranscriptPreview,speakPrompt,voicePrompts} from './voice.js?v=20260929-openai1';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260929-brand';
 import {mountThinkingOrb} from './thinking-orb.js?v=20260929-brand';
 
