@@ -1,7 +1,10 @@
 """Explicitly synthetic operator scenarios; never imports organizer records."""
 import json
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
+
+from public_issues import redact_public_text
 
 DEMO_TEXT = "Добрый день, на Абая 44 с утра нет воды, весь дом без воды, когда включат?"
 DEMO_DISTRICT = "Алмалинский"
@@ -88,6 +91,18 @@ def init_workspace(conn):
                     WHERE data_origin = 'synthetic'
                       AND source_system IN ('fixture_generator', 'operator_demo_v1', 'local_demo_intake_v2')
                       AND moderation_status = 'private' AND public_text IS NULL""")
+    for row in conn.execute("""SELECT id, text FROM complaints
+                               WHERE data_origin = 'citizen' AND public_consent = 1
+                                 AND decision_status = 'confirmed' AND moderation_status = 'pending'"""):
+        public_text = redact_public_text(row["text"][:1000])
+        conn.execute("UPDATE complaints SET moderation_status = 'approved', public_text = ? WHERE id = ?",
+                     (public_text, row["id"]))
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute("INSERT INTO audit_events VALUES (?, ?, 'public_moderation', ?, ?, 'system_migration', ?)",
+                     ("evt-" + uuid.uuid4().hex, row["id"], now, now,
+                      json.dumps({"status": "approved", "public_text_len": len(public_text),
+                                  "redaction_applied": public_text != row["text"],
+                                  "trigger": "operator_confirmed_migration"}, ensure_ascii=False)))
 
 
 def seed_workspace(conn, topic_services):

@@ -2,7 +2,7 @@ export const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'
 export const pct = value => Math.round(value * 100) + '%';
 export const groups = {urgent:'Срочные', attention:'Требуют внимания', normal:'Обычные', awaiting_citizen:'Ожидают гражданина', awaiting_service:'Ожидают службу', resolved:'Завершены', quarantine:'Карантин'};
 export const channels = {web:'Веб-форма', phone:'Звонок 109', telegram:'Telegram', whatsapp:'WhatsApp'};
-export const time = value => value ? new Date(value).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit', timeZone:'Asia/Almaty'}) : '—';
+export const time = value => value ? new Date(value).toLocaleTimeString(globalThis.pulseLocale||'ru-RU', {hour:'2-digit', minute:'2-digit', timeZone:'Asia/Almaty'}) : '—';
 export const duration = minutes => minutes < 60 ? `${minutes} мин` : minutes < 1440 ? `${Math.floor(minutes/60)} ч ${minutes%60} мин` : `${Math.floor(minutes/1440)} д ${Math.floor(minutes%1440/60)} ч`;
 export const topicName = (id, topics) => topics.find(t => t.id === id)?.name_ru || 'Нужно уточнение';
 export const badge = (text, tone='neutral') => `<span class="badge ${tone}">${esc(text)}</span>`;
@@ -10,7 +10,7 @@ export const button = (action, text, cls='', attrs='') => `<button class="button
 export const empty = (text,description='Измените фильтр или повторите действие.',actions='') => `<div class="empty" role="status"><span aria-hidden="true">○</span><h3>${esc(text)}</h3><p>${esc(description)}</p>${actions}</div>`;
 export function historyEntry({type,title,text,at,actor=''}) {
   const role=type==='clarification_received'?'citizen':['reply_saved','clarification_requested'].includes(type)?'operator':'system';
-  const date=new Date(at).toLocaleString('ru-RU',{timeZone:'Asia/Almaty'});
+  const date=new Date(at).toLocaleString(globalThis.pulseLocale||'ru-RU',{timeZone:'Asia/Almaty'});
   const stamp=`<time datetime="${esc(at)}">${esc(date)}</time>`;
   if(role==='system') return `<li class="history-event"><span class="timeline-dot" aria-hidden="true"></span><div><strong>${esc(title)}</strong><small>${stamp}${actor?` · ${esc(actor)}`:''}</small>${text?`<p>${esc(text)}</p>`:''}</div></li>`;
   return `<li class="chat-entry chat-${role}"><article class="chat-bubble"><header class="chat-author"><strong>${role==='citizen'?'Гражданин':'Оператор'}</strong>${stamp}</header><p class="chat-note">${esc(title)}</p>${text?`<p class="chat-text">${esc(text)}</p>`:''}</article></li>`;
@@ -124,7 +124,7 @@ export function incidentsView(s) {
 export function trackingView(t) {
   if(!t) return '<p class="micro">Введите номер из квитанции, чтобы проверить статус.</p>';
   const statuses={pending:'Ожидает решения оператора',confirmed:'Решение оператора подтверждено',needs_clarification:'Нужно уточнение',clarification_received:'Уточнение получено · ожидает проверки',under_review:'На проверке у оператора',resolved:'Обращение завершено'};
-  const date=value=>new Date(value).toLocaleString('ru-RU',{timeZone:'Asia/Almaty'});
+  const date=value=>new Date(value).toLocaleString(globalThis.pulseLocale||'ru-RU',{timeZone:'Asia/Almaty'});
   return `<article class="tracking-card"><h3>${esc(t.id)}</h3><p>${badge(statuses[t.status]||'В обработке',t.status==='needs_clarification'?'amber':'green')}</p><p class="micro">Зарегистрировано ${esc(date(t.registered_at))}</p>
     ${t.city?`<p class="micro">Город: <strong>${esc(t.city)}</strong></p>`:''}
     ${t.has_photo?`<img class="case-photo" src="/api/workspace/${t.owned?'citizen':'public'}/complaints/${esc(t.id)}/photo" alt="Фото проблемы к обращению ${esc(t.id)}">`:''}${t.has_video?`<video class="case-photo" src="/api/workspace/${t.owned?'citizen':'public'}/complaints/${esc(t.id)}/video" controls preload="metadata" aria-label="Видео проблемы к обращению ${esc(t.id)}"></video>`:''}${locationMap(t.location,'tracking-map',`Место обращения ${t.id}`)}
@@ -137,7 +137,7 @@ export function trackingView(t) {
 }
 export function subscriptionsView(items=[],owned=false) {
   const statuses={pending:'На рассмотрении',confirmed:'Принято в работу',needs_clarification:'Нужно уточнение',resolved:'Завершено'};
-  const date=value=>new Date(value).toLocaleString('ru-RU',{timeZone:'Asia/Almaty'});
+  const date=value=>new Date(value).toLocaleString(globalThis.pulseLocale||'ru-RU',{timeZone:'Asia/Almaty'});
   if(!items.length) return `<p class="micro">${owned?'У вас пока нет обращений. Откройте раздел «Подать обращение», чтобы создать первое.':'Здесь появятся обращения, на обновления которых вы подписались.'}</p>`;
   return `<div class="duplicate-list">${items.map(item=>`<article class="duplicate-card"><div><strong>${esc(item.id)}</strong>${badge(item.changed?'Есть обновление':(statuses[item.status]||'В обработке'),item.changed?'amber':'green')}</div><p>${esc(item.text)}</p><small>Обновлено ${esc(date(item.last_updated))}</small>${button('track','Открыть историю','ghost wide',`data-id="${esc(item.id)}"`)}</article>`).join('')}</div>`;
 }

@@ -8,7 +8,7 @@
   };
   let rows = [];
   let requestVersion = 0;
-  const number = value => value == null ? "Не проверено" : value.toLocaleString("ru-RU");
+  const number = value => value == null ? "Не проверено" : value.toLocaleString(globalThis.pulseLocale||'ru-RU');
 
   function node(tag, text, className) {
     const element = document.createElement(tag);

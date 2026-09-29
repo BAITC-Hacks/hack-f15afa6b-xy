@@ -3,7 +3,7 @@ import base64
 import json
 import uuid
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Response
@@ -139,6 +139,30 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         origins = {item["complaint"]["data_origin"] for item in items}
         origin = next(iter(origins)) if len(origins) == 1 else "mixed" if origins else None
         return {"items": items, "data_origin": origin, "score_method": "urgency + SLA risk + waiting + incident + review"}
+
+    @router.get("/map-history")
+    def map_history(day: date, source: Literal["actual", "synthetic", "all"] = "actual"):
+        start = datetime.combine(day, datetime.min.time(), tzinfo=timezone(timedelta(hours=5)))
+        end = start + timedelta(days=1)
+        with get_connection() as conn:
+            rows = conn.execute("""SELECT id, substr(text, 1, 500) AS text, address, city_code,
+                    district, region_id, latitude, longitude, data_origin,
+                    COALESCE(topic, proposed_topic) AS topic,
+                    CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE decision_status END AS status,
+                    COALESCE(received_at, ingested_at) AS registered_at
+                FROM complaints WHERE quarantined = 0
+                  AND julianday(COALESCE(received_at, ingested_at)) >= julianday(?)
+                  AND julianday(COALESCE(received_at, ingested_at)) < julianday(?)
+                  AND (? = 'all' OR (? = 'synthetic' AND data_origin IN ('synthetic', 'synthetic_demo'))
+                       OR (? = 'actual' AND data_origin NOT IN ('synthetic', 'synthetic_demo')))
+                ORDER BY COALESCE(received_at, ingested_at), id""",
+                (start.isoformat(), end.isoformat(), source, source, source)).fetchall()
+        items = [dict(row) for row in rows]
+        for item in items:
+            item["city"] = CITY_BY_CODE.get(item.pop("city_code"), {}).get("name_ru")
+            item["topic_name"] = (topic_names or {}).get(item["topic"], "Категория не определена")
+        return {"items": items, "count": len(items), "day": day.isoformat(), "source": source,
+                "timezone": "Asia/Almaty"}
 
     @router.get("/operators")
     def operators():
@@ -333,6 +357,14 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             conn.execute("""UPDATE complaints SET topic = ?, service_id = ?, priority = ?, decision_status = 'confirmed',
                 assigned_operator = ?, incident_id = ?, related_to = ?, first_response_at = COALESCE(first_response_at, ?) WHERE id = ?""",
                 (req.topic, topic_services[req.topic], req.priority, req.operator_id, req.incident_id or c["incident_id"], related, now, cid))
+            if c["data_origin"] == "citizen" and c["public_consent"] and c["moderation_status"] == "pending":
+                public_text = redact_public_text(c["text"][:1000])
+                conn.execute("UPDATE complaints SET moderation_status = 'approved', public_text = ? WHERE id = ?",
+                             (public_text, cid))
+                event(conn, cid, "public_moderation", {
+                    "status": "approved", "public_text_len": len(public_text),
+                    "redaction_applied": public_text != c["text"], "trigger": "operator_confirmed",
+                })
             suggested = d["triage"]["category"]
             event(conn, cid, "operator_confirmed", {
                 **req.model_dump(), "proposed_topic": suggested, "suggested_value": suggested,

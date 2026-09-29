@@ -57,3 +57,5 @@
 .control-grid .section-top{flex-wrap:wrap;gap:10px}
 .incident-members .member{min-width:0}
 @media(max-width:760px){.control-grid{grid-template-columns:minmax(0,1fr)}.signal-review~.case-footer>div,.case-footer>div{flex-wrap:wrap}.presence-bar{padding:12px 18px}}
+
+.radar-toolbar{display:flex;gap:16px;align-items:end;flex-wrap:wrap;margin-bottom:20px}.radar-toolbar label{min-width:220px;font-size:13px}.radar-toolbar select{display:block;margin-top:8px;font-size:14px}.radar-explainer p{font-size:13px;line-height:1.6}.signal-overdue{border:2px solid #b8463a}.signal-assignment{border-top:1px solid var(--line);padding-top:16px;margin-top:18px}.signal-assignment strong{font-size:14px}.signal-controls{margin-bottom:24px}.signal-controls label,.signal-controls input,.signal-controls textarea,.signal-controls select{font-size:14px}.radar-work-actions{display:flex;gap:12px;flex-wrap:wrap}.signal-history{margin-top:24px}.signal-history summary{cursor:pointer;font-weight:600}.signal-history .timeline{margin-top:20px}@media(max-width:600px){.radar-toolbar label{width:100%;min-width:0}.radar-work-actions .button{width:100%}}

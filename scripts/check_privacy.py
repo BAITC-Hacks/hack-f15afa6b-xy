@@ -67,6 +67,9 @@ def legacy_db(path):
                 decision_status TEXT NOT NULL DEFAULT 'pending',
                 incident_id TEXT, duplicate_of TEXT, resolution_text TEXT, resolved_at TEXT,
                 proposed_topic TEXT, proposed_service_id TEXT, proposed_priority TEXT
+                , public_consent INTEGER NOT NULL DEFAULT 0
+                , moderation_status TEXT NOT NULL DEFAULT 'private'
+                , public_text TEXT
             );
             CREATE TABLE audit_events (
                 id TEXT PRIMARY KEY, complaint_id TEXT NOT NULL, event_type TEXT NOT NULL,
@@ -83,6 +86,11 @@ def legacy_db(path):
         conn.executemany("""INSERT INTO complaints
             (id, data_origin, source_system, text, region_id, ingested_at, language, decision_status)
             VALUES (?, ?, ?, ?, ?, '2026-09-28T00:00:00+00:00', 'ru', 'pending')""", rows)
+        conn.execute("""INSERT INTO complaints
+            (id, data_origin, text, region_id, ingested_at, language, decision_status,
+             public_consent, moderation_status)
+            VALUES ('legacy-confirmed', 'citizen', ?, 'KZ-ALA', '2026-09-28T00:00:00+00:00',
+                    'ru', 'confirmed', 1, 'pending')""", (PRIVATE_TEXT,))
 
 
 def start(db_path, demo=False, auth_disabled=False):
@@ -147,6 +155,8 @@ def real_mode_check(db_path):
                 assert migrated[key]["public_consent"] == 0
                 assert migrated[key]["moderation_status"] == "private"
                 assert migrated[key]["public_text"] is None
+            assert migrated["legacy-confirmed"]["moderation_status"] == "approved"
+            assert PRIVATE_TEXT not in migrated["legacy-confirmed"]["public_text"]
         print("PASS 1: migration publishes only known seed rows and keeps ambiguous legacy intake private")
 
         intake = {"text": PRIVATE_TEXT, "region_id": "KZ-ALA", "language": "ru",
@@ -175,10 +185,11 @@ def real_mode_check(db_path):
         assert demo["id"] in {item["id"] for item in feed["items"]}
         print("PASS 2b: authenticated jury demo creates an explicitly synthetic public record")
         assert operator.request(base + f"/api/workspace/complaints/{cid}/photo", raw=True) == (200, b"\x89PNG\r\n\x1a\n")
-        status, approved = operator.request(base + f"/api/workspace/complaints/{cid}/moderation", "POST",
-                                             {"status": "approved", "public_text": PRIVATE_TEXT}, headers)
-        assert status == 200 and approved["moderation_status"] == "approved"
-        safe = approved["public_text"]
+        assert operator.request(base + f"/api/workspace/complaints/{cid}/triage", "POST", {}, headers)[0] == 200
+        status, decided = operator.request(base + f"/api/workspace/complaints/{cid}/decide", "POST",
+                                            {"topic": "water_supply", "priority": "normal"}, headers)
+        assert status == 200 and decided["complaint"]["moderation_status"] == "approved"
+        safe = decided["complaint"]["public_text"]
         for secret in ("citizen@example.kz", "+7 (777) 123-45-67", "900101301234", "кв. 17"):
             assert secret not in safe
         assert all(label in safe for label in ("[EMAIL СКРЫТ]", "[ТЕЛЕФОН СКРЫТ]", "[ИИН СКРЫТ]",
@@ -197,7 +208,7 @@ def real_mode_check(db_path):
             event = conn.execute("""SELECT actor, payload FROM audit_events
                                      WHERE complaint_id = ? AND event_type = 'public_moderation'""", (cid,)).fetchone()
         assert event[0] == actor and PRIVATE_TEXT not in event[1]
-        print("PASS 3: authenticated approval redacts PII, audits safely and unlocks public actions")
+        print("PASS 3: operator confirmation publishes the consented case with redaction and map coordinates")
 
         status, rejected = anonymous.request(base + "/api/workspace/intake", "POST", {
             "text": "На улице не горит фонарь", "region_id": "KZ-ALA", "public_consent": True,

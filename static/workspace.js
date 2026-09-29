@@ -2,10 +2,10 @@ import {citizenPages,citizenHome,citizenRequests,citizenHelp,citizenContent,citi
 import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260929-2gis';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260929-copy';
 import {caseView} from './case.js?v=20260929-2gis';
-import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260929-copy';
+import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260929-radar';
 import {authFetch,bootstrapAuth} from './auth.js?v=20260929-copy';
-import {mountMaps,resetLocationPicker} from './map.js?v=20260929-2gis';
-import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260929-copy';
+import {mountMaps,resetLocationPicker} from './map.js?v=20260929-heat-demo-2';
+import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260929-heat-demo-2';
 import {clearLanguageResult,handleVoiceAction,selectedIntakeLanguage} from './voice.js?v=20260929-copy';
 import {mountThinkingOrbs} from './thinking-orb.js?v=20260929-brand';
 import {registerAnalyticsActions} from './analytics-actions.js?v=20260929-copy';
@@ -23,7 +23,7 @@ async function mediaData(input) {
   return images.includes(file.type)?{photo_data:data,video_data:null}:{photo_data:null,video_data:data};
 }
 const state={page:'queue',group:'',search:'',region:'',items:[],incidents:[],operators:[],topics:[],metrics:{},detail:null,trackingId:'',tracking:null,subscriptions:[],analytics:{alerts:{items:[]},forecast:null,query:null,alertsError:null,forecastError:null,filters:{region_id:'',topic:'',data_origin:'synthetic_demo'},alertHistory:[]}};
-Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,signal:null,incident:null});
+Object.assign(state,{radar:{items:[],min_cases:5,window_minutes:15},showIgnored:false,radarSource:'real',radarFilter:'active',radarError:null,signal:null,incident:null});
 try {state.trackingId=localStorage.getItem('pulse109-last-receipt')||'';} catch { /* Lookup also works without browser storage. */ }
 const main=document.querySelector('#main'), dialog=document.querySelector('#case-dialog'), content=document.querySelector('#case-content');
 const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent=document.querySelector('#playbook-content');
@@ -137,7 +137,7 @@ async function registerIntake(form,payload) {
   state.trackingId=result.id;pendingIntake=null;
   try {localStorage.setItem('pulse109-last-receipt',result.id);} catch { /* The receipt is usable without storage. */ }
   const synthetic=result.data_origin==='synthetic';
-  document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · ${synthetic?'Ожидает решения оператора':'Приватное обращение; публикация возможна только после согласия и проверки оператором'}</p>${synthetic||state.user?.role==='citizen'?button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`):''}</div>`;
+  document.querySelector('#receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${esc(result.id)} · ${synthetic?'Ожидает решения оператора':payload.public_consent?'Появится на карте после подтверждения оператором':'Приватное обращение'}</p>${synthetic||state.user?.role==='citizen'?button('track','Проверить статус','ghost',`data-id="${esc(result.id)}"`):''}</div>`;
   if(synthetic||state.user?.role==='citizen') document.querySelector('#tracking-id').value=result.id;
   document.querySelector('#citizen-notice').hidden=true;
   if(synthetic) {
@@ -165,7 +165,7 @@ function render() {
   document.querySelector('#nav-count').textContent=state.metrics.pending;
   document.querySelector('#incident-count').textContent=state.metrics.active_incidents;
   document.querySelector('#quarantine-count').textContent=state.metrics.quarantined;
-  document.querySelector('#radar-count').textContent=state.radar.items.filter(i=>!i.ignored&&!i.incident_id).length;
+  document.querySelector('#radar-count').textContent=state.radar.items.filter(i=>!i.ignored&&!i.snoozed&&i.status!=='confirmed').length;
   const views={routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,map:publicMapView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView,home:citizenHome,requests:citizenRequests,help:citizenHelp};
   main.innerHTML=views[state.page](state);
   if(flipState) globalThis.Flip.from(flipState,{targets:main.querySelectorAll('[data-flip-id]'),duration:.22,ease:'power1.out',fade:true,absolute:true,scale:true,simple:true});
@@ -179,13 +179,14 @@ async function refresh(renderPage=true) {
   const version=++loadVersion;
   const queue=await api('/api/workspace/queue');
   const [incidents,operators,metrics,radar]=await Promise.allSettled([
-    api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar')]);
+    api('/api/workspace/incidents'),api('/api/workspace/operators'),api('/api/workspace/metrics'),api('/api/workspace/radar?source='+state.radarSource)]);
   if(version!==loadVersion) return;
   state.items=queue.items;
   if(incidents.status==='fulfilled') state.incidents=incidents.value.items;
   if(operators.status==='fulfilled') state.operators=operators.value.items;
   if(metrics.status==='fulfilled') state.metrics=metrics.value;
-  if(radar.status==='fulfilled') state.radar=radar.value;
+  if(radar.status==='fulfilled') {state.radar=radar.value;state.radarError=null;}
+  else {state.radarError=radar.reason.message;state.radar={items:[],min_cases:5,window_minutes:15};}
   if(renderPage) render();
   await loadAnalytics(renderPage);
 }
@@ -282,7 +283,7 @@ async function openIncident(id) {
 }
 function showSignal(signal) {
   stopPresence();caseVersion++;state.signal=signal;state.detail=null;state.incident=null;
-  content.innerHTML=signalView(signal,state.topics);
+  content.innerHTML=signalView(signal,state.topics,state.user);
   if(!dialog.open) dialog.showModal();
 }
 function previewIncident(incident,request) {
@@ -292,7 +293,7 @@ function previewIncident(incident,request) {
   renderPreview({title:'Обновить инцидент',can_execute:true,actions:[
     {label:'Статус',value:`${incident.status} → ${request.status}`},
     {label:'Ответственный',value:`${name(incident.incident_owner_id)} → ${name(request.incident_owner_id)}`},
-    {label:'Важность',value:`${incident.severity} → ${request.severity} · демо-шкала`},
+    {label:'Важность',value:`${incident.severity} → ${request.severity}`},
     {label:'Следующее обновление',value:request.next_update?stamp(request.next_update):'Не назначено — инцидент завершён'},
     {label:'Подтверждённая информация',value:request.note},
     {label:'Связанные обращения',value:`${incident.count} обращений сохранят свои решения и статусы.`},
@@ -364,16 +365,17 @@ async function handleAction(node) {
   }
   if(action==='incident') {await openIncident(node.dataset.id);return;}
   if(action==='radar-demo') {const result=await api('/api/workspace/radar/demo',{});location.hash='radar';await refresh();toast(`Добавлено ${result.count} синтетических обращений. Проверьте новый сигнал.`);return;}
+  if(action==='radar-reload') {const id=state.signal.id;await refresh(false);const fresh=state.radar.items.find(i=>i.id===id);if(fresh) showSignal(fresh);else toast('Сигнал недоступен в выбранном источнике',true);return;}
   if(action==='radar-preview') {showSignal(state.radar.items.find(i=>i.id===node.dataset.id));return;}
   if(action==='radar-confirm'||action==='radar-ignore') {
     const signal=state.signal, version=caseVersion;
     try {
       const path=`/api/workspace/radar/${encodeURIComponent(signal.id)}`;
       if(action==='radar-confirm') {
-        const result=await api(path+'/confirm',{case_ids:signal.case_ids,incident_id:signal.incident_id});
+        const result=await api(path+'/confirm',{expected_revision:signal.revision,case_ids:signal.case_ids,incident_id:signal.incident_id});
         await refresh();if(version===caseVersion && dialog.open) await openIncident(result.incident.id);toast('Инцидент подтверждён. Оригиналы обращений сохранены.');
       } else {
-        await api(path+'/ignore',{case_ids:signal.case_ids,ignored:!signal.ignored});
+        await api(path+'/ignore',{expected_revision:signal.revision,case_ids:signal.case_ids,ignored:!signal.ignored});
         if(version===caseVersion) {await closeDialog(dialog);caseVersion++;}await refresh();toast(signal.ignored?'Сигнал восстановлен':'Сигнал отклонён. Обращения сохранены.');
       }
     } catch(err) {const field=document.querySelector('#signal-error');if(field) field.textContent=err.message;else toast(err.message,true);}
@@ -504,6 +506,8 @@ document.addEventListener('input',e=>{
   input.setSelectionRange(position,position);
 });
 document.addEventListener('change',async e=>{
+  if(e.target.id==='radar-source') {state.radarSource=e.target.value;state.radar.items=[];try {await refresh();} catch(err) {toast(err.message,true);}return;}
+  if(e.target.id==='radar-filter') {state.radarFilter=e.target.value;render();return;}
   if(e.target.id==='citizen-filter') {state.citizenFilter=e.target.value;document.querySelector('#citizen-case-list').innerHTML=citizenList(state);return;}
   if(pendingIntake&&e.target.closest('#citizen-form')) {pendingIntake=null;document.querySelector('#citizen-notice').hidden=true;}
   if(e.target.id==='health-region') {state.healthRegion=e.target.value;try {await loadHealth();} catch(err) {toast(err.message,true);}}
@@ -532,6 +536,21 @@ document.addEventListener('change',async e=>{
   }
 });
 document.addEventListener('submit',async e=>{
+  if(e.target.id==='radar-work-form') {
+    e.preventDefault();
+    const form=e.target, data=new FormData(form), signal=state.signal, version=caseVersion;
+    const action=e.submitter?.value||(signal.owner_id?'schedule':'claim');
+    const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
+    try {
+      const result=await api('/api/workspace/radar/'+encodeURIComponent(signal.id)+'/action',{expected_revision:signal.revision,action,minutes:Number(data.get('minutes')),note:data.get('note').trim()});
+      await refresh();
+      if(version===caseVersion&&dialog.open) showSignal(state.radar.items.find(i=>i.id===signal.id)||result.signal);
+      toast(action==='snooze'?'Проверка отложена. Сигнал вернётся к указанному сроку.':'Ответственный и срок проверки сохранены.');
+    } catch(err) {const error=document.querySelector('#signal-error');if(error) error.textContent=err.message;else toast(err.message,true);}
+    finally {buttons.forEach(b=>b.disabled=false);}
+    return;
+  }
+
   if(e.target.id==='analytics-query') {
     e.preventDefault();
     const question=new FormData(e.target).get('question').trim();
@@ -575,7 +594,7 @@ document.addEventListener('keydown',e=>{
   if(commandDialog.open && e.key==='ArrowDown') {e.preventDefault();const options=[...commandDialog.querySelectorAll('.command-option')];options[(options.indexOf(document.activeElement)+1)%options.length]?.focus();}
 });
 playbookDialog.addEventListener('cancel',()=>previewVersion++);
-document.querySelector('#today').textContent=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',timeZone:'Asia/Almaty'});
+document.querySelector('#today').textContent=new Date().toLocaleDateString(globalThis.pulseLocale||'ru-RU',{day:'numeric',month:'long',timeZone:'Asia/Almaty'});
 async function start(user=state.user) {
   state.user=user;
   try {if(user?.role==='citizen') {
@@ -587,7 +606,7 @@ async function start(user=state.user) {
 }
 document.addEventListener('click',e=>{if(e.target.closest('[data-action="retry"]')) start();});
 setInterval(async()=>{
-  if(state.user?.role==='citizen'||document.hidden||document.querySelector('#workspace-screen').hidden||dialog.open||state.page==='citizen'||document.activeElement?.matches('input,textarea,select')) return;
+  if(state.user?.role==='citizen'||document.hidden||document.querySelector('#workspace-screen').hidden||dialog.open||state.page==='citizen'||document.querySelector('[data-time-machine-toggle][aria-pressed="true"]')||document.activeElement?.matches('input,textarea,select')) return;
   try {await refresh();} catch { /* Preserve last usable queue during a temporary connection failure. */ }
 },60000);
 bootstrapAuth(start);

@@ -1,3 +1,5 @@
+import {addIncidentTimeMachine} from './incident-time-machine.js?v=20260929-heat-demo-2';
+
 const MAPLIBRE_JS = 'https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js';
 const MAPLIBRE_CSS = 'https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css';
 const MAPLIBRE_JS_INTEGRITY = 'sha384-GfxBM9x46BaAFxtCq39Fxir8fNZ4VDnwgfi6Kzi5/F1tAFsm0amuuV8kd+Pxzuf/';
@@ -222,6 +224,19 @@ function publicPopup(item) {
     video.controls=true;video.preload='metadata';video.setAttribute('aria-label',`Видео проблемы к обращению ${item.id}`);card.append(video);
   }
   return card;
+}
+
+export async function mountTimeMachine(element, items, day, onChange) {
+  const maplibregl=await loadLibrary();
+  if(!element.isConnected) return;
+  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:[76.925,43.24],zoom:12,renderWorldCopies:false});
+  map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
+  const timeline=addIncidentTimeMachine(map,items,day,onChange);
+  const observer=new MutationObserver(()=>{
+    if(!element.isConnected) {observer.disconnect();timeline.remove();map.remove();}
+  });
+  observer.observe(document.body,{childList:true,subtree:true});
+  return {...timeline,resize:()=>map.resize()};
 }
 
 export async function mountPublicMap(element, items, onSelect=()=>{}) {

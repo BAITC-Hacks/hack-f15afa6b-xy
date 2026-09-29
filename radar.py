@@ -1,6 +1,6 @@
 """Pulse 109 — Radar: deterministic, explainable grouping of recent complaints.
 
-Rule: only synthetic, active, non-quarantined cases with a known region, a known
+Rule: active, non-quarantined cases from a selected data source with a known region, a known
 district and a confident category are grouped. The group key is
 category + region + district + symptom, so an outage, a leak, another district
 and another topic never share a signal. A case with an unclear symptom needs word
@@ -18,12 +18,15 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from auth import current_actor
+from demo_data import demo_mode
+from radar_state import (SOURCES, SignalAction, check_revision, finish_signal, stored_signals,
+                         sync_signal, update_signal)
 from incidents import ACTIVE_INCIDENT_STATUSES, attach_incident_routes, incident_detail, incident_event
 from triage import HIGH_CONFIDENCE, address_in, analyze, moment, symptom, tokens
 
@@ -37,7 +40,7 @@ PREVIOUS_WINDOW_MINUTES = 60
 BASELINE_MIN_SPAN_MINUTES = 30
 BASELINE_MIN_CASES = 2
 SIMILARITY_THRESHOLD = 0.12  # same lexical floor as triage.related_cases
-DEFAULT_SEVERITY = 2  # synthetic starting value; the operator confirms the real one
+DEFAULT_SEVERITY = 2  # Preliminary value; the operator confirms it.
 DEMO_REGION = "KZ-ALA"
 DEMO_DISTRICT = "Бостандыкский"
 TOPIC_TITLES = {
@@ -117,28 +120,37 @@ def _title(category: str, district: str, sym: str) -> str:
     return f"Возможная проблема: {nominative} — {district} район"
 
 
-def collect_cases(conn, classifier, topic_services, previous_start: datetime) -> list[dict]:
-    """Recent synthetic, active, non-quarantined cases with a known place and category."""
+def collect_cases(conn, classifier, topic_services, previous_start, now, origins, coverage) -> list[dict]:
+    marks = ",".join("?" for _ in origins)
     rows = conn.execute(
-        "SELECT * FROM complaints WHERE data_origin = 'synthetic' AND quarantined = 0 AND resolved_at IS NULL "
-        "AND decision_status != 'needs_clarification' AND district IS NOT NULL AND region_id IS NOT NULL "
-        "AND COALESCE(received_at, ingested_at) >= ?", (previous_start.isoformat(),)).fetchall()
+        f"SELECT * FROM complaints WHERE data_origin IN ({marks}) AND quarantined = 0 AND resolved_at IS NULL "
+        "AND julianday(COALESCE(received_at, ingested_at)) BETWEEN julianday(?) AND julianday(?)",
+        (*origins, previous_start.isoformat(), now.isoformat())).fetchall()
     regions = _known_regions()
     cases = []
     for raw in rows:
         row = dict(raw)
-        at = moment(row["received_at"] or row["ingested_at"])
-        if at < previous_start or not row["district"].strip() or row["region_id"] not in regions:
+        timestamp = row["received_at"] or (row["ingested_at"] if row["data_origin"] in {"citizen", "synthetic"} else None)
+        try:
+            at = datetime.fromisoformat(timestamp or "")
+            if at.tzinfo is None or "T" not in timestamp:
+                continue
+        except ValueError:
+            continue
+        recent = at >= coverage["since"]
+        coverage["recent_count"] += int(recent)
+        if (not row["text"] or not row["text"].strip() or not row["district"] or not row["district"].strip()
+                or row["region_id"] not in regions or row["decision_status"] == "needs_clarification"):
             continue
         category, confidence, source = _category_for(row, classifier, topic_services)
-        # An unconfirmed ambiguous category (0.63, water or sewer) and an unclear text (0.32) are not
-        # signals; only a confident rule/proposal or a category a human confirmed.
         if category not in topic_services or confidence < HIGH_CONFIDENCE:
             continue
+        coverage["eligible_count"] += int(recent)
         cases.append({"id": row["id"], "text": row["text"], "address": row["address"] or address_in(row["text"]),
-                      "district": row["district"], "region_id": row["region_id"], "at": at,
+                      "district": row["district"].strip(), "region_id": row["region_id"], "at": at,
                       "sender_key": row["sender_key"], "incident_id": row["incident_id"], "category": category,
-                      "confidence": confidence, "source": source, "symptom": symptom(row["text"])})
+                      "confidence": confidence, "source": source, "symptom": symptom(row["text"]),
+                      "data_origin": row["data_origin"]})
     cases.sort(key=lambda case: (case["at"], case["id"]))
     return cases
 
@@ -148,7 +160,7 @@ def group_cases(cases: list[dict]) -> dict[tuple, list[dict]]:
     # ponytail: lexical comparison within recent groups; index candidate tokens for high-volume streams.
     groups: dict[tuple, list[dict]] = {}
     for case in cases:
-        members = groups.setdefault((case["category"], case["region_id"], case["district"], case["symptom"]), [])
+        members = groups.setdefault((case["category"], case["region_id"], case["district"], case["symptom"], case["data_origin"]), [])
         if case["symptom"] == "unknown" and members and not any(_similar(case, other) for other in members):
             continue
         members.append(case)
@@ -181,30 +193,30 @@ def _baseline(previous: list[dict], count: int, current_minutes: int) -> tuple[f
 
 
 def build_signals(conn, classifier, topic_services, min_cases: int | None = None,
-                  window_minutes: int | None = None, now: datetime | None = None) -> list[dict]:
+                  window_minutes: int | None = None, now: datetime | None = None,
+                  origins: tuple = SOURCES["real"], coverage: dict | None = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     window = RADAR_WINDOW_MINUTES if window_minutes is None else window_minutes
     minimum = RADAR_MIN_CASES if min_cases is None else min_cases
     current_start = now - timedelta(minutes=window)
     previous_start = current_start - timedelta(minutes=PREVIOUS_WINDOW_MINUTES)
-    signals = []
-    for key, members in group_cases(collect_cases(conn, classifier, topic_services, previous_start)).items():
+    coverage = coverage if coverage is not None else {}
+    coverage.update({"since": current_start, "recent_count": 0, "eligible_count": 0})
+    live_ids = set()
+    cases = collect_cases(conn, classifier, topic_services, previous_start, now, origins, coverage)
+    for key, members in group_cases(cases).items():
         raw_current = [case for case in members if case["at"] >= current_start]
         current = _dedup(raw_current)
         if not current:
             continue
         case_ids = sorted(case["id"] for case in current)
-        signal_id = _hash_id([*key, *case_ids])
-        ignored = _is_ignored(conn, signal_id)
-        if len(current) < minimum and not ignored:
-            continue
         baseline, growth, baseline_note = _baseline(_dedup([c for c in members if c["at"] < current_start]), len(current), window)
         links = _active_links(conn, current)
         category_note = ("Категория уже подтверждена оператором." if current[0]["source"] == "подтверждена оператором"
                          else "Категория предложена системой и требует проверки перед объединением.")
         reasons = [
-            f"Сигнал появился: за {window} мин поступило не менее {minimum} обращений об одной проблеме "
-            "в одном районе.",
+            f"Сигнал появился при достижении порога: {minimum} похожих обращений за {window} мин "
+            "в одном районе. Это ещё не подтверждение общей аварии.",
             f"Учтено {len(current)} обращений из {len(raw_current)}: повтор одного текста от одного "
             "отправителя считается один раз.",
             category_note,
@@ -213,8 +225,7 @@ def build_signals(conn, classifier, topic_services, min_cases: int | None = None
         if len(links) > 1:
             reasons.append("Обращения связаны с несколькими активными инцидентами — автоматическое объединение "
                            "запрещено, нужно решение человека.")
-        signals.append({
-            "id": signal_id, "title": _title(key[0], key[2], key[3]), "category": key[0], "region_id": key[1],
+        signal = { "title": _title(key[0], key[2], key[3]), "category": key[0], "region_id": key[1],
             "district": key[2], "count": len(current), "similar_count": len(raw_current),
             "window_minutes": window, "first_at": min(c["at"] for c in current).isoformat(),
             "last_at": max(c["at"] for c in current).isoformat(), "baseline_count": baseline, "growth": growth,
@@ -222,23 +233,25 @@ def build_signals(conn, classifier, topic_services, min_cases: int | None = None
             "members": [{"id": c["id"], "text": c["text"], "address": c["address"]} for c in current],
             "incident_id": links[0]["id"] if len(links) == 1 else None,
             "unlinked_count": sum(1 for c in current if not c["incident_id"]),
-            "ignored": ignored, "reason": " ".join(reasons),
-        })
-    signals.sort(key=lambda signal: (-signal["count"], signal["id"]))
-    return signals
+            "data_origin": key[-1], "symptom": key[3], "reason": " ".join(reasons),
+        }
+        signal_id = sync_signal(conn, key, signal, minimum, now)
+        if signal_id:
+            live_ids.add(signal_id)
+    coverage.pop("since")
+    coverage["excluded_count"] = coverage["recent_count"] - coverage["eligible_count"]
+    return stored_signals(conn, origins, live_ids, now)
 
-
-def _is_ignored(conn, signal_id: str) -> bool:
-    row = conn.execute("SELECT restored_at FROM radar_ignored WHERE signal_id = ?", (signal_id,)).fetchone()
-    return bool(row) and not row["restored_at"]
 
 
 class ConfirmRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
     case_ids: list[str] = Field(min_length=1)
     incident_id: str | None = None
 
 
 class IgnoreRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
     case_ids: list[str] = Field(min_length=1)
     ignored: bool
 
@@ -265,15 +278,16 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
         )
 
     def find_signal(conn, signal_id: str) -> dict | None:
-        for signal in build_signals(conn, classifier, topic_services, min_cases=0):
+        for signal in build_signals(conn, classifier, topic_services, origins=(*SOURCES["real"], "synthetic")):
             if signal["id"] == signal_id:
                 return signal
         return None
 
-    def checked_signal(conn, signal_id: str, case_ids: list[str]) -> dict:
+    def checked_signal(conn, signal_id: str, case_ids: list[str], revision: int) -> dict:
         signal = find_signal(conn, signal_id)
         if not signal:
             raise HTTPException(404, "Сигнал радара не найден: состав обращений изменился, обновите радар")
+        check_revision(signal, revision)
         if signal["case_ids"] != sorted(set(case_ids)):
             raise HTTPException(409, "Предпросмотр устарел: состав обращений изменился. Обновите радар и повторите")
         return signal
@@ -283,11 +297,11 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
         now = datetime.now(timezone.utc).isoformat()
         conn.execute(
             "INSERT INTO incidents (id, title, category, region_id, district, service_id, status, started_at, "
-            "next_update, severity, data_origin, created_at, first_signal_at, last_update_at, revision, source_signal) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'Проверяется', ?, NULL, ?, 'synthetic', ?, ?, ?, 1, ?)",
+            "next_update, severity, data_origin, created_at, first_signal_at, last_update_at, revision, source_signal, incident_owner_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'Проверяется', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
             (iid, signal["title"], signal["category"], signal["region_id"], signal["district"],
-             topic_services[signal["category"]], signal["first_at"], DEFAULT_SEVERITY, now, signal["first_at"], now,
-             signal["id"]),
+             topic_services[signal["category"]], signal["first_at"], signal["check_at"], DEFAULT_SEVERITY,
+             signal["data_origin"], now, signal["first_at"], now, signal["id"], signal["owner_id"]),
         )
         incident_event(
             conn, iid, "incident_created",
@@ -299,14 +313,30 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
         return dict(conn.execute("SELECT * FROM incidents WHERE id = ?", (iid,)).fetchone())
 
     @router.get("/radar")
-    def radar():
+    def radar(source: Literal["real", "synthetic"] = "real"):
         with get_connection() as conn:
-            return {"items": build_signals(conn, classifier, topic_services), "min_cases": RADAR_MIN_CASES,
-                    "window_minutes": RADAR_WINDOW_MINUTES, "data_origin": "synthetic"}
+            conn.execute("BEGIN IMMEDIATE")
+            coverage = {}
+            items = build_signals(conn, classifier, topic_services, origins=SOURCES[source], coverage=coverage)
+            return {"items": items, "min_cases": RADAR_MIN_CASES, "window_minutes": RADAR_WINDOW_MINUTES,
+                    "data_origin": source, "coverage": coverage, "demo_available": demo_mode()}
+
+    @router.post("/radar/{signal_id}/action")
+    def signal_action(signal_id: str, req: SignalAction):
+        with get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            signal = find_signal(conn, signal_id)
+            if not signal:
+                raise HTTPException(404, "Сигнал не найден")
+            update_signal(conn, signal, req)
+            return {"signal": find_signal(conn, signal_id)}
+
 
     @router.post("/radar/demo")
     def radar_demo():
         """One fresh synthetic RU/KK water-outage batch per click; the seed fixtures stay untouched."""
+        if not demo_mode():
+            raise HTTPException(403, "Демонстрационные обращения доступны только в локальном демо.")
         batch = uuid.uuid4().hex[:6].upper()
         now = datetime.now(timezone.utc)
         ids, inserted = [], 0
@@ -330,14 +360,21 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
         case_ids = sorted(set(req.case_ids))
         with get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            signal = checked_signal(conn, signal_id, case_ids)
+            signal = checked_signal(conn, signal_id, case_ids, req.expected_revision)
+            if signal["ignored"] or signal["snoozed"]:
+                raise HTTPException(409, "Сначала верните сигнал в работу.")
             marks = ",".join("?" * len(case_ids))
             members = [dict(row) for row in conn.execute(
-                f"SELECT id, incident_id, quarantined, resolved_at, decision_status FROM complaints "
+                f"SELECT * FROM complaints "
                 f"WHERE id IN ({marks})", case_ids)]
             if len(members) != len(case_ids):
                 raise HTTPException(409, "Часть обращений из предпросмотра недоступна. Обновите радар")
             for member in members:
+                category, confidence, _ = _category_for(member, classifier, topic_services)
+                if ((category, member["region_id"], (member["district"] or "").strip(), member["data_origin"])
+                        != (signal["category"], signal["region_id"], signal["district"], signal["data_origin"])
+                        or confidence < HIGH_CONFIDENCE or symptom(member["text"]) != signal["symptom"]):
+                    raise HTTPException(409, "Данные обращений изменились. Проверьте группу заново.")
                 if member["quarantined"]:
                     raise HTTPException(409, f"Обращение {member['id']} в карантине: связь с инцидентом запрещена")
                 if member["resolved_at"]:
@@ -355,8 +392,8 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
                     raise HTTPException(404, "Инцидент не найден")
                 if row["status"] not in ACTIVE_INCIDENT_STATUSES:
                     raise HTTPException(409, f"Инцидент {req.incident_id} завершён: новые обращения к нему не привязываются")
-                if (row["category"], row["region_id"], row["district"]) != (signal["category"], signal["region_id"],
-                                                                          signal["district"]):
+                if (row["category"], row["region_id"], row["district"], row["data_origin"]) != (
+                        signal["category"], signal["region_id"], signal["district"], signal["data_origin"]):
                     raise HTTPException(409, "Инцидент не совпадает с сигналом по категории, региону или району")
                 target = dict(row)
             elif links:
@@ -364,6 +401,9 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
             else:
                 row = conn.execute("SELECT * FROM incidents WHERE source_signal = ?", (signal_id,)).fetchone()
                 target = dict(row) if row else None
+            if target and (target["status"] not in ACTIVE_INCIDENT_STATUSES
+                           or target["data_origin"] != signal["data_origin"]):
+                raise HTTPException(409, "Инцидент завершён или относится к другому источнику данных.")
             replayed = bool(target) and all(member["incident_id"] == target["id"] for member in members)
             if not replayed:
                 if target is None:
@@ -383,6 +423,7 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
                     audit(conn, member["id"], "incident_linked",
                           {"incident_id": target["id"], "related_to": related, "signal_id": signal_id,
                            "previous_incident_id": member["incident_id"]}, actor)
+                finish_signal(conn, signal, "confirmed")
             return {"incident": incident_detail(conn, target["id"]), "replayed": replayed}
 
     @router.post("/radar/{signal_id}/ignore")
@@ -392,7 +433,10 @@ def build_incident_router(get_connection: Callable[[], Any], classifier, topic_s
         now = datetime.now(timezone.utc).isoformat()
         with get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            checked_signal(conn, signal_id, case_ids)
+            signal = checked_signal(conn, signal_id, case_ids, req.expected_revision)
+            if signal["ignored"] == req.ignored:
+                return {"signal_id": signal_id, "ignored": req.ignored, "case_ids": case_ids, "at": now}
+            finish_signal(conn, signal, "dismissed" if req.ignored else "reviewing" if signal["owner_id"] else "new")
             if req.ignored:
                 conn.execute(
                     "INSERT INTO radar_ignored VALUES (?, ?, ?, ?, NULL, NULL) "
