@@ -151,7 +151,7 @@ export async function beginVoiceTurn({field,language,hintLanguage=null,promptTex
   if(!navigator.mediaDevices?.getUserMedia) throw new Error('Браузер не поддерживает запись с микрофона');
   const promptLanguage=language==='auto'?(hintLanguage||'mixed'):language;
   onState('prompting');
-  await speakPrompt(promptText||voicePrompts[promptLanguage][field],promptLanguage,promptText?null:`${promptLanguage}_${field}`,api);
+  await speakPrompt(promptText||voicePrompts[promptLanguage][field],promptLanguage,`${promptLanguage}_${field}`,api);
   const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
   const context=new AudioContext(), source=context.createMediaStreamSource(stream);
   const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];

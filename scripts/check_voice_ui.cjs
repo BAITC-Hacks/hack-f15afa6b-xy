@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const base=process.argv[2]||'http://127.0.0.1:8769';
 
 (async()=>{
-  let fixture='ru',clarificationTurns=0;
+  let fixture='ru',clarificationTurns=0,spokenPrompts=[];
   const browser=await chromium.launch({headless:true,channel:process.env.P109_BROWSER||'chrome'});
   const page=await browser.newPage({viewport:{width:1440,height:900}});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -29,7 +29,7 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
   await page.route('**/api/voice/**',async route=>{
     const url=new URL(route.request().url()), path=url.pathname;
     if(path.endsWith('/health')) return route.fulfill({json:{status:'healthy',tts:{status:'healthy'}}});
-    if(path.endsWith('/speak')) return route.fulfill({status:503,json:{detail:'Озвучивание временно недоступно'}});
+    if(path.endsWith('/speak')) {spokenPrompts.push(route.request().postDataJSON().prompt);return route.fulfill({status:503,json:{detail:'Озвучивание временно недоступно'}});}
     if(path.endsWith('/transcribe')) {
       if(fixture==='unavailable') return route.fulfill({status:503,json:{detail:'Распознавание речи временно недоступно'}});
       const body=route.request().postDataJSON(), requested=body.language;
@@ -67,6 +67,7 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     await page.waitForFunction(()=>document.querySelector('#citizen-text').value.includes('нет воды'));
     assert.equal(await language.getAttribute('data-detected-language'),'ru');
     assert.match(await page.locator('#voice-conversation').innerText(),/Похоже, это «Водоснабжение»/);
+    assert.equal(spokenPrompts.at(-1),'ru_address');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     console.log('PASS VOICE UI 1: desktop auto-detects Russian and continues in Russian');
 
