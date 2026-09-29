@@ -592,7 +592,7 @@ document.addEventListener('keydown',e=>{
   if(commandDialog.open && e.key==='ArrowDown') {e.preventDefault();const options=[...commandDialog.querySelectorAll('.command-option')];options[(options.indexOf(document.activeElement)+1)%options.length]?.focus();}
 });
 playbookDialog.addEventListener('cancel',()=>previewVersion++);
-document.querySelector('#today').textContent=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',timeZone:'Asia/Almaty'});
+document.querySelector('#today').textContent=new Date().toLocaleDateString(globalThis.pulseLocale||'ru-RU',{day:'numeric',month:'long',timeZone:'Asia/Almaty'});
 async function start(user=state.user) {
   state.user=user;
   try {if(user?.role==='citizen') {

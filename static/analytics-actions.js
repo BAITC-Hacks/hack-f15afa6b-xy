@@ -92,7 +92,7 @@ export function registerAnalyticsActions(authFetch,esc) {
             <label>Что проверили и что меняем<textarea name="note" rows="3" maxlength="1000" placeholder="Вывод, согласованное действие и дата повторной проверки">${esc(review.note)}</textarea></label>
             <button class="button primary" type="submit">Сохранить результат</button><span role="status" aria-live="polite"></span>
           </form></details>
-        ${item.review.updated_at?`<p class="micro">Сохранено ${esc(new Date(item.review.updated_at).toLocaleString('ru-RU'))}</p>`:''}
+        ${item.review.updated_at?`<p class="micro">Сохранено ${esc(new Date(item.review.updated_at).toLocaleString(globalThis.pulseLocale||'ru-RU'))}</p>`:''}
       </article>`;
     }
 
@@ -117,7 +117,7 @@ export function registerAnalyticsActions(authFetch,esc) {
           <p class="micro">Сохранённые оценки используются для проверки сигналов. Порог срабатывания и модели автоматически не меняются.</p>
           ${comparison?`<details><summary>Сравнить методы прогноза</summary><div class="action-table"><table><caption>Проверка на прошлых месяцах · горизонт 3 месяца · ${comparison.evaluation.backtest_points} проверок</caption><thead><tr><th scope="col">Метод</th><th scope="col">MAE, обращений</th><th scope="col">sMAPE, %</th></tr></thead><tbody>${candidateRows.map(([key,row])=>`<tr><th scope="row">${esc(methods[key])}${key===comparison.method?' · выбран':''}</th><td>${row.mae}</td><td>${row.smape_percent}</td></tr>`).join('')}</tbody></table></div><p class="micro">Меньше ошибка — лучше. Метод выбран по MAE на этих же проверках; это не независимая оценка будущей точности. Повторите сравнение после нового полного месяца.</p></details>`:''}
         </div>
-        ${history.length?`<details class="action-history"><summary>Сохранённые результаты · последние ${history.length}</summary>${history.map(row=>`<article><strong>${esc(row.title)} · ${esc(statuses[row.status])}</strong><p class="micro">${esc(row.evidence)}</p><p>${row.outcome?esc(outcomes[row.outcome])+'. ':''}${esc(row.note||'Без комментария')}</p><small>${esc(new Date(row.updated_at).toLocaleString('ru-RU'))} · ${esc(row.actor)} · версия ${row.revision}</small></article>`).join('')}</details>`:''}
+        ${history.length?`<details class="action-history"><summary>Сохранённые результаты · последние ${history.length}</summary>${history.map(row=>`<article><strong>${esc(row.title)} · ${esc(statuses[row.status])}</strong><p class="micro">${esc(row.evidence)}</p><p>${row.outcome?esc(outcomes[row.outcome])+'. ':''}${esc(row.note||'Без комментария')}</p><small>${esc(new Date(row.updated_at).toLocaleString(globalThis.pulseLocale||'ru-RU'))} · ${esc(row.actor)} · версия ${row.revision}</small></article>`).join('')}</details>`:''}
       </section>`;
       this.querySelectorAll('form[data-review]').forEach(form=>this.syncForm(form));
     }

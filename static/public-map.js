@@ -61,7 +61,7 @@ export async function mountPublicIssueExplorer(root=document) {
       const title=document.createElement('strong');title.textContent=`${item.id} · ${labels[item.status]||'В обработке'}`;
       const text=document.createElement('span');text.textContent=item.text||'Текст не указан';
       const meta=document.createElement('small');meta.textContent=[item.city,item.address,item.topic_name,
-        new Date(item.registered_at).toLocaleTimeString('ru-RU',{timeZone:'Asia/Almaty'}),
+        new Date(item.registered_at).toLocaleTimeString(globalThis.pulseLocale||'ru-RU',{timeZone:'Asia/Almaty'}),
         ['synthetic','synthetic_demo'].includes(item.data_origin)?'Учебное обращение':'Обращение из базы',
         item.latitude==null||item.longitude==null?'Координаты не указаны':''].filter(Boolean).join(' · ');
       card.append(title,text,meta);return card;
@@ -146,8 +146,8 @@ export async function mountPublicIssueExplorer(root=document) {
     if(item.has_video) {const video=document.createElement('video');video.src=`/api/workspace/public/complaints/${encodeURIComponent(item.id)}/video`;video.controls=true;video.preload='metadata';video.setAttribute('aria-label',`Видео проблемы к обращению ${item.id}`);card.append(video);}
     const text=document.createElement('span');text.className='public-card-text';text.textContent=item.text;
     const meta=document.createElement('small');meta.textContent=[place(item),item.location_label,item.topic_name,item.service_name].filter(Boolean).join(' · ');
-    const date=document.createElement('time');date.dateTime=item.registered_at;date.textContent=new Date(item.registered_at).toLocaleString('ru-RU',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Almaty'});
-    const update=document.createElement('small');update.textContent=`Обновлено ${new Date(item.last_updated).toLocaleString('ru-RU',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Almaty'})}${item.subscribers?` · ${item.subscribers} подписок`:''}`;
+    const date=document.createElement('time');date.dateTime=item.registered_at;date.textContent=new Date(item.registered_at).toLocaleString(globalThis.pulseLocale||'ru-RU',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Almaty'});
+    const update=document.createElement('small');update.textContent=`Обновлено ${new Date(item.last_updated).toLocaleString(globalThis.pulseLocale||'ru-RU',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Almaty'})}${item.subscribers?` · ${item.subscribers} подписок`:''}`;
     card.append(text,meta,date,update);
     card.addEventListener('click',()=>{selectCard(item,false);setView('map');requestAnimationFrame(()=>{mapController.focus(item.id);explorer.querySelector('#public-map canvas')?.focus({preventScroll:true});explorer.querySelector('#public-map').scrollIntoView({block:'nearest'});});});
     return card;
