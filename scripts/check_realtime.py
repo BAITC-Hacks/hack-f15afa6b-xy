@@ -45,6 +45,7 @@ class Connection:
         self.input_audio_buffer = Buffer(self)
     async def send_raw(self, data):
         assert json.loads(data)["session"]["type"] == "transcription"
+        await self.events.put(Event("session.updated", session={}))
     def __aiter__(self): return self
     async def __anext__(self): return await self.events.get()
 
@@ -54,7 +55,9 @@ class Manager:
     async def __aexit__(self, *args): return None
 
 class Realtime:
-    def connect(self, **kwargs): return Manager()
+    def connect(self, **kwargs):
+        assert kwargs == {"extra_query": {"intent": "transcription"}, "max_retries": 0}
+        return Manager()
 
 class AsyncOpenAI:
     def __init__(self, **kwargs): self.realtime = Realtime()

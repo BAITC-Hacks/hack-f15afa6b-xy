@@ -70,7 +70,9 @@ def attach_realtime_route(router: APIRouter, limit: Callable, config: RealtimeCo
         try:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=config.api_key, timeout=config.timeout, max_retries=0)
-            async with client.realtime.connect(model=config.model, max_retries=0) as upstream:
+            async with client.realtime.connect(
+                extra_query={"intent": "transcription"}, max_retries=0
+            ) as upstream:
                 await upstream.send_raw(json.dumps({"type": "session.update", "session": {
                     "type": "transcription", "audio": {"input": {
                         "format": {"type": "audio/pcm", "rate": 24000},
@@ -79,6 +81,11 @@ def attach_realtime_route(router: APIRouter, limit: Callable, config: RealtimeCo
                         "turn_detection": None,
                     }},
                 }}))
+                async for event in upstream:
+                    if getattr(event, "type", "") == "error":
+                        raise RuntimeError("OpenAI rejected the transcription session")
+                    if getattr(event, "type", "") == "session.updated":
+                        break
                 await websocket.send_json({"type": "pulse.ready"})
 
                 async def browser_to_openai():
@@ -123,4 +130,3 @@ def attach_realtime_route(router: APIRouter, limit: Callable, config: RealtimeCo
                 await websocket.close(code=1013)
             except Exception:
                 pass
-

@@ -61,7 +61,7 @@ def language_correct(language: str, text: str) -> bool:
     value = text.lower()
     has_kk = any(letter in value for letter in "әғқңөұүһі")
     has_ru = any(word in value.split() for word in ("нет", "дом", "срок", "весь"))
-    return has_kk and has_ru if language == "mixed" else has_kk if language == "kk" else not has_kk
+    return has_kk or has_ru if language == "mixed" else has_kk if language == "kk" else not has_kk
 
 
 def percentile(values: list[int], fraction: float) -> int:
