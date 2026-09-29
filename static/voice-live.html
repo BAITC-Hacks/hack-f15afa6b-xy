@@ -15,7 +15,7 @@
   </header>
   <main id="voice-main" class="voice-live-main">
     <section class="voice-room" aria-labelledby="voice-title">
-      <div class="voice-room-heading"><p class="eyebrow">ГОЛОСОВОЕ ОБРАЩЕНИЕ</p><h1 id="voice-title">Расскажите — помощник заполнит заявку</h1><p>Говорите на русском или казахском без предварительного выбора. Аудио не добавляется к обращению.</p></div>
+      <div class="voice-room-heading"><h1 id="voice-title">Подать обращение голосом</h1><p>Назовите проблему и адрес на русском или казахском. Проверьте текст перед отправкой. Аудиозапись не прикладывается к обращению.</p></div>
       <canvas class="live-orb" data-live-orb data-thinking-orb data-orb-state="idle" role="img" aria-label="Голосовой помощник готов"></canvas>
       <div id="voice-conversation" class="voice-conversation" aria-live="polite"></div>
       <div class="voice-live-controls">
@@ -30,20 +30,20 @@
     </section>
 
     <aside class="voice-draft" aria-labelledby="draft-title">
-      <div class="draft-heading"><div><p class="eyebrow">ЗАЯВКА ЗАПОЛНЯЕТСЯ СЕЙЧАС</p><h2 id="draft-title">Черновик обращения</h2></div><span class="draft-state">Сохранится после отправки</span></div>
+      <div class="draft-heading"><div><h2 id="draft-title">Черновик обращения</h2></div><span class="draft-state">Сохранится после отправки</span></div>
       <form id="voice-live-form">
         <label for="citizen-text">Что произошло?</label>
-        <textarea id="citizen-text" name="text" rows="5" maxlength="10000" required placeholder="Ответ появится здесь после первого вопроса"></textarea>
+        <textarea id="citizen-text" name="text" rows="5" maxlength="10000" required placeholder="Например: со вчерашнего вечера нет воды"></textarea>
         <div id="voice-ai-insight" class="voice-ai-insight" role="status" aria-live="polite" hidden></div>
 
         <div class="draft-grid">
-          <div><label for="citizen-region">Область или регион</label><select id="citizen-region" name="region_id" required></select></div>
+          <div><label for="citizen-region">Регион</label><select id="citizen-region" name="region_id" required></select></div>
           <div><label for="citizen-city">Город</label><select id="citizen-city" name="city_code" required></select></div>
         </div>
         <input id="citizen-district" name="district" type="hidden">
 
         <label for="citizen-address">Адрес или ориентир</label>
-        <div class="address-search"><input id="citizen-address" name="address" maxlength="200" autocomplete="street-address" placeholder="Ответ появится здесь после второго вопроса"><button type="button" class="button" data-address-search>Найти</button></div>
+        <div class="address-search"><input id="citizen-address" name="address" maxlength="200" autocomplete="street-address" placeholder="Например: улица Абая, дом 44"><button type="button" class="button" data-address-search>Найти</button></div>
         <div class="geocode-results" data-geocode-results aria-live="polite"></div>
 
         <fieldset class="location-field"><legend>Точка на карте</legend><div class="map-shell"><div id="citizen-map" class="issue-map issue-map-picker" data-map-mode="picker" aria-label="Выберите место обращения на карте"></div><span class="map-tip" data-city-label>Алматы · интерактивная карта</span></div><div class="location-status"><span data-location-status role="status">Назовите адрес или выберите точку</span><button type="button" class="button ghost small" data-location-clear>Сбросить</button></div><input type="hidden" name="latitude"><input type="hidden" name="longitude"><input type="hidden" name="location_accuracy_m"></fieldset>
@@ -57,6 +57,6 @@
     </aside>
   </main>
   <div id="voice-toast" role="alert" hidden></div>
-  <script type="module" src="/static/voice-live.js?v=20260929-accounts"></script>
+  <script type="module" src="/static/voice-live.js?v=20260929-copy"></script>
 </body>
 </html>

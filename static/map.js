@@ -85,14 +85,19 @@ async function searchAddress(form, map, marker) {
     const data=await response.json().catch(()=>({detail:'Не удалось выполнить поиск'}));
     if(!response.ok) throw new Error(data.detail||'Не удалось выполнить поиск');
     if(!data.items.length) {setStatus(form,'Адрес не найден · уточните написание или поставьте точку вручную');return;}
-    const fragment=document.createDocumentFragment();let first;
-    data.items.forEach((result,index)=>{
+    const fragment=document.createDocumentFragment();
+    data.items.forEach(result=>{
       const option=document.createElement('button');
       option.type='button';option.className='geocode-result';option.textContent=result.label;
       option.setAttribute('aria-pressed','false');option.addEventListener('click',()=>selectResult(form,map,marker,result,option));
-      fragment.append(option);if(index===0) first={result,option};
+      fragment.append(option);
     });
-    results.append(fragment);selectResult(form,map,marker,first.result,first.option);
+    results.append(fragment);
+    const matches=data.items.filter(result=>result.address_match);
+    if(matches.length===1) {
+      const index=data.items.indexOf(matches[0]);
+      selectResult(form,map,marker,matches[0],results.children[index]);
+    } else setStatus(form,'Проверьте найденные варианты и выберите место. Точный дом автоматически не определён.');
   } catch(error) {setStatus(form,error.message);}
   finally {button.disabled=false;button.textContent='Найти на карте';}
 }
@@ -124,17 +129,82 @@ async function mountPicker(element) {
   setCity(form,map,false).catch(error=>setStatus(form,error.message));
 }
 
+async function searchViewerAddress(element, map, maplibregl) {
+  const card=element.closest('.location-card'), status=card.querySelector('[data-map-status]');
+  const results=card.querySelector('[data-map-results]'), button=card.querySelector('[data-map-search]');
+  const alternatives=card.querySelector('[data-map-alternatives]');
+  const fallback=element.dataset.pointLabel?` ${element.dataset.pointLabel}`:'';
+  button.disabled=true;results.replaceChildren();status.textContent='Ищем адрес на карте…';element.dataset.lookupState='loading';
+  alternatives.hidden=true;
+  try {
+    const response=await fetch(`/api/workspace/geocode?q=${encodeURIComponent(element.dataset.address)}&city_code=${encodeURIComponent(element.dataset.cityCode)}`,{headers:{Accept:'application/json'}});
+    if(!response.ok) throw new Error('Поиск адреса временно недоступен. Повторите поиск или откройте 2ГИС.');
+    const data=await response.json();
+    if(!element.isConnected) return;
+    const matches=data.items.filter(result=>result.address_match);
+    if(matches.length!==1) {
+      element._pulseMarker?.remove();delete element.dataset.pointLabel;
+      card.querySelector('[data-map-coordinates]').hidden=true;
+      card.querySelector('[data-map-link]').href='https://2gis.kz/search/'+encodeURIComponent(data.query);
+    }
+    if(!matches.length) {element.dataset.lookupState='empty';status.textContent='Дом по этому адресу не найден. Уточните город, улицу и номер дома или проверьте адрес в 2ГИС.';return;}
+    const show=(result,option)=>{
+      element.setAttribute('aria-busy','true');
+      element._pulseMarker?.remove();
+      element._pulseMarker=new maplibregl.Marker({color:'#b77923'}).setLngLat([result.longitude,result.latitude]).addTo(map);
+      map.jumpTo({center:[result.longitude,result.latitude],zoom:17});
+      results.querySelectorAll('button').forEach(node=>node.setAttribute('aria-pressed',String(node===option)));
+      status.textContent=`Найден дом: ${result.label}. Метка указывает на здание; вход или место аварии уточните у жителя.`;
+      const coords=`${result.longitude},${result.latitude}`;
+      card.querySelector('[data-map-link]').href=`https://2gis.kz/geo/${coords}?m=${coords}/17`;
+      const coordinates=card.querySelector('[data-map-coordinates]');
+      coordinates.textContent=`Координаты: ${result.latitude}, ${result.longitude}`;coordinates.hidden=false;
+      element.dataset.pointLabel=status.textContent;
+      element.dataset.lookupState='selected';
+    };
+    matches.forEach(result=>{
+      const option=document.createElement('button');option.type='button';option.className='geocode-result';
+      option.textContent=result.label;option.setAttribute('aria-pressed','false');
+      option.addEventListener('click',()=>show(result,option));results.append(option);
+    });
+    alternatives.hidden=matches.length<2;
+    if(matches.length===1) show(matches[0],results.firstElementChild);
+    else {
+      alternatives.open=true;element.dataset.lookupState='ambiguous';
+      status.textContent='Найдено несколько домов с этим адресом. Уточните район и выберите нужный дом.';
+    }
+  } catch(error) {if(element.isConnected) {element.dataset.lookupState='error';status.textContent=error.message+fallback;}}
+  finally {button.disabled=false;}
+}
+
 async function mountViewer(element) {
   const maplibregl=await loadLibrary();
   if(!element.isConnected || element.dataset.mounted) return;
+  const byAddress=element.dataset.mapMode==='address';
   const latitude=Number(element.dataset.latitude), longitude=Number(element.dataset.longitude);
-  if(!Number.isFinite(latitude)||!Number.isFinite(longitude)) return;
+  const point=element.dataset.latitude!=null&&element.dataset.longitude!=null&&Number.isFinite(latitude)&&Number.isFinite(longitude);
+  if(!byAddress&&!point) return;
   element.dataset.mounted='true';
-  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:[longitude,latitude],zoom:15.5,pitch:22,interactive:true,renderWorldCopies:false});
+  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:point?[longitude,latitude]:[67.5,48],zoom:point?17:3.5,pitch:0,interactive:true,renderWorldCopies:false});
   element._pulseMap=map;
+  element.setAttribute('aria-busy','true');
+  map.on('idle',()=>element.setAttribute('aria-busy','false'));
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
-  const popup=new maplibregl.Popup({offset:28,closeButton:false}).setText(element.dataset.label||'Место обращения');
-  new maplibregl.Marker({color:'#3982c1'}).setLngLat([longitude,latitude]).setPopup(popup).addTo(map);
+  const resize=new ResizeObserver(()=>map.resize());resize.observe(element);map.on('remove',()=>resize.disconnect());
+  if(point) {
+    element.dataset.pointLabel=element.closest('.location-card').querySelector('[data-map-status]').textContent;
+    const popup=new maplibregl.Popup({offset:28,closeButton:false}).setText(element.dataset.label||'Место обращения');
+    element._pulseMarker=new maplibregl.Marker({color:'#3982c1'}).setLngLat([longitude,latitude]).setPopup(popup).addTo(map);
+  }
+  if(!byAddress||!element.dataset.cityCode) return;
+  const card=element.closest('.location-card'), button=card.querySelector('[data-map-search]');
+  button.addEventListener('click',()=>searchViewerAddress(element,map,maplibregl));
+  button.disabled=true;
+  if(!point) try {
+    const response=await fetch(`/api/workspace/city-map?city_code=${encodeURIComponent(element.dataset.cityCode)}`,{headers:{Accept:'application/json'}});
+    if(response.ok&&element.isConnected) {const city=await response.json();map.fitBounds(city.bounds,{padding:20,duration:0});}
+  } catch { /* Address search and the external map remain available. */ }
+  if(element.isConnected) await searchViewerAddress(element,map,maplibregl);
 }
 
 function publicPopup(item) {
@@ -217,7 +287,11 @@ export function mountMaps(root=document) {
   root.querySelectorAll('[data-map-mode]:not([data-mounted])').forEach(element=>{
     const mount=element.dataset.mapMode==='picker'?mountPicker(element):mountViewer(element);
     mount.catch(()=>{
-      if(element.isConnected) element.innerHTML='<p class="map-fallback">Карта временно недоступна. Координаты обращения сохранены.</p>';
+      if(element.isConnected) {
+        element.innerHTML='<p class="map-fallback">Карта временно недоступна. Попробуйте открыть её в 2ГИС.</p>';
+        const card=element.closest('.location-card');
+        if(card) {card.querySelector('[data-map-status]').textContent='Ссылка на 2ГИС доступна выше.';const retry=card.querySelector('[data-map-search]');if(retry) retry.disabled=true;}
+      }
     });
   });
 }

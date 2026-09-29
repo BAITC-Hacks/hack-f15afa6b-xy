@@ -4,7 +4,7 @@ const labels={pending:'На рассмотрении',confirmed:'Принято 
 
 export function publicMapView() {
   return `<section class="workspace-public-map" data-public-map-explorer aria-labelledby="map-page-title">
-    <div class="page-heading"><div><p class="eyebrow">ПУБЛИЧНАЯ КАРТА · СИНТЕТИЧЕСКИЕ ДАННЫЕ</p><h1 id="map-page-title">Обращения на карте</h1><p class="subtitle">Найдите проблему по городу, адресу или номеру обращения.</p></div><a class="button public-share" href="/map">Публичная ссылка ↗</a></div>
+    <div class="page-heading"><div><h1 id="map-page-title">Обращения на карте</h1><p class="subtitle">Найдите проблему по городу, адресу или номеру обращения.</p></div><a class="button public-share" href="/map">Публичная ссылка ↗</a></div>
         <form id="public-filters" class="public-filters" aria-label="Фильтры обращений">
           <label><span>Поиск</span><input name="search" type="search" placeholder="Адрес, номер, проблема"></label>
           <label><span>Город</span><select name="city"><option value="">Все города</option></select></label>
@@ -16,7 +16,7 @@ export function publicMapView() {
     <div class="public-layout" data-view="list">
       <div class="public-map-shell"><div id="public-map" class="issue-map public-map" aria-label="Интерактивная карта обращений"></div><span class="map-tip" id="public-scope">Все города</span><p id="public-map-error" class="public-map-error" role="status" hidden></p></div>
       <aside class="public-feed" aria-label="Список обращений">
-        <div class="public-feed-head"><h2>Последние обращения</h2><span class="live">Синтетика</span></div>
+        <div class="public-feed-head"><h2>Последние обращения</h2><span class="live">Демо-данные</span></div>
         <div id="public-cards" class="public-cards"></div>
       </aside>
     </div>

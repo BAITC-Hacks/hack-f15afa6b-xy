@@ -67,7 +67,7 @@ export function registerAnalyticsActions(authFetch,esc) {
         const result=await response.json();
         if(!response.ok) throw new Error(typeof result.detail==='string'?result.detail:'Проверьте статус и результат проверки.');
         drafts.delete(id);
-        await this.load('Результат сохранён на сервере.');
+        await this.load('Результат проверки сохранён.');
       } catch(error) {
         notice.textContent=error.message||'Не удалось сохранить. Ваш текст остался в форме.';
         if(error.message?.includes('Обновите')) {
@@ -88,7 +88,7 @@ export function registerAnalyticsActions(authFetch,esc) {
         <details ${drafts.has(item.id)?'open':''}><summary>Записать ход проверки</summary>
           <form data-review="${esc(item.id)}">
             <div class="action-fields"><label>Статус<select name="status">${Object.entries(statuses).map(([key,label])=>`<option value="${key}" ${review.status===key?'selected':''}>${label}</option>`).join('')}</select></label>
-            ${item.kind==='signal'?`<label>Результат сигнала<select name="outcome"><option value="">Выберите результат</option>${Object.entries(outcomes).map(([key,label])=>`<option value="${key}" ${review.outcome===key?'selected':''}>${label}</option>`).join('')}</select></label>`:''}</div>
+            ${item.kind==='signal'?`<label>Результат проверки<select name="outcome"><option value="">Выберите результат</option>${Object.entries(outcomes).map(([key,label])=>`<option value="${key}" ${review.outcome===key?'selected':''}>${label}</option>`).join('')}</select></label>`:''}</div>
             <label>Что проверили и что меняем<textarea name="note" rows="3" maxlength="1000" placeholder="Вывод, согласованное действие и дата повторной проверки">${esc(review.note)}</textarea></label>
             <button class="button primary" type="submit">Сохранить результат</button><span role="status" aria-live="polite"></span>
           </form></details>
@@ -102,19 +102,19 @@ export function registerAnalyticsActions(authFetch,esc) {
       const precision=feedback.reviewed_precision_percent;
       const candidateRows=Object.entries(comparison?.candidates||{}).sort((a,b)=>a[1].mae-b[1].mae);
       this.innerHTML=`<section class="analytics-actions" aria-labelledby="analytics-actions-title">
-        <div class="section-top"><div><span class="eyebrow">ОТ ДАННЫХ К ДЕЙСТВИЯМ</span><h3 id="analytics-actions-title">Что изменить в работе</h3></div>
+        <div class="section-top"><div><h3 id="analytics-actions-title">Проверки и рекомендации</h3></div>
         <span class="badge neutral">${items.filter(item=>item.review.status!=='done').length} ожидают проверки</span></div>
         <p class="micro">Сначала проверьте данные, затем причину всплеска и план нагрузки. Решения и результаты сохраняются для всей команды.</p>
         <p role="status" aria-live="polite">${esc(message)}</p>
         ${items.filter(item=>item.kind==='data').map(item=>this.card(item)).join('')}
         <div class="action-grid">${signals.slice(0,2).map(item=>this.card(item)).join('')}</div>
         ${signals.length>2?`<details class="action-more"><summary>Ещё ${signals.length-2} сигналов для проверки</summary><div class="action-grid">${signals.slice(2).map(item=>this.card(item)).join('')}</div></details>`:''}
-        ${!signals.length?'<p class="micro">В выбранном срезе нет сигналов по текущему правилу. Это не подтверждение отсутствия проблем.</p>':''}
+        ${!signals.length?'<p class="micro">Для выбранных фильтров всплесков не найдено. Отдельные проблемы могут оставаться в очереди.</p>':''}
         ${items.filter(item=>item.kind==='forecast').map(item=>this.card(item)).join('')}
-        <div class="action-quality"><h4>Что помогает улучшать аналитику</h4>
+        <div class="action-quality"><h4>Результаты проверок</h4>
           <p>Проверки сигналов: <strong>${feedback.confirmed} подтверждено</strong> · ${feedback.false_alarm} ложных · ${feedback.data_issue} ошибок данных.</p>
-          <p class="micro">${precision===null?'Доля подтверждённых пока неизвестна.':`Среди оценённых без ошибок данных подтверждено ${precision}%.`} Учтены последние результаты записанных проверок в этом срезе за всю историю; это не оценка всех сигналов. ${this.scope.data_origin==='synthetic_demo'?'Результаты относятся к демонстрационным данным.':''}</p>
-          <p class="micro">Разметка помогает проверить правило сигналов. Она не меняет порог автоматически и не переобучает Laya.</p>
+          <p class="micro">${precision===null?'Доля подтверждённых пока неизвестна.':`Среди оценённых без ошибок данных подтверждено ${precision}%.`} Учтены последние сохранённые оценки сигналов по выбранным фильтрам за всё время. Непроверенные сигналы в расчёт не входят. ${this.scope.data_origin==='synthetic_demo'?'Результаты относятся к демонстрационным данным.':''}</p>
+          <p class="micro">Сохранённые оценки используются для проверки сигналов. Порог срабатывания и модели автоматически не меняются.</p>
           ${comparison?`<details><summary>Сравнить методы прогноза</summary><div class="action-table"><table><caption>Проверка на прошлых месяцах · горизонт 3 месяца · ${comparison.evaluation.backtest_points} проверок</caption><thead><tr><th scope="col">Метод</th><th scope="col">MAE, обращений</th><th scope="col">sMAPE, %</th></tr></thead><tbody>${candidateRows.map(([key,row])=>`<tr><th scope="row">${esc(methods[key])}${key===comparison.method?' · выбран':''}</th><td>${row.mae}</td><td>${row.smape_percent}</td></tr>`).join('')}</tbody></table></div><p class="micro">Меньше ошибка — лучше. Метод выбран по MAE на этих же проверках; это не независимая оценка будущей точности. Повторите сравнение после нового полного месяца.</p></details>`:''}
         </div>
         ${history.length?`<details class="action-history"><summary>Сохранённые результаты · последние ${history.length}</summary>${history.map(row=>`<article><strong>${esc(row.title)} · ${esc(statuses[row.status])}</strong><p class="micro">${esc(row.evidence)}</p><p>${row.outcome?esc(outcomes[row.outcome])+'. ':''}${esc(row.note||'Без комментария')}</p><small>${esc(new Date(row.updated_at).toLocaleString('ru-RU'))} · ${esc(row.actor)} · версия ${row.revision}</small></article>`).join('')}</details>`:''}

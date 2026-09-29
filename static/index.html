@@ -32,10 +32,10 @@
     <section class="panel coverage-panel" aria-labelledby="coverage-heading" aria-busy="true" id="coverage-panel">
       <div class="coverage-heading-row">
         <div>
-          <p class="coverage-eyebrow">Ситуационный центр · готовность данных</p>
-          <h2 id="coverage-heading" tabindex="-1">Где есть данные, а где пока пробел</h2>
+
+          <h2 id="coverage-heading" tabindex="-1">Данные по регионам</h2>
         </div>
-        <span class="evidence-badge">Факты о полученном пакете</span>
+        <span class="evidence-badge">Файлы организаторов</span>
       </div>
       <p class="panel-desc">Наличие файла не подтверждает качество текстов или полноту истории. Демо-обращения ниже — синтетические.</p>
       <div class="coverage-counters" aria-label="Покрытие всего пакета, независимо от фильтра">
@@ -67,9 +67,9 @@
         </div>
       </div>
       <div class="coverage-note">
-        <p><strong>Как читать:</strong> «Есть в заголовке» — проверено имя поля; «Кандидат» — смысл ещё не подтверждён; «Нет явного поля» — не найден подходящий заголовок.</p>
+        <p><strong>Как читать:</strong> «Есть в заголовке» — проверено имя поля; «Назначение поля не подтверждено» — смысл нужно уточнить; «Нет явного поля» — не найден подходящий заголовок.</p>
         <p>Подсчёт CSV-записей не подтверждает число уникальных обращений. «Не проверено» и «Нет файла» не означают нулевой спрос. Языки RU/KK и полнота истории требуют отдельной проверки.</p>
-        <p id="coverage-source">Источник: инвентарь и матрица полученного пакета.</p>
+        <p id="coverage-source">Источник: список и проверка файлов организаторов.</p>
       </div>
     </section>
     <!-- Section 1: Intake -->
@@ -143,7 +143,7 @@
     <!-- Section 2: Operator Workbench -->
     <section class="panel workbench-panel" aria-labelledby="workbench-heading">
       <h2 id="workbench-heading">2. Рабочее место оператора</h2>
-      <p class="panel-desc">Верификация темы, похожие прецеденты и подтверждение человеком.</p>
+      <p class="panel-desc">Проверьте категорию и похожие обращения, затем назначьте службу.</p>
 
       <div id="active-complaint-card" class="card active-card">
         <div class="card-header">
@@ -171,9 +171,9 @@
           <small>Категорию проверяет и подтверждает оператор.</small>
         </div>
         <div id="proposal-content" class="proposal-details">
-          <p class="empty-state">Нажмите «Запросить предложение» для анализа текста.</p>
+          <p class="empty-state">Нажмите «Получить рекомендацию», чтобы определить категорию.</p>
         </div>
-        <div id="proposal-error" class="error-msg" role="alert" hidden>Не удалось запросить предложение. Повторите попытку.</div>
+        <div id="proposal-error" class="error-msg" role="alert" hidden>Не удалось получить рекомендацию. Повторите попытку.</div>
       </div>
 
       <div class="confirm-box" id="clarification-box">
@@ -210,9 +210,9 @@
 
       <div class="similar-box">
         <h3>Похожие обращения</h3>
-        <p class="meta-note"><small>Аналогичные случаи не означают дубликат или один инцидент.</small></p>
+        <p class="meta-note"><small>Похожие обращения могут относиться к разным проблемам. Проверьте их перед объединением.</small></p>
         <div id="similar-list" class="similar-items">
-          <p class="empty-state">Кандидаты не загружены.</p>
+          <p class="empty-state">Выберите обращение, чтобы увидеть похожие.</p>
         </div>
       </div>
 
@@ -228,8 +228,8 @@
               <label for="confirm-priority">Приоритет <span class="req">*</span></label>
               <select id="confirm-priority" required>
                 <option value="">-- Выберите приоритет --</option>
-                <option value="normal">Обычный (normal)</option>
-                <option value="urgent">Срочный (urgent)</option>
+                <option value="normal">Обычный</option>
+                <option value="urgent">Срочный</option>
               </select>
             </div>
           </div>
@@ -246,8 +246,8 @@
 
     <!-- Section 3: City Analytics & 501 Stubs -->
     <section class="panel analytics-panel" aria-labelledby="analytics-heading">
-      <h2 id="analytics-heading">4. Счётчики синтетического демо</h2>
-      <p class="panel-desc">Подсчёт демонстрационных записей из SQLite. Это не обращения из файлов организаторов и не статистика регионов.</p>
+      <h2 id="analytics-heading">4. Статистика демо-обращений</h2>
+      <p class="panel-desc">Здесь учитываются только искусственные примеры. Данные организаторов в эти счётчики не входят.</p>
 
       <div class="stats-counters">
         <div class="stat-card">
@@ -256,15 +256,15 @@
         </div>
         <div class="stat-card stat-pending">
           <div class="stat-num" id="stat-pending">0</div>
-          <div class="stat-label">В ожидании (Pending)</div>
+          <div class="stat-label">На рассмотрении</div>
         </div>
         <div class="stat-card stat-confirmed">
           <div class="stat-num" id="stat-confirmed">0</div>
-          <div class="stat-label">Подтверждено (Confirmed)</div>
+          <div class="stat-label">Подтверждено</div>
         </div>
         <div class="stat-card">
           <div class="stat-num" id="stat-clarification">0</div>
-          <div class="stat-label">Нужно уточнение (Needs clarification)</div>
+          <div class="stat-label">Нужно уточнение</div>
         </div>
       </div>
 
@@ -274,8 +274,8 @@
       </div>
 
       <div class="stubs-section">
-        <h3>Алдағы модульдер (501 Stubs)</h3>
-        <p class="meta-note"><small>Модули запланированы в следующих milestone. Проверка честного 501 ответа:</small></p>
+        <h3>Проверка API</h3>
+        <p class="meta-note"><small>Кнопки отправляют запросы к API и показывают ответ сервера.</small></p>
         <div class="stub-buttons">
           <button type="button" class="btn btn-outline" onclick="callStub('/api/alerts')">GET /api/alerts</button>
           <button type="button" class="btn btn-outline" onclick="callStub('/api/forecast?horizon_months=1')">GET /api/forecast (1 мес)</button>
@@ -288,11 +288,11 @@
   </main>
 
   <footer class="app-footer">
-    <p>Pulse 109 • Synthetic Skeleton • GovTech Camp Case 2 • Human confirmation required for all decisions</p>
+    <p>Pulse 109 · Демонстрационные данные · Решения подтверждает оператор</p>
   </footer>
 
-  <script src="/static/app.js"></script>
-  <script src="/static/coverage.js"></script>
-  <script src="/static/clarification.js"></script>
+  <script src="/static/app.js?v=20260929-copy"></script>
+  <script src="/static/coverage.js?v=20260929-copy"></script>
+  <script src="/static/clarification.js?v=20260929-copy"></script>
 </body>
 </html>

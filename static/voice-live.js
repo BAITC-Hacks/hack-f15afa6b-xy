@@ -1,4 +1,4 @@
-import {applyDetectedCity,applyLanguageResult,beginVoiceTurn,clearLanguageResult,discardSavedVoiceTurn,finishVoiceTurn,mergeTranscript,previewTranscript,retrySavedVoiceTurn,selectedIntakeLanguage,selectedVoiceLanguage,settleTranscriptPreview,speakPrompt,voicePrompts} from './voice.js?v=20260928-motion-orb';
+import {applyDetectedCity,applyLanguageResult,beginVoiceTurn,clearLanguageResult,discardSavedVoiceTurn,finishVoiceTurn,mergeTranscript,previewTranscript,retrySavedVoiceTurn,selectedIntakeLanguage,selectedVoiceLanguage,settleTranscriptPreview,speakPrompt,voicePrompts} from './voice.js?v=20260929-copy';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260929-brand';
 import {mountThinkingOrb} from './thinking-orb.js?v=20260929-brand';
 
@@ -50,8 +50,8 @@ function setMode(next,text='') {
   thinkingOrb.setState(listening?'listening':['prompting','transcribing','speaking'].includes(next)?'processing':next==='retry'?'error':next==='review'?'result':'idle');
   control.classList.toggle('listening',listening);control.disabled=['prompting','transcribing','speaking'].includes(next);
   reset.disabled=control.disabled||listening;language.disabled=control.disabled||listening;
-  const labels={idle:'● Начать разговор',prompting:'Агент говорит…',listening:'■ Готово, закончить ответ',transcribing:'Распознаю ответ…',speaking:'Агент говорит…',review:'↻ Перезаписать ответы',retry:'● Повторить ответ'};
-  control.textContent=labels[next];liveStatus.textContent=text||({listening:'Слушаю вас · закончу запись после короткой паузы',transcribing:'Перевожу речь в текст…',review:'Проверьте заполненную форму и точку на карте',retry:'Ответ не потерян — можно повторить запись'}[next]||'Агент готов помочь');
+  const labels={idle:'● Начать разговор',prompting:'Помощник задаёт вопрос…',listening:'■ Готово, закончить ответ',transcribing:'Распознаю ответ…',speaking:'Помощник задаёт вопрос…',review:'↻ Перезаписать ответы',retry:'● Повторить ответ'};
+  control.textContent=labels[next];liveStatus.textContent=text||({listening:'Слушаю вас · закончу запись после короткой паузы',transcribing:'Перевожу речь в текст…',review:'Проверьте заполненную форму и точку на карте',retry:'Повторите запись или исправьте текст в форме'}[next]||'Нажмите «Начать разговор»');
 }
 
 async function beginTurn(field) {
@@ -60,7 +60,7 @@ async function beginTurn(field) {
   try {
     await beginVoiceTurn({field,...selected,api,onState:state=>setMode(state,state==='listening'&&language.value==='auto'?'Определяем язык…':''),onSpeech:()=>setMode('listening','Слышу вас · определяем язык'),onPartial:(text,result)=>{
       previewTranscript(document.querySelector(field==='problem'?'#citizen-text':'#citizen-address'),text);
-      liveStatus.textContent=applyLanguageResult(language,result)||'Расшифровка обновляет черновик…';
+      liveStatus.textContent=applyLanguageResult(language,result)||'Заполняем черновик…';
     },onSilence:finishTurn,onTimeout:finishTurn});
   } catch(error) {setMode('retry',error.message);toast(error.message);}
 }

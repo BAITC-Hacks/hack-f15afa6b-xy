@@ -137,6 +137,22 @@ def normalized_address_query(value: str, city: str = "Алматы") -> str:
     return clean if city.casefold() in clean.casefold() else clean + ", " + city
 
 
+def matches_house(query, address, city):
+    def normalized(value):
+        value = str(value).casefold().replace("ё", "е")
+        value = re.sub(r"\b(?:улица|ул|проспект|пр-т|пр|көшесі|көше|даңғылы|дом|д|үй|микрорайон|мкр|город|г)\b\.?", " ", value)
+        return " ".join(re.findall(r"[\w/]+", value))
+
+    house = address.get("house_number")
+    street = address.get("road") or address.get("pedestrian") or address.get("neighbourhood")
+    locality = address.get("city") or address.get("town") or address.get("village")
+    if not house or not street or address.get("country_code") != "kz":
+        return False
+    if normalized(locality) not in {normalized(city["name_ru"]), normalized(city["name_kk"])}:
+        return False
+    return normalized(query) == normalized(f"{street} {house}, {city['name_ru']}")
+
+
 def attach_city_routes(router):
     city_map_cache = {code: dict(value) for code, value in CITY_MAP_PRESETS.items()}
     address_cache = {}
@@ -225,6 +241,7 @@ def attach_city_routes(router):
                     district = re.sub(r"^(?:район\s+)|(?:\s+район)$", "", str(district), flags=re.IGNORECASE)
                 items.append({"label": str(result.get("display_name") or query)[:300],
                               "latitude": latitude, "longitude": longitude, "district": district,
+                              "address_match": matches_house(query, address, city),
                               "bounds": bounds if len(bounds) == 4 else None})
         address_cache[key] = items
         return {"query": query, "items": items, "cached": False}

@@ -132,7 +132,7 @@ async function handleResume() {
     undefined,
     "clarification-response-error",
     "clarification-response-success",
-    "Заявка возвращена в обработку (pending)."
+    "Обращение возвращено в обработку."
   );
 }
 

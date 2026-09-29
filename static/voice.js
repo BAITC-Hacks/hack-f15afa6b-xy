@@ -276,7 +276,7 @@ async function start(field,language,api,toast) {
 }
 
 async function finish(api,toast) {
-  setControls('busy');status('Распознаю речь локальной моделью…','processing');
+  setControls('busy');status('Перевожу запись в текст…','processing');
   try {
     const result=await finishVoiceTurn();if(!result) return;
     const input=target(result.field);

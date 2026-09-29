@@ -3,7 +3,7 @@
   const byId = id => document.getElementById(id);
   const statusLabels = {
     present_in_header: "Есть в заголовке",
-    candidate_unverified: "Кандидат: смысл не проверен",
+    candidate_unverified: "Назначение поля не подтверждено",
     not_observed: "Нет явного поля",
   };
   let rows = [];
@@ -66,7 +66,7 @@
     byId("coverage-content").hidden = true;
     byId("coverage-error").hidden = true;
     byId("coverage-status").textContent = "Загружаем сведения о покрытии…";
-    byId("coverage-source").textContent = "Источник: инвентарь и матрица полученного пакета.";
+    byId("coverage-source").textContent = "Источник: список и проверка файлов организаторов.";
     for (const key of ["supplied", "missing", "files"]) byId("coverage-" + key).textContent = "—";
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
@@ -97,14 +97,14 @@
       rows = data.regions;
       renderRows();
       byId("coverage-content").hidden = false;
-      byId("coverage-source").textContent = `Источник: инвентарь (${data.as_of.inventory}) и матрица (${data.as_of.matrix}). Дата проверки не равна дате обновления обращений.`;
+      byId("coverage-source").textContent = `Список файлов проверен ${data.as_of.inventory}, поля — ${data.as_of.matrix}. Даты обновления самих обращений указаны в таблице.`;
     } catch (_) {
       if (version !== requestVersion) return;
       rows = [];
       for (const key of ["supplied", "missing", "files"]) byId("coverage-" + key).textContent = "—";
       byId("coverage-content").hidden = true;
       byId("coverage-rows").replaceChildren();
-      byId("coverage-error").textContent = "Не удалось проверить покрытие. Сведения недоступны — это не отсутствие данных. Нажмите «Обновить покрытие».";
+      byId("coverage-error").textContent = "Не удалось загрузить сведения о файлах. Нажмите «Обновить покрытие», чтобы повторить проверку.";
       byId("coverage-error").hidden = false;
       byId("coverage-status").textContent = "Покрытие недоступно.";
     } finally {

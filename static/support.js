@@ -1,13 +1,13 @@
-import {esc,button,badge,heading,empty,topicName} from './views.js?v=20260927-12';
-import {authFetch} from './auth.js?v=20260929-unified-login';
+import {esc,button,badge,heading,empty,topicName} from './views.js?v=20260929-copy';
+import {authFetch} from './auth.js?v=20260929-copy';
 
 export function routingHealthView(s) {
   const h=s.routingHealth;
-  if(!h) return heading('ДЕМО-МАРШРУТЫ','Проверка маршрутизации','Загружаем все комбинации…');
+  if(!h) return heading('Распределение обращений','Проверяем назначения для разных категорий, регионов и языков…');
   const m=h.summary, region=id=>s.regions.find(r=>r.id===id)?.name_ru||id;
-  return heading('ДЕМО-МАРШРУТЫ','Каждое обращение получает маршрут','Категория × регион × язык × приоритет · текущая синтетическая смена.',button('load-health','↻ Проверить','ghost'))+
-    `<div class="radar-explainer"><div><strong>Проверка структуры, а не реального покрытия служб</strong><p>${esc(m.note)}</p></div></div><div class="dashboard-metrics">${[['Проверено',m.total,'комбинаций'],['Профильный оператор',m.primary,m.primary_percent+'% комбинаций'],['Резервный маршрут',m.fallback,'старший оператор или общая очередь'],['Без маршрута',m.uncovered,'требуют исправления']].map(([label,value,note])=>`<article class="metric-card"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join('')}</div>
-    <section class="panel"><div class="section-top"><h2>Где нужен резервный маршрут</h2><label for="health-region">Регион примеров <select id="health-region"><option value="">Все регионы</option>${s.regions.map(r=>`<option value="${esc(r.id)}" ${r.id===s.healthRegion?'selected':''}>${esc(r.name_ru)}</option>`).join('')}</select></label></div><p class="micro">Показано ${h.items.length} из ${h.item_count} совпадений. Счётчики выше всегда относятся ко всем регионам.</p><div class="health-table"><table><thead><tr><th>Категория</th><th>Регион</th><th>Язык / приоритет</th><th>Резерв</th></tr></thead><tbody>${h.items.map(i=>`<tr><td>${esc(topicName(i.category,s.topics))}</td><td>${esc(region(i.region_id))}</td><td>${esc(i.language)} · ${i.priority==='urgent'?'срочный':'обычный'}</td><td>${esc(i.operator_name||'Общая очередь')}<small>${esc(i.reason)}</small></td></tr>`).join('')}</tbody></table></div>${!h.items.length?empty('Для выбранного региона резерв не требуется'):''}</section>`;
+  return heading('Распределение обращений','Проверка назначений по категории, региону, языку и срочности. Используются демонстрационные данные.',button('load-health','↻ Проверить','ghost'))+
+    `<div class="radar-explainer"><div><strong>Проверяются правила демо</strong><p>${esc(m.note)}</p></div></div><div class="dashboard-metrics">${[['Проверено',m.total,'комбинаций'],['Профильный оператор',m.primary,m.primary_percent+'% комбинаций'],['Резервное назначение',m.fallback,'старший оператор или общая очередь'],['Без назначения',m.uncovered,'требуют исправления']].map(([label,value,note])=>`<article class="metric-card"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join('')}</div>
+    <section class="panel"><div class="section-top"><h2>Где нужен резервный оператор</h2><label for="health-region">Регион примеров <select id="health-region"><option value="">Все регионы</option>${s.regions.map(r=>`<option value="${esc(r.id)}" ${r.id===s.healthRegion?'selected':''}>${esc(r.name_ru)}</option>`).join('')}</select></label></div><p class="micro">Показано ${h.items.length} из ${h.item_count} совпадений. Счётчики выше всегда относятся ко всем регионам.</p><div class="health-table"><table><thead><tr><th>Категория</th><th>Регион</th><th>Язык / приоритет</th><th>Резерв</th></tr></thead><tbody>${h.items.map(i=>`<tr><td>${esc(topicName(i.category,s.topics))}</td><td>${esc(region(i.region_id))}</td><td>${esc(i.language)} · ${i.priority==='urgent'?'срочный':'обычный'}</td><td>${esc(i.operator_name||'Общая очередь')}<small>${esc(i.reason)}</small></td></tr>`).join('')}</tbody></table></div>${!h.items.length?empty('Для выбранного региона резерв не требуется','Для всех проверенных сочетаний найден профильный оператор.'):''}</section>`;
 }
 
 export function routingAlternatives(r) {
@@ -25,7 +25,7 @@ export function stopPresence() {
 export function watchPresence(id,operators,api) {
   stopPresence();watched=id;revision=null;changed=false;editing=false;
   const host=document.querySelector('#presence');
-  host.innerHTML=`<div class="presence-bar"><label>Демо-оператор <select id="presence-operator">${operators.map(o=>`<option value="${esc(o.id)}" ${identity===o.id?'selected':''}>${esc(o.name)}</option>`).join('')}</select></label><span id="presence-peers" role="status">Проверяем присутствие…</span>${button('commands','⌘ / Ctrl K · Команды','small ghost')}</div><div id="case-changed" class="change-notice" role="status" hidden>Карточка изменена другим оператором. Черновик сохранён на экране. ${button('reload-case','Загрузить изменения','small ghost')}</div>`;
+  host.innerHTML=`<div class="presence-bar"><span id="presence-peers" role="status">Проверяем, кто работает с обращением…</span><details class="presence-settings"><summary>Смена и команды</summary><label>Демо-оператор <select id="presence-operator">${operators.map(o=>`<option value="${esc(o.id)}" ${identity===o.id?'selected':''}>${esc(o.name)}</option>`).join('')}</select></label>${button('commands','Все действия · Ctrl K','small ghost')}</details></div><div id="case-changed" class="change-notice" role="status" hidden>Карточка изменена другим оператором. Черновик сохранён на экране. ${button('reload-case','Загрузить изменения','small ghost')}</div>`;
   const version=requestVersion;
   const poll=async()=>{
     if(document.hidden||version!==requestVersion) return;
@@ -35,9 +35,9 @@ export function watchPresence(id,operators,api) {
       if(revision && revision!==data.revision) changed=true;
       revision=data.revision;
       document.querySelector('#case-changed').hidden=!changed;
-      document.querySelector('#presence-peers').textContent=data.peers.length?data.peers.map(p=>`${p.name} ${p.mode==='editing'?'редактирует':'просматривает'} карточку`).join(' · '):'Других операторов в карточке нет';
+      document.querySelector('#presence-peers').textContent=data.peers.length?data.peers.map(p=>`${p.name} ${p.mode==='editing'?'редактирует':'просматривает'} карточку`).join(' · '):'С обращением работаете только вы';
     } catch {
-      if(version===requestVersion && host.isConnected) document.querySelector('#presence-peers').textContent='Присутствие временно недоступно';
+      if(version===requestVersion && host.isConnected) document.querySelector('#presence-peers').textContent='Не удалось проверить, кто ещё работает с обращением';
     }
   };
   host.querySelector('select').addEventListener('change',e=>{identity=e.target.value;poll();});

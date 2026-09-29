@@ -460,7 +460,7 @@ async function main() {
       await page.locator('#btn-classify').click();
       await page.waitForTimeout(300);
       assert.equal(await page.locator('#proposal-content .proposal-pill').count(), 0, 'Array-valued proposal must not render');
-      assert.match(await page.locator('#proposal-content').textContent(), /Нажмите «Запросить предложение»/);
+      assert.match(await page.locator('#proposal-content').textContent(), /Нажмите «Получить рекомендацию»/);
       assert.equal(await page.locator('#btn-classify').isEnabled(), true);
       state.classify = {status: 200, json: {}};
       await page.locator('#btn-classify').click();

@@ -7,6 +7,41 @@ const loginTab=document.querySelector('#login-tab');
 const signupTab=document.querySelector('#signup-tab');
 let startWorkspace=()=>{};
 let config={};
+const motionPreference=matchMedia('(prefers-reduced-motion: reduce)');
+function revealAuth(nodes,stagger=0) {
+  if(!globalThis.gsap||motionPreference.matches) return;
+  gsap.fromTo(nodes,{opacity:0,y:10},{opacity:1,y:0,duration:.38,stagger,ease:'power2.out',overwrite:true,clearProps:'opacity,transform'});
+}
+motionPreference.addEventListener('change',()=>{
+  if(motionPreference.matches&&globalThis.gsap) gsap.getTweensOf(authScreen.querySelectorAll('[data-auth-reveal],.auth-form')).forEach(tween=>tween.progress(1));
+});
+const cityMotionButton=document.querySelector('.city-motion-toggle');
+let cityMotion=null, cityPaused=false;
+function syncCityMotion() {
+  if(!globalThis.gsap) return;
+  const reduced=motionPreference.matches;
+  cityMotionButton.hidden=reduced;
+  if(reduced) {
+    cityMotion?.revert();cityMotion=null;
+    return;
+  }
+  if(!cityMotion) {
+    cityMotion=gsap.timeline({repeat:-1,paused:true})
+      .to('.city-signal',{attr:{'stroke-dashoffset':-100},duration:6,ease:'none'},0)
+      .fromTo('.city-ring',{attr:{r:25},opacity:.35},{attr:{r:39},opacity:0,duration:2.4,ease:'power1.out'},2)
+      .to('.city-windows',{opacity:.9,duration:1.6,repeat:1,yoyo:true,ease:'sine.inOut'},1.2);
+  }
+  cityMotion.paused(cityPaused||document.hidden||authScreen.hidden);
+}
+cityMotionButton.addEventListener('click',()=>{
+  cityPaused=!cityPaused;
+  const label=cityPaused?'Продолжить анимацию':'Приостановить анимацию';
+  cityMotionButton.setAttribute('aria-pressed',String(cityPaused));
+  cityMotionButton.setAttribute('aria-label',label);cityMotionButton.title=label;
+  cityMotionButton.textContent=cityPaused?'▷':'Ⅱ';syncCityMotion();
+});
+motionPreference.addEventListener('change',syncCityMotion);
+document.addEventListener('visibilitychange',syncCityMotion);
 const operatorEntry=location.pathname==='/operator';
 
 function csrfToken() {
@@ -50,20 +85,22 @@ function selectMode(mode,focus=true) {
   signupTab.tabIndex=signup?0:-1;
   loginForm.hidden=signup;
   signupForm.hidden=!signup;
-  document.querySelector('#auth-title').textContent=signup?'Создайте аккаунт':'Добро пожаловать';
-  document.querySelector('#auth-intro').textContent=signup?(operatorEntry?'Введите данные и код приглашения оператора.':'Создайте личный кабинет для подачи и отслеживания обращений.'):'Войдите в Pulse 109, чтобы продолжить.';
+  document.querySelector('#auth-title').textContent=signup?'Регистрация':'Вход в систему';
+  document.querySelector('#auth-intro').textContent=signup?(operatorEntry?'Введите данные и код приглашения оператора.':'После регистрации вы сможете подать обращение и следить за его статусом.'):'Введите почту и пароль.';
   showMessage('');
-  if(focus) document.querySelector(signup?'#signup-name':'#login-email').focus();
+  if(focus) {revealAuth(signup?signupForm:loginForm);document.querySelector(signup?'#signup-name':'#login-email').focus({preventScroll:true});}
 }
 
 function showAuth(mode='login',notice='',success=false) {
   document.querySelectorAll('dialog[open]').forEach(node=>node.close());
   workspaceScreen.hidden=true;
   authScreen.hidden=false;
+  syncCityMotion();
+  revealAuth(authScreen.querySelectorAll('[data-auth-reveal]'),.055);
   document.querySelector('#skip-link').href='#auth-title';
   selectMode(mode,false);
   if(notice) showMessage(notice,success);
-  requestAnimationFrame(()=>document.querySelector(mode==='signup'&&!signupForm.hidden?'#signup-name':'#login-email').focus());
+  requestAnimationFrame(()=>document.querySelector(mode==='signup'&&!signupForm.hidden?'#signup-name':'#login-email').focus({preventScroll:true}));
 }
 
 function initials(name) {
@@ -72,6 +109,7 @@ function initials(name) {
 
 function showWorkspace(user) {
   authScreen.hidden=true;
+  syncCityMotion();
   workspaceScreen.hidden=false;
   document.querySelector('#skip-link').href='#main';
   const name=user.name||user.full_name||'Оператор 109';
@@ -104,15 +142,16 @@ async function loadConfig() {
 async function enterWorkspace(user) {
   user=user.user||user;
   const citizen=user.role==='citizen';
+  document.body.dataset.citizen=String(citizen);
+  document.querySelector('#workspace-context').textContent=citizen?'Личный кабинет':'Кабинет оператора';
   if(location.pathname!=='/') history.replaceState(null,'','/'+location.hash);
   document.title=citizen?'Pulse 109 — Личный кабинет':'Pulse 109 — Кабинет оператора';
-  document.querySelectorAll('[data-nav]').forEach(node=>node.hidden=citizen?!['citizen','map'].includes(node.dataset.nav):node.dataset.nav==='citizen');
+  document.querySelectorAll('[data-nav]').forEach(node=>node.hidden=citizen?!['home','requests','citizen','map','help'].includes(node.dataset.nav):['home','requests','citizen','help'].includes(node.dataset.nav));
   document.querySelector('.nav-more').hidden=citizen;
-  document.querySelector('.copilot-note').hidden=citizen;
-  document.querySelector('.nav-label').textContent=citizen?'МОЙ ГОРОД':'РАБОЧЕЕ ПРОСТРАНСТВО';
+  document.querySelector('.nav-label').textContent=citizen?'ЛИЧНЫЙ КАБИНЕТ':'КАБИНЕТ ОПЕРАТОРА';
   document.querySelector('.disclaimer').hidden=citizen;
   document.querySelector('.demo-badge').hidden=citizen;
-  document.querySelectorAll('#workspace-screen .brand').forEach(node=>node.href=citizen?'#citizen':'#queue');
+  document.querySelectorAll('#workspace-screen .brand').forEach(node=>node.href=citizen?'#home':'#queue');
   showWorkspace(user);
   await startWorkspace(user);
 }
@@ -196,7 +235,7 @@ document.querySelectorAll('#logout-button,[data-logout]').forEach(node=>node.add
     location.replace('/');
   } catch {
     const toast=document.querySelector('#toast');
-    toast.textContent='Не удалось завершить сессию. Попробуйте ещё раз.';
+    toast.textContent='Не удалось выйти из аккаунта. Попробуйте ещё раз.';
     toast.className='error';toast.hidden=false;
     setTimeout(()=>toast.hidden=true,5000);
   } finally {button.disabled=false;}

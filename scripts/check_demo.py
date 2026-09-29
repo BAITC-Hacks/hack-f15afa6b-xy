@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 
 from check_clarification import start_server, stop_server
-from cities import CITIES
+from cities import CITIES, CITY_BY_CODE, matches_house
 from smoke import find_free_port, http_request
 from workspace_api import normalized_address_query
 
@@ -17,6 +17,15 @@ def run():
     assert normalized_address_query("жетысу 1, дом 26") == "микрорайон жетысу 1, 26, Алматы"
     assert normalized_address_query("Кабанбай батыра 10", "Астана") == "Кабанбай батыра 10, Астана"
     assert normalized_address_query("Тауке хана 5", "Шымкент") == "Тауке хана 5, Шымкент"
+    city = CITY_BY_CODE["750000000"]
+    house = {"road": "улица Байтурсынова", "house_number": "60", "city": "Алматы", "country_code": "kz"}
+    query = normalized_address_query("Байтурсынова 60")
+    assert matches_house(query, house, city)
+    assert matches_house(normalized_address_query("Байтурсынова көшесі, үй 60"), house, city)
+    for changed in ({"road": "улица Самен батыра"}, {"house_number": None}, {"house_number": "60а"},
+                    {"house_number": "60/1"}, {"city": "Астана"}, {"country_code": "ru"}):
+        assert not matches_house(query, {**house, **changed}, city), changed
+    print("PASS: geocoding accepts the matching house; rejects wrong street, missing/different house, city and country")
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory() as tmp:
         db = Path(tmp) / "demo.db"
@@ -79,6 +88,9 @@ def run():
             assert not {"address", "sender_key", "assigned_operator", "service_id"} & public_case.keys()
             approximate = next(item for item in public["items"] if item["id"] == "PULSE-2400")
             assert approximate["location_source"] == "district_approximate" and approximate["location_precision_m"] == 2500
+            operator_case = next(item for item in queue["items"] if item["complaint"]["id"] == "PULSE-2400")
+            assert "map_location" not in operator_case, "Never invent an operator address point"
+            assert operator_case["complaint"]["latitude"] is None, "Approximate points must not overwrite the complaint"
             assert not any(item["id"] == "PULSE-2420" for item in public["items"]), "Suspected spam must stay private"
             similar = call("/api/workspace/public/similar", {
                 "text": "На Абая 44 нет воды во всём доме", "region_id": "KZ-ALA",

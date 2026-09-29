@@ -85,7 +85,7 @@ const base = process.argv[2] || 'http://127.0.0.1:8769';
     console.log('PASS UI 3: medium-confidence selection updates routing; low-confidence clarification reanalyzes');
 
     await nav('dashboard');
-    await page.getByRole('heading',{name:'Каждое решение меняет картину'}).waitFor();
+    await page.getByRole('heading',{name:'Аналитика обращений'}).waitFor();
     assert.match(await page.locator('#main').innerText(),/Обращения в инцидентах\s*18/);
     assert.equal(await page.locator('.ai-evidence').getAttribute('open'),null);
     assert.doesNotMatch(await page.locator('#main').innerText(),forbidden);

@@ -1,0 +1,15 @@
+.citizen-shortcuts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:24px}
+.citizen-shortcuts>a{padding:24px;display:block}
+.citizen-shortcuts strong{display:flex;justify-content:space-between;gap:12px;font-size:16px}
+.citizen-shortcuts p{color:var(--muted);font-size:14px;line-height:1.6;margin-top:12px}
+.citizen-shortcuts>a:hover{border-color:var(--green)}
+.citizen-summary{padding:24px;min-width:0}
+.citizen-totals{display:flex;gap:48px;padding-bottom:24px;margin-bottom:24px;border-bottom:1px solid var(--line)}
+.citizen-totals strong,.citizen-totals span{display:block}.citizen-totals strong{font-size:28px;font-weight:600}.citizen-totals span{font-size:13px;color:var(--muted);margin-top:6px}
+.citizen-attention{padding:20px;border:1px solid #dfc697;background:#fffaf0;border-radius:8px;margin-bottom:24px}.citizen-attention p{margin:10px 0}.citizen-attention .button{margin:4px 8px 0 0}
+.citizen-requests-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;align-items:start}
+.citizen-filters{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:20px}.citizen-filters label{margin:0}.citizen-filters input,.citizen-filters select{margin-top:8px;font-size:16px}
+.citizen-summary #tracking-form{margin:20px 0}.citizen-summary #tracking-form .button{margin-top:12px}
+.citizen-help{padding:8px 24px;max-width:900px}.citizen-help details{padding:20px 0;border-bottom:1px solid var(--line)}.citizen-help details:last-child{border:0}.citizen-help summary{cursor:pointer;font-size:16px;font-weight:600;min-height:28px}.citizen-help p,.citizen-help dd{font-size:15px;line-height:1.7;color:var(--muted);margin-top:12px}.citizen-help a{color:var(--green);text-decoration:underline}.citizen-help dt{font-weight:600;margin-top:18px}.citizen-help dd{margin-left:0;margin-top:4px}
+@media(max-width:1000px){.citizen-shortcuts,.citizen-requests-layout{grid-template-columns:1fr}}
+@media(max-width:760px){.citizen-totals{gap:20px;justify-content:space-between}.citizen-totals strong{font-size:24px}.citizen-summary{padding:18px}.citizen-filters{grid-template-columns:1fr}body[data-citizen=true] .sidebar nav{grid-template-columns:repeat(5,minmax(0,1fr))}body[data-citizen=true] .sidebar nav>a{font-size:12px;padding:7px 2px}}

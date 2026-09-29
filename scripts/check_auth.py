@@ -93,7 +93,7 @@ def run() -> None:
             assert anonymous.request(base_url + "/api/workspace/queue")[0] == 401
             assert anonymous.request(base_url + "/map")[0] == 200
             voice_status, voice_page, voice_headers = anonymous.request(base_url + "/voice")
-            assert voice_status == 200 and "ГОЛОСОВОЕ ОБРАЩЕНИЕ" in voice_page["raw"]
+            assert voice_status == 200 and 'id="voice-live-form"' in voice_page["raw"]
             assert voice_headers["Permissions-Policy"] == "camera=(), microphone=(self), geolocation=(self)"
             status, voice_health, _ = anonymous.request(base_url + "/api/voice/health")
             assert status == 200 and voice_health["status"] == "disabled"

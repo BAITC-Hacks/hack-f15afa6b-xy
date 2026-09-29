@@ -331,7 +331,7 @@ function selectComplaint(c) {
       priority: c.proposed_priority
     });
   } else {
-    document.getElementById("proposal-content").innerHTML = '<p class="empty-state">Нажмите «Запросить предложение» для анализа текста.</p>';
+    document.getElementById("proposal-content").innerHTML = '<p class="empty-state">Нажмите «Получить рекомендацию», чтобы определить категорию.</p>';
   }
   loadSimilar(c.id);
   syncClarificationControls();
@@ -373,7 +373,7 @@ async function handleIntakeSubmit(e) {
     });
     if (!res.ok) {
       const errData = await res.json();
-      showError(errorBox, errData.detail || "Ошибка валидации приёма");
+      showError(errorBox, errData.detail || "Проверьте регион и текст обращения");
       return;
     }
     const created = await res.json();
@@ -549,7 +549,7 @@ async function handleConfirmSubmit(e) {
     if (selectionGeneration === generation) {
       selectComplaint(data.complaint);
     }
-    succBox.textContent = `Решение для обращения ${data.complaint.id} успешно подтверждено!`;
+    succBox.textContent = `Решение по обращению ${data.complaint.id} сохранено.`;
     succBox.style.display = "block";
     await loadStats();
     await loadQueue();

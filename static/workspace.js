@@ -1,13 +1,14 @@
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260929-accounts&analytics=1';
-import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260929-unified-login';
-import {caseView} from './case.js?v=20260929-clarity';
-import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260927-2';
-import {authFetch,bootstrapAuth} from './auth.js?v=20260929-unified-login';
-import {mountMaps,resetLocationPicker} from './map.js?v=20260929-brand';
-import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260929-brand';
-import {clearLanguageResult,handleVoiceAction,selectedIntakeLanguage} from './voice.js?v=20260928-motion-orb';
+import {citizenPages,citizenHome,citizenRequests,citizenHelp,citizenContent,citizenList} from './citizen-home.js?v=20260929-2gis';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260929-2gis';
+import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260929-copy';
+import {caseView} from './case.js?v=20260929-2gis';
+import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260929-copy';
+import {authFetch,bootstrapAuth} from './auth.js?v=20260929-copy';
+import {mountMaps,resetLocationPicker} from './map.js?v=20260929-2gis';
+import {mountPublicIssueExplorer,publicMapView} from './public-map.js?v=20260929-copy';
+import {clearLanguageResult,handleVoiceAction,selectedIntakeLanguage} from './voice.js?v=20260929-copy';
 import {mountThinkingOrbs} from './thinking-orb.js?v=20260929-brand';
-import {registerAnalyticsActions} from './analytics-actions.js?v=1';
+import {registerAnalyticsActions} from './analytics-actions.js?v=20260929-copy';
 registerAnalyticsActions(authFetch,esc);
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 if(globalThis.gsap&&globalThis.Flip) globalThis.gsap.registerPlugin(globalThis.Flip);
@@ -29,7 +30,7 @@ const playbookDialog=document.querySelector('#playbook-dialog'), playbookContent
 let loadVersion=0, analyticsVersion=0, caseVersion=0, trackingVersion=0, previewVersion=0, preview=null, toastTimer, toastHideTimer, pendingIntake=null;
 const commandDialog=document.querySelector('#command-dialog');
 Object.assign(state,{routingHealth:null,healthRegion:'',regions:[],cities:[]});
-const titles={routing:'Распределение обращений',queue:'Обращения',radar:'Радар',incidents:'Инциденты',map:'Карта обращений',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Мои обращения'};
+const titles={routing:'Распределение обращений',queue:'Обращения',radar:'Радар',incidents:'Инциденты',map:'Карта обращений',dashboard:'Аналитика',operators:'Команда',quarantine:'Карантин',citizen:'Подать обращение',home:'Обзор',requests:'Мои обращения',help:'Помощь'};
 async function api(path, data) {
   let response;
   try {response=await authFetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});}
@@ -109,6 +110,9 @@ function subscriberKey() {
 async function loadSubscriptions() {
   if(state.user?.role==='citizen') {
     state.subscriptions=(await api('/api/workspace/citizen/complaints')).items;
+    state.citizenLoaded=true;
+    const overview=document.querySelector('#citizen-content');
+    if(overview) overview.innerHTML=citizenContent(state);
     const node=document.querySelector('#subscriptions-list');
     if(node) node.innerHTML=subscriptionsView(state.subscriptions,true);
     return;
@@ -125,7 +129,7 @@ async function subscribeCase(id) {
 }
 function showSimilar(items) {
   const notice=document.querySelector('#citizen-notice');
-  notice.innerHTML=`<div class="deflection"><span class="eyebrow">ВОЗМОЖНО, УЖЕ СООБЩИЛИ</span><span class="incident-symbol" aria-hidden="true">≈</span><h2>Нашли похожие обращения рядом</h2><p>Подпишитесь на существующее обращение или создайте отдельное, если проблема отличается.</p><div class="duplicate-list">${items.map(item=>`<article class="duplicate-card"><div>${badge(item.status==='confirmed'?'Принято в работу':'На рассмотрении',item.status==='confirmed'?'green':'amber')}<strong>${esc(item.id)}</strong></div><p>${esc(item.text)}</p><small>${esc(item.reason)}${item.subscribers?` · ${item.subscribers} подписок`:''}</small>${button('subscribe-case','Это та же проблема · подписаться','primary wide',`data-id="${esc(item.id)}"`)}</article>`).join('')}</div>${button('create-anyway','Проблема другая · создать отдельно','ghost wide')}<small>Совпадение рассчитано по категории, характеру проблемы и месту. Решение остаётся за вами.</small></div>`;
+  notice.innerHTML=`<div class="deflection"><span class="incident-symbol" aria-hidden="true">≈</span><h2>Похожие обращения рядом</h2><p>Подпишитесь на существующее обращение или создайте отдельное, если проблема отличается.</p><div class="duplicate-list">${items.map(item=>`<article class="duplicate-card"><div>${badge(item.status==='confirmed'?'Принято в работу':'На рассмотрении',item.status==='confirmed'?'green':'amber')}<strong>${esc(item.id)}</strong></div><p>${esc(item.text)}</p><small>${esc(item.reason)}${item.subscribers?` · ${item.subscribers} подписок`:''}</small>${button('subscribe-case','Это та же проблема · подписаться','primary wide',`data-id="${esc(item.id)}"`)}</article>`).join('')}</div>${button('create-anyway','Проблема другая · создать отдельно','ghost wide')}<small>Проверьте описание и место: похожие обращения могут относиться к разным проблемам.</small></div>`;
   notice.hidden=false;notice.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 async function registerIntake(form,payload) {
@@ -149,7 +153,7 @@ async function registerIntake(form,payload) {
 }
 function render() {
   const citizen=state.user?.role==='citizen', requested=location.hash.slice(1);
-  const nextPage=citizen?(['citizen','map'].includes(requested)?requested:'citizen'):(titles[requested]&&requested!=='citizen'?requested:'queue');
+  const nextPage=citizen?(citizenPages.includes(requested)?requested:'home'):(titles[requested]&&!['home','requests','citizen','help'].includes(requested)?requested:'queue');
   const oldRows=main.querySelectorAll('[data-flip-id]');
   const flipState=!reducedMotion.matches&&['queue','quarantine'].includes(nextPage)&&oldRows.length&&globalThis.Flip?globalThis.Flip.getState(oldRows):null;
   state.page=nextPage;
@@ -162,13 +166,13 @@ function render() {
   document.querySelector('#incident-count').textContent=state.metrics.active_incidents;
   document.querySelector('#quarantine-count').textContent=state.metrics.quarantined;
   document.querySelector('#radar-count').textContent=state.radar.items.filter(i=>!i.ignored&&!i.incident_id).length;
-  const views={routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,map:publicMapView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView};
+  const views={routing:routingHealthView,queue:queueView,quarantine:queueView,radar:radarView,map:publicMapView,dashboard:dashboardView,incidents:incidentsView,operators:operatorsView,citizen:citizenView,home:citizenHome,requests:citizenRequests,help:citizenHelp};
   main.innerHTML=views[state.page](state);
   if(flipState) globalThis.Flip.from(flipState,{targets:main.querySelectorAll('[data-flip-id]'),duration:.22,ease:'power1.out',fade:true,absolute:true,scale:true,simple:true});
   mountThinkingOrbs(main);
   mountMaps(main);
   if(state.page==='map') mountPublicIssueExplorer(main);
-  if(state.page==='citizen') loadSubscriptions().catch(err=>{const node=document.querySelector('#subscriptions-list');if(node) node.textContent=err.message;});
+  if(['citizen','home','requests'].includes(state.page)) loadSubscriptions().catch(err=>{const node=document.querySelector('#citizen-content,#subscriptions-list');if(node) node.innerHTML=`<p role="alert">${esc(err.message)}</p>${button('refresh-subscriptions','Повторить','ghost')}`;});
 }
 async function refresh(renderPage=true) {
   if(state.user?.role==='citizen') {if(renderPage) render();return;}
@@ -186,6 +190,7 @@ async function refresh(renderPage=true) {
   await loadAnalytics(renderPage);
 }
 async function openCase(id) {
+  const draft=state.detail?.complaint.id===id?document.querySelector('#reply-text')?.value:undefined;
   const version=++caseVersion;
   stopPresence();state.incident=null;state.signal=null;
   const [analysis,history,playbooks,analogues]=await Promise.all([api(`/api/workspace/complaints/${encodeURIComponent(id)}/triage`,{}).catch(error=>({error})),api(`/api/complaints/${encodeURIComponent(id)}`),api(`/api/workspace/complaints/${encodeURIComponent(id)}/playbooks`).catch(error=>({items:[],error:error.message})),api(`/api/complaints/${encodeURIComponent(id)}/similar?limit=3`).catch(()=>({candidates:[],mode:'unavailable'}))]);
@@ -196,10 +201,14 @@ async function openCase(id) {
   detail.playbookError=playbooks.error;
   detail.analogues=analogues.candidates;
   detail.analogueMode=analogues.mode;
+  detail.mapCity=state.cities.find(city=>city.code===detail.complaint.city_code||(['KZ-ALA','KZ-AST','KZ-SHY'].includes(detail.complaint.region_id)&&city.region_id===detail.complaint.region_id));
+  detail.regionName=state.regions.find(region=>region.id===detail.complaint.region_id)?.name_ru;
   detail.selectedTopic=detail.complaint.topic||(detail.triage.confidence_band==='high'?detail.triage.category:null);
   detail.selectedPriority=detail.complaint.priority||detail.triage.urgency;
   state.detail=detail;
+  content.querySelectorAll('[data-map-mode]').forEach(node=>node._pulseMap?.remove());
   content.innerHTML=caseView(detail,state.topics);
+  if(draft!==undefined&&document.querySelector('#reply-text')) document.querySelector('#reply-text').value=draft;
   mountMaps(content);
   watchPresence(id,state.operators,api);
   if(!dialog.open) dialog.showModal();
@@ -210,23 +219,24 @@ function manualDetail(c, message) {
     sla_remaining:null,priority_score:0,priority_factors:{urgency:0,sla_risk:0,waiting:0,incident:0,review:0},suggested_response:'Ваше обращение зарегистрировано. Оператор проверит информацию.'};
 }
 function rerenderCase() {
-  const draft=document.querySelector('#reply-text')?.value;
+  const drafts=['reply-text','clarification-answer','public-review-text'].map(id=>[id,document.getElementById(id)?.value]);
+  const expanded=[...content.querySelectorAll('details[id]')].map(node=>[node.id,node.open]);
+  const scroll=[...content.querySelectorAll('.case-workspace,.case-story,.case-decision,.case-support')].map(node=>[node.className,node.scrollTop]);
+  const focus=document.activeElement?.id;
   const check=document.querySelector('#include-incident')?.checked;
   const presence=document.querySelector('#presence');
+  const location=content.querySelector('.location-card');
   content.innerHTML=caseView(state.detail,state.topics);
+  if(location) content.querySelector('.location-card')?.replaceWith(location);
   mountMaps(content);
   if(presence) document.querySelector('#presence').replaceWith(presence);
-  if(draft && document.querySelector('#reply-text')) document.querySelector('#reply-text').value=draft;
+  for(const [id,value] of drafts) {const node=document.getElementById(id);if(node&&value!==undefined) node.value=value;}
+  for(const [id,open] of expanded) {const node=document.getElementById(id);if(node) node.open=open;}
   if(check!==undefined && document.querySelector('#include-incident')) document.querySelector('#include-incident').checked=check;
+  for(const [name,top] of scroll) {const node=content.querySelector('.'+name);if(node) node.scrollTop=top;}
+  if(focus) document.getElementById(focus)?.focus({preventScroll:true});
 }
-async function mutate(path, data, message) {
-  const id=state.detail.complaint.id;
-  const version=caseVersion;
-  await api(`/api/workspace/complaints/${encodeURIComponent(id)}/${path}`,data);
-  await refresh();
-  if(dialog.open && version===caseVersion) {await openCase(id);highlightCaseUpdate();}
-  toast(message);
-}
+
 async function trackCase(id) {
   const version=++trackingVersion, result=document.querySelector('#tracking-result');
   state.tracking=null;
@@ -259,7 +269,7 @@ async function showPlaybook(kind, extra={}) {
   }
 }
 function renderPreview(data,subject) {
-  playbookContent.innerHTML=`<div class="case-header"><div><span class="eyebrow">ПРОВЕРКА ИЗМЕНЕНИЙ · ${esc(subject)}</span><h2 id="playbook-title">${esc(data.title)}</h2></div>${button('cancel-playbook','×','icon-button','aria-label="Отменить сценарий"')}</div><div class="playbook-body"><p class="micro">Проверьте изменения. Они будут сохранены вместе только после вашего подтверждения.</p><ol class="playbook-actions">${data.actions.map(a=>`<li><span aria-hidden="true">✓</span><div><strong>${esc(a.label)}</strong><p>${esc(a.value)}</p></div></li>`).join('')}</ol><p id="playbook-error" class="danger-text" role="alert">${esc(data.blocked_reason||'')}</p><p class="micro">Синтетическое демо · внешняя отправка сообщений не подключена.</p></div><div class="case-footer">${button('cancel-playbook','Отмена','ghost')}${button('refresh-playbook','Обновить preview','ghost')}${button('execute-playbook',`Подтвердить ${data.actions.length} действий`,'primary',data.can_execute?'':'disabled')}</div>`;
+  playbookContent.innerHTML=`<div class="case-header"><div><span class="eyebrow">ПРОВЕРКА ИЗМЕНЕНИЙ · ${esc(subject)}</span><h2 id="playbook-title">${esc(data.title)}</h2></div>${button('cancel-playbook','×','icon-button','aria-label="Отменить сценарий"')}</div><div class="playbook-body"><p class="micro">Изменения сохранятся после нажатия «Подтвердить и сохранить».</p><ol class="playbook-actions">${data.actions.map(a=>`<li><span aria-hidden="true">✓</span><div><strong>${esc(a.label)}</strong><p>${esc(a.value)}</p></div></li>`).join('')}</ol><p id="playbook-error" class="danger-text" role="alert">${esc(data.blocked_reason||'')}</p><p class="micro">Синтетическое демо · внешняя отправка сообщений не подключена.</p></div><div class="case-footer">${button('cancel-playbook','Отмена','ghost')}${button('refresh-playbook','Проверить заново','ghost')}${button('execute-playbook','Подтвердить и сохранить','primary',data.can_execute?'':'disabled')}</div>`;
 }
 async function openIncident(id) {
   const version=++caseVersion;
@@ -341,7 +351,7 @@ async function handleAction(node) {
     }
     previewVersion++;await closeDialog(playbookDialog);
     await refresh();if(dialog.open && version===caseVersion) {await (p.path?openIncident(p.cid):openCase(p.cid));highlightCaseUpdate();}
-    toast('Сценарий применён. Изменения и аудит сохранены.');return;
+    toast('Изменения сохранены в истории обращения.');return;
   }
   if(action==='close') {stopPresence();caseVersion++;await closeDialog(dialog);return;}
   if(action==='refresh') {await refresh();toast('Данные обновлены');return;}
@@ -350,7 +360,7 @@ async function handleAction(node) {
   if(action==='clear-queue-filters') {state.group='';state.search='';state.region='';render();document.querySelector('#search')?.focus();return;}
   if(action==='demo') {
     const data=await api('/api/workspace/demo/intake',{});
-    location.hash='queue'; await refresh(); await openCase(data.id); toast('Новое обращение поступило · анализ готов');return;
+    location.hash='queue'; await refresh(); await openCase(data.id); toast('Демонстрационное обращение добавлено.');return;
   }
   if(action==='incident') {await openIncident(node.dataset.id);return;}
   if(action==='radar-demo') {const result=await api('/api/workspace/radar/demo',{});location.hash='radar';await refresh();toast(`Добавлено ${result.count} синтетических обращений. Проверьте новый сигнал.`);return;}
@@ -374,13 +384,13 @@ async function handleAction(node) {
     node.textContent='✓ Обновления включены';node.dataset.action='subscribed';toast('Подписка сохранена. Новое обращение не создано.');return;
   }
   if(action==='subscribed') {toast('Подписка уже сохранена');return;}
-  if(action==='refresh-subscriptions') {await loadSubscriptions();toast('Подписки обновлены');return;}
+  if(action==='refresh-subscriptions') {await loadSubscriptions();toast(state.user?.role==='citizen'?'Обращения обновлены':'Подписки обновлены');return;}
   if(action==='create-anyway') {
     const form=document.querySelector('#citizen-form');
     if(!form||!pendingIntake) throw new Error('Данные формы изменились. Проверьте обращение ещё раз.');
     await registerIntake(form,pendingIntake);return;
   }
-  if(action==='track') {await trackCase(node.dataset.id);document.querySelector('#tracking-result')?.scrollIntoView({block:'nearest'});return;}
+  if(action==='track') {if(state.user?.role==='citizen'&&!document.querySelector('#tracking-result')) {history.pushState(null,'','#requests');render();}await trackCase(node.dataset.id);document.querySelector('#tracking-result')?.scrollIntoView({block:'nearest'});return;}
   if(action==='approve-public'||action==='reject-public') {
     const request={status:action==='approve-public'?'approved':'rejected'};
     if(action==='approve-public') {
@@ -392,13 +402,23 @@ async function handleAction(node) {
     await refresh();if(dialog.open&&version===caseVersion) await openCase(c.id);
     toast(action==='approve-public'?'Обезличенная версия опубликована':'Публикация отклонена');return;
   }
+  if(action==='case-panel') {d.activePanel=node.dataset.panel;rerenderCase();return;}
   if(action==='reload-case') {const draft=document.querySelector('#reply-text')?.value;await openCase(c.id);if(draft && document.querySelector('#reply-text')) document.querySelector('#reply-text').value=draft;return;}
   if(action==='category') {
-    d.selectedTopic=node.dataset.topic;
-    const topic=d.selectedTopic, version=caseVersion;
-    const routing=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/routing?topic=${encodeURIComponent(topic)}${d.selectedPriority?'&priority='+encodeURIComponent(d.selectedPriority):''}`);
-    if(version!==caseVersion || d.selectedTopic!==topic || !dialog.open) return;
-    d.routing=routing.routing; d.triage.service_name=routing.service_name; rerenderCase();return;
+    const previous=d.selectedTopic, topic=node.dataset.topic, version=caseVersion;
+    d.selectedTopic=topic;d.routingPending=true;d.routingError=null;rerenderCase();
+    try {
+      const routing=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/routing?topic=${encodeURIComponent(topic)}${d.selectedPriority?'&priority='+encodeURIComponent(d.selectedPriority):''}`);
+      if(version!==caseVersion||!dialog.open) return;
+      d.routing=routing.routing;d.triage.service_name=routing.service_name;
+    } catch(error) {
+      d.selectedTopic=previous;d.routingError='Не удалось подобрать службу. Повторите выбор категории.';
+      throw error;
+    } finally {
+      d.routingPending=false;
+      if(version===caseVersion&&dialog.open) rerenderCase();
+    }
+    return;
   }
   if(action==='priority') {d.selectedPriority=node.dataset.priority;if(d.selectedTopic) await handleAction({dataset:{action:'category',topic:d.selectedTopic}});else rerenderCase();return;}
   if(action==='link') {await showPlaybook('link_mass_incident',{incident_id:node.dataset.id});return;}
@@ -420,29 +440,49 @@ async function handleAction(node) {
     await refresh();if(dialog.open && version===caseVersion) {await openCase(c.id);highlightCaseUpdate();}toast('Уточнение сохранено; анализ обновлён');return;
   }
   if(action==='ask-copilot') {
+    if(d.copilotPending) return;
     const version=caseVersion;
-    const result=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/copilot`,{});
-    if(version!==caseVersion||!dialog.open) return;
-    d.copilot=result;rerenderCase();
-    toast(result.available?'ИИ-помощник подготовил рекомендацию':'ИИ-помощник недоступен · показан безопасный шаблон');return;
+    d.copilotPending=true;rerenderCase();
+    try {
+      const result=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/copilot`,{});
+      if(version!==caseVersion||!dialog.open) return;
+      d.copilot=result;
+      const history=await api(`/api/complaints/${encodeURIComponent(c.id)}`);
+      if(version===caseVersion) d.events=history.events;
+      toast(result.available?'ИИ-помощник подготовил рекомендацию':'ИИ-помощник недоступен. Показана стандартная заготовка ответа.');
+    } finally {
+      d.copilotPending=false;
+      if(version===caseVersion&&dialog.open) rerenderCase();
+    }
+    return;
   }
   if(action==='copilot-helpful'||action==='copilot-unhelpful') {
     await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/copilot/feedback`,{
       result_id:d.copilot.result_id,helpful:action==='copilot-helpful',
     });
-    d.copilot.feedbackSaved=true;rerenderCase();toast('Оценка сохранена для улучшения помощника');return;
+    d.copilot.feedbackSaved=true;rerenderCase();toast('Оценка сохранена');return;
   }
   if(['insert-reply','edit-reply','reject-reply'].includes(action)) {
+    d.activePanel='story';rerenderCase();
     const field=document.querySelector('#reply-text');
-    if(!field) {toast('Сначала дождитесь уточнения гражданина');return;}
+    if(!field) {toast('Сначала дождитесь уточнения жителя');return;}
     field.value=action==='reject-reply'?'':d.copilot?.suggested_reply||d.suggested_response;
+    if(field.closest('details')) field.closest('details').open=true;
     field.focus(); if(action==='edit-reply') field.select();
     if(action==='reject-reply') toast('Шаблон отклонён. Можно написать свой ответ.');return;
   }
   if(action==='save-reply') {
     const text=document.querySelector('#reply-text').value.trim();
     if(!text) throw new Error('Вставьте шаблон или введите ответ');
-    await mutate('reply',{text},'Ответ сохранён в истории демо');return;
+    const version=caseVersion;
+    await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/reply`,{text});
+    const history=await api(`/api/complaints/${encodeURIComponent(c.id)}`);
+    if(version===caseVersion&&dialog.open) {
+      d.events=history.events;
+      document.querySelector('#reply-text').value='';
+      rerenderCase();highlightCaseUpdate();
+    }
+    toast('Ответ сохранён в истории');return;
   }
 }
 document.addEventListener('click',async e=>{
@@ -452,6 +492,7 @@ document.addEventListener('click',async e=>{
   try {await handleAction(node);} catch(err) {toast(err.message,true);} finally {if(node.isConnected && node.getAttribute('aria-disabled')!=='true') node.disabled=false;}
 });
 document.addEventListener('input',e=>{
+  if(e.target.id==='citizen-search') {state.citizenSearch=e.target.value;document.querySelector('#citizen-case-list').innerHTML=citizenList(state);return;}
   if(pendingIntake&&e.target.closest('#citizen-form')) {pendingIntake=null;document.querySelector('#citizen-notice').hidden=true;}
   if(e.target.id==='command-search') {document.querySelector('#command-options').innerHTML=commandList(caseCommands(state.detail),e.target.value);return;}
   if(e.target.id!=='search') return;
@@ -461,6 +502,7 @@ document.addEventListener('input',e=>{
   input.setSelectionRange(position,position);
 });
 document.addEventListener('change',async e=>{
+  if(e.target.id==='citizen-filter') {state.citizenFilter=e.target.value;document.querySelector('#citizen-case-list').innerHTML=citizenList(state);return;}
   if(pendingIntake&&e.target.closest('#citizen-form')) {pendingIntake=null;document.querySelector('#citizen-notice').hidden=true;}
   if(e.target.id==='health-region') {state.healthRegion=e.target.value;try {await loadHealth();} catch(err) {toast(err.message,true);}}
   if(e.target.id==='show-ignored') {state.showIgnored=e.target.checked;render();}
@@ -535,7 +577,7 @@ document.querySelector('#today').textContent=new Date().toLocaleDateString('ru-R
 async function start(user=state.user) {
   state.user=user;
   try {if(user?.role==='citizen') {
-    state.trackingId='';state.tracking=null;state.subscriptions=[];
+    state.trackingId='';state.tracking=null;state.subscriptions=[];state.citizenLoaded=false;state.citizenSearch='';state.citizenFilter='';
     state.regions=(await api('/api/regions')).regions;state.cities=(await api('/api/workspace/cities')).items;render();return;
   }
   await api('/api/workspace/seed',{});state.topics=(await api('/api/topics')).topics;state.regions=(await api('/api/regions')).regions;state.cities=(await api('/api/workspace/cities')).items;await refresh();if(state.page==='routing') await loadHealth();}
@@ -543,7 +585,7 @@ async function start(user=state.user) {
 }
 document.addEventListener('click',e=>{if(e.target.closest('[data-action="retry"]')) start();});
 setInterval(async()=>{
-  if(document.hidden||document.querySelector('#workspace-screen').hidden||dialog.open||state.page==='citizen'||document.activeElement?.matches('input,textarea,select')) return;
+  if(state.user?.role==='citizen'||document.hidden||document.querySelector('#workspace-screen').hidden||dialog.open||state.page==='citizen'||document.activeElement?.matches('input,textarea,select')) return;
   try {await refresh();} catch { /* Preserve last usable queue during a temporary connection failure. */ }
 },60000);
 bootstrapAuth(start);
