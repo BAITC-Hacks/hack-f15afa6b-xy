@@ -1,3 +1,5 @@
+import {setThinkingOrbState} from './thinking-orb.js?v=20260929-brand';
+
 let recording=null, playback=null, processing=false, failedTurn=null;
 const voiceThreshold=.008, silenceMs=1400, previewMs=4500;
 
@@ -242,8 +244,9 @@ function setControls(mode) {
   if(stop) {stop.hidden=mode!=='listening';stop.disabled=false;}
 }
 
-function status(text) {
+function status(text,state) {
   const node=document.querySelector('[data-voice-status]');if(node) node.textContent=text;
+  const agent=node?.closest('.voice-agent');if(agent&&state) {agent.dataset.voiceState=state;setThinkingOrbState(agent.querySelector('[data-thinking-orb]'),state);}
 }
 
 function target(field) {
@@ -260,20 +263,20 @@ function restoreDrafts() {
 }
 
 async function start(field,language,api,toast) {
-  restoreDrafts();setControls('busy');
+  restoreDrafts();setControls('busy');status('Готовлю голосовой ввод…','processing');
   try {
     const select=document.querySelector('#citizen-language'),hintLanguage=select?.dataset.responseLanguage||null;
     await beginVoiceTurn({field,language,hintLanguage,api,onState:mode=>{
-      status(mode==='prompting'?'Помощник задаёт вопрос…':language==='auto'?'Определяем язык…':'Слушаю… Нажмите «Готово», когда закончите.');
+      status(mode==='prompting'?'Помощник задаёт вопрос…':language==='auto'?'Определяем язык…':'Слушаю… Нажмите «Готово», когда закончите.',mode==='listening'?'listening':'processing');
       if(mode==='listening') setControls('listening');
-    },onSpeech:()=>status('Слышу вас… Остановлю запись после паузы.'),onPartial:(text,result)=>{
-      previewTranscript(target(field),text);status(applyLanguageResult(select,result)||'Черновик обновляется во время разговора…');
+    },onSpeech:()=>status('Слышу вас… Остановлю запись после паузы.','listening'),onPartial:(text,result)=>{
+      previewTranscript(target(field),text);status(applyLanguageResult(select,result)||'Черновик обновляется во время разговора…',result?.language?'detected':'listening');
     },onSilence:()=>finish(api,toast),onTimeout:()=>finish(api,toast)});
-  } catch(error) {setControls('idle');status('Готов к записи');throw error;}
+  } catch(error) {setControls('idle');status('Не удалось начать запись. Можно ввести текст вручную.','error');throw error;}
 }
 
 async function finish(api,toast) {
-  setControls('busy');status('Распознаю речь локальной моделью…');
+  setControls('busy');status('Распознаю речь локальной моделью…','processing');
   try {
     const result=await finishVoiceTurn();if(!result) return;
     const input=target(result.field);
@@ -283,17 +286,18 @@ async function finish(api,toast) {
       throw new Error('Расшифровка сохранена. Вернитесь к форме, чтобы вставить её.');
     }
     try {sessionStorage.removeItem(`pulse109-voice-${result.field}`);} catch { /* no-op */ }
-    const select=document.querySelector('#citizen-language');status(applyLanguageResult(select,result));
+    const select=document.querySelector('#citizen-language');status(applyLanguageResult(select,result),result.needs_language_choice?'error':'detected');
     if(result.needs_language_choice) {
       await speakPrompt(result.assistant_message,'mixed',result.assistant_prompt,api);return;
     }
+    if(!matchMedia('(prefers-reduced-motion: reduce)').matches) await new Promise(resolve=>setTimeout(resolve,160));
     if(result.field==='address') {await applyDetectedCity(result.detected_city);document.querySelector('[data-address-search]')?.click();}
-    status(result.assistant_message);
+    status(result.assistant_message,'result');
     await speakPrompt(result.assistant_message,result.language,result.assistant_prompt,api);
     document.querySelector(`[data-action="voice-record"][data-field="${result.next_field}"]`)?.focus();
   } catch(error) {
     for(const field of ['problem','address']) settleTranscriptPreview(target(field),true);
-    status('Не удалось распознать запись. Можно повторить или ввести текст.');
+    status('Не удалось распознать запись. Можно повторить или ввести текст.','error');
     toast(error.message||'Не удалось распознать запись',true);
   } finally {setControls('idle');}
 }

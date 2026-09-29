@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Response
+from auth import assign_owner
+from citizen_api import attach_citizen_routes
 from cities import CITY_BY_CODE, attach_city_routes, normalized_address_query
 from clarification import VALID_CLARIFICATION_REASONS, get_received_clarifications
 from copilot import attach_copilot_routes
@@ -147,63 +149,6 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         with get_connection() as conn:
             return {"items": incident_list(conn)}
 
-    @router.get("/tracking/{cid}")
-    def tracking(cid: str):
-        with get_connection() as conn:
-            cid = cid.strip()
-            c = complaint(conn, cid.upper() if cid.upper().startswith("PULSE-") else cid)
-            # ponytail: number-only lookup is synthetic-only; real records need owner authentication.
-            if c["data_origin"] != "synthetic":
-                raise HTTPException(404, "Обращение не найдено")
-            status = "resolved" if c["resolved_at"] else "under_review" if c["quarantined"] else c["decision_status"]
-            rows = list(conn.execute("""SELECT event_type, occurred_at, payload FROM audit_events
-                    WHERE complaint_id = ? ORDER BY occurred_at, recorded_at, rowid""", (c["id"],)))
-            updates = []
-            for row in rows:
-                if row["event_type"] not in {"reply_saved", "clarification_requested", "clarification_received"}:
-                    continue
-                payload = json.loads(row["payload"])
-                updates.append({"type": row["event_type"], "at": row["occurred_at"],
-                                "text": payload.get("question") if row["event_type"] == "clarification_requested" else payload.get("text")})
-            if status == "needs_clarification" and updates:
-                clarification = [u for u in updates if u["type"].startswith("clarification_")]
-                if clarification and clarification[-1]["type"] == "clarification_received":
-                    status = "clarification_received"
-            incident = conn.execute("SELECT id, title, status, next_update FROM incidents WHERE id = ?", (c["incident_id"],)).fetchone()
-            service = (responsible_service_name(c["region_id"], c["service_id"])
-                       if c["decision_status"] == "confirmed" else None)
-            registered_at = c["received_at"] or c["ingested_at"]
-            timeline = [{"type": "registered", "at": registered_at,
-                         "title": "Обращение зарегистрировано", "text": "Номер обращения сохранён."}]
-            event_titles = {
-                "operator_confirmed": ("Принято в работу", "Оператор подтвердил категорию и ответственную службу."),
-                "incident_linked": ("Связано с массовым инцидентом", "Обращение добавлено к общей проблеме."),
-                "incident_rejected": ("Проверено отдельно", "Оператор исключил связь с массовым инцидентом."),
-                "clarification_requested": ("Нужно уточнение", None),
-                "clarification_received": ("Уточнение получено", None),
-                "reply_saved": ("Ответ оператора", None),
-                "case_resolved": ("Обращение завершено", c["resolution_text"]),
-                "case_reopened": ("Обращение возвращено в работу", "Оператор продолжил обработку."),
-                "quarantined": ("Дополнительная проверка", "Обращение проверяется оператором."),
-                "safety_cleared": ("Проверка завершена", "Обращение возвращено в обычную очередь."),
-            }
-            for row in rows:
-                if row["event_type"] not in event_titles:
-                    continue
-                payload = json.loads(row["payload"])
-                title, default_text = event_titles[row["event_type"]]
-                text = payload.get("question") or payload.get("text") or default_text
-                timeline.append({"type": row["event_type"], "at": row["occurred_at"],
-                                 "title": title, "text": text})
-            return {"id": c["id"], "registered_at": c["received_at"] or c["ingested_at"], "status": status,
-                    "service_name": service, "incident": dict(incident) if incident else None, "updates": updates,
-                    "timeline": timeline,
-                    "city": c.get("city_name"), "has_photo": c["has_photo"], "has_video": c["has_video"],
-                    "location": ({"latitude": c["latitude"], "longitude": c["longitude"]}
-                                 if c["latitude"] is not None and c["longitude"] is not None else None),
-                    "resolved_at": c["resolved_at"], "resolution_text": c["resolution_text"] if c["resolved_at"] else None,
-                    "data_origin": "synthetic", "delivery": "demo_only"}
-
     def save_intake(req: Intake, force_demo=False):
         if not req.text.strip() or req.region_id not in valid_regions:
             raise HTTPException(422, "Укажите текст обращения и известный регион")
@@ -236,6 +181,8 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                      round(req.longitude, 6) if req.longitude is not None else None,
                      round(req.location_accuracy_m, 1) if req.location_accuracy_m is not None else None,
                      req.district, req.channel, req.sender_key, consent, moderation, public_text))
+                if not force_demo:
+                    assign_owner(conn, cid)
                 if photo:
                     key = storage.put_media(cid, "photo", photo[0], photo[1])
                     uploaded.append(key)
@@ -292,6 +239,8 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
         except ObjectStorageError as error:
             raise HTTPException(503, "Вложение временно недоступно") from error
         return Response(content, media_type=row["mime_type"], headers={"Cache-Control": "private, no-store"})
+
+    attach_citizen_routes(router, get_connection, complaint, private_media)
 
     @router.get("/complaints/{cid}/photo")
     def complaint_photo(cid: str):

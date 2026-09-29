@@ -1,5 +1,5 @@
 import {esc,button,badge,heading,empty,topicName} from './views.js?v=20260927-12';
-import {authFetch} from './auth.js?v=20260927-2';
+import {authFetch} from './auth.js?v=20260929-unified-login';
 
 export function routingHealthView(s) {
   const h=s.routingHealth;

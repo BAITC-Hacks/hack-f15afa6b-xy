@@ -213,9 +213,32 @@ def run():
                 conn.execute("UPDATE complaints SET data_origin = 'organizer' WHERE id = ?", (kk,))
             call(f"/api/workspace/tracking/{kk}", expected=404)
             print("PASS 10: read-only citizen tracking, clarification cycles, saved replies, resolution and synthetic-only boundary")
+            examples = [
+                ("Лифт и протекает крыша", "housing_maintenance"),
+                ("Лифт не работает", "housing_maintenance"),
+                ("Протекает крыша дома", "housing_maintenance"),
+                ("Протекает крыша, вода капает на электрощит", "housing_maintenance"),
+                ("Төбеден су ағып тұр, электр қалқанына қауіп төндіреді", "housing_maintenance"),
+                ("Лифт істемейді", "housing_maintenance"),
+                ("Шатырдан су ағып жатыр", "housing_maintenance"),
+                ("Нет электричества во всём доме, лифт остановился", "electricity"),
+                ("Искрит электрический щит", "electricity"),
+                ("Не работает уличный фонарь", "street_lighting"),
+            ]
+            for text, expected in examples:
+                case_id = intake(text)
+                ai = call(f"/api/workspace/complaints/{case_id}/triage", {})["triage"]
+                assert ai["category"] == expected, (text, ai["category"])
+                if "электрощит" in text or "қауіп" in text:
+                    assert ai["urgency"] == "urgent", ai
+                if expected == "housing_maintenance":
+                    assert ai["suggested_service"] == "srv_housing"
+                    legacy = call(f"/api/complaints/{case_id}/classify", {})
+                    assert legacy["proposal"]["topic"] == expected, legacy
+            print("PASS 11: RU/KK lifts and roofs route to housing; electricity and lighting stay separate")
         finally:
             stop_server(proc)
-    print("ALL 10 OPERATOR DEMO CHECKS PASSED")
+    print("ALL 11 OPERATOR DEMO CHECKS PASSED")
 
 
 if __name__ == "__main__":

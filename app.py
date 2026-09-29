@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from auth import current_actor, init_auth, install_auth
+from auth import assign_owner, current_actor, init_auth, install_auth
 from data_coverage import CoverageUnavailable, load_coverage
 from clarification import build_clarification_router, get_received_clarifications
 from copilot import QwenCopilot
@@ -190,15 +190,17 @@ def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str
     lowered = text.lower()
     urgent_terms = ["срочно", "авария", "жарылыс", "щит", "замерзаем", "қауіп", "тоңып"]
     urgency = "urgent" if any(t in lowered for t in urgent_terms) else None
+    if any(word in lowered for word in ["крыш", "шатыр", "төбе"]) and any(word in lowered for word in ["теч", "тек", "капает", "ағып"]):
+        return "housing_maintenance", TOPIC_SERVICE_MAP["housing_maintenance"], urgency
     patterns = [
         ("heating", ["отоплен", "батаре", "тепло", "жылу", "тоңып"]),
         ("water_supply", ["холодную воду", "горячую воду", "водопровод", "суық су", "ыстық су", "су тоқта"]),
-        ("electricity", ["электр", "свет", "подстанци", "ток", "лифт"]),
+        ("electricity", ["электр", "свет", "подстанци", "ток"]),
         ("roads", ["дорог", "яма", "жол", "шұңқыр", "асфальт"]),
         ("street_lighting", ["освещен", "фонар", "жарық", "шам"]),
         ("waste_management", ["мусор", "тбо", "қоқыс", "жәшік", "контейнер"]),
         ("public_transport", ["автобус", "маршрут", "көлік", "аялдама"]),
-        ("housing_maintenance", ["кск", "пик", "крыш", "төбе", "подъезд", "кіреберіс", "жкх", "ткш"]),
+        ("housing_maintenance", ["кск", "пик", "крыш", "төбе", "шатыр", "лифт", "подъезд", "кіреберіс", "жкх", "ткш"]),
         ("landscaping", ["сквер", "парк", "саябақ", "скамейк", "орындық", "бұтақ"]),
         ("sewerage", ["канализац", "кәріз", "нөсер", "ливнев"]),
     ]
@@ -336,6 +338,7 @@ def intake_complaint(req: IntakeRequest):
                             "public_consent": bool(consent)}, ensure_ascii=False),
             ),
         )
+        assign_owner(conn, cid)
         conn.commit()
     return {"id": cid, "decision_status": "pending", "data_origin": origin,
             "moderation_status": moderation, "banner": BANNER_TEXT}
@@ -472,6 +475,8 @@ if static_dir.exists():
 
 
 @app.get("/")
+@app.get("/citizen")
+@app.get("/operator")
 def index():
     idx = static_dir / "workspace.html"
     return FileResponse(idx) if idx.exists() else legacy()

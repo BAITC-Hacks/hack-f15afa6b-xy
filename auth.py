@@ -11,7 +11,7 @@ import secrets
 import sqlite3
 import time
 from contextvars import ContextVar
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -30,6 +30,7 @@ class SignupRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=12, max_length=128)
+    role: Literal["citizen", "operator"] = "citizen"
     invite_code: Optional[str] = Field(default=None, max_length=256)
 
 
@@ -50,7 +51,7 @@ def init_auth(conn: sqlite3.Connection) -> None:
             email TEXT NOT NULL UNIQUE COLLATE NOCASE,
             full_name TEXT NOT NULL,
             password_hash TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('admin', 'operator')),
+            role TEXT NOT NULL CHECK (role IN ('admin', 'operator', 'citizen')),
             created_at INTEGER NOT NULL,
             disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1))
         );
@@ -71,6 +72,25 @@ def init_auth(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS auth_attempts_key_time ON auth_attempts(attempt_key, attempted_at);
         """
     )
+
+
+    schema = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'auth_users'").fetchone()[0]
+    if "'citizen'" not in schema:
+        conn.executescript("BEGIN IMMEDIATE;" +
+            schema.replace("auth_users", "auth_users_new", 1).replace(
+                "'admin', 'operator'", "'admin', 'operator', 'citizen'") + ";" +
+            "INSERT INTO auth_users_new SELECT * FROM auth_users;"
+            "DROP TABLE auth_users; ALTER TABLE auth_users_new RENAME TO auth_users; COMMIT;")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(complaints)")}
+    if "owner_user_id" not in columns:
+        conn.execute("ALTER TABLE complaints ADD COLUMN owner_user_id TEXT REFERENCES auth_users(id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS complaints_owner ON complaints(owner_user_id)")
+
+
+def assign_owner(conn: sqlite3.Connection, cid: str) -> None:
+    conn.execute("""UPDATE complaints SET owner_user_id = (
+        SELECT id FROM auth_users WHERE id = ? AND role = 'citizen' AND disabled = 0
+    ) WHERE id = ?""", (current_actor(), cid))
 
 
 def _hash_password(password: str) -> str:
@@ -239,7 +259,7 @@ def _security_headers(response, path: str = ""):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=(self)"
-    if path.startswith("/api/auth"):
+    if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -250,13 +270,14 @@ def install_auth(app: FastAPI, get_connection: Callable[[], sqlite3.Connection])
     @router.get("/config")
     def auth_config(request: Request):
         with get_connection() as conn:
-            first = conn.execute("SELECT COUNT(*) FROM auth_users").fetchone()[0] == 0
+            first = conn.execute("SELECT COUNT(*) FROM auth_users WHERE role IN ('admin', 'operator')").fetchone()[0] == 0
         invite = bool(os.environ.get("P109_SIGNUP_INVITE"))
         disabled = os.environ.get("P109_AUTH_DISABLED") == "1"
         return {
-            "signup_available": first or invite,
+            "signup_available": True,
+            "operator_signup_available": invite,
             "first_account": first,
-            "invite_required": not first,
+            "invite_required": True,
             "auth_required": not disabled,
             "user": request.state.auth_user,
         }
@@ -276,13 +297,13 @@ def install_auth(app: FastAPI, get_connection: Callable[[], sqlite3.Connection])
         denied: Optional[tuple[int, str]] = None
         try:
             conn.execute("BEGIN IMMEDIATE")
-            first = conn.execute("SELECT COUNT(*) FROM auth_users").fetchone()[0] == 0
+            first = conn.execute("SELECT COUNT(*) FROM auth_users WHERE role IN ('admin', 'operator')").fetchone()[0] == 0
             invite = os.environ.get("P109_SIGNUP_INVITE")
             if conn.execute("SELECT 1 FROM auth_users WHERE email = ?", (email,)).fetchone():
                 denied = (409, "An account with this email already exists")
-            elif not first and not invite:
+            elif req.role == "operator" and not invite:
                 denied = (403, "Signup is not available")
-            elif not first and not hmac.compare_digest(req.invite_code or "", invite or ""):
+            elif req.role == "operator" and not hmac.compare_digest(req.invite_code or "", invite or ""):
                 denied = (403, "Invalid invite code")
             else:
                 user_id = f"usr-{secrets.token_hex(8)}"
@@ -290,7 +311,7 @@ def install_auth(app: FastAPI, get_connection: Callable[[], sqlite3.Connection])
                     conn.execute(
                         "INSERT INTO auth_users (id, email, full_name, password_hash, role, created_at) "
                         "VALUES (?, ?, ?, ?, ?, ?)",
-                        (user_id, email, name, password_hash, "admin" if first else "operator", int(time.time())),
+                        (user_id, email, name, password_hash, ("admin" if first else "operator") if req.role == "operator" else "citizen", int(time.time())),
                     )
                 except sqlite3.IntegrityError:
                     denied = (409, "An account with this email already exists")
@@ -365,7 +386,13 @@ def install_auth(app: FastAPI, get_connection: Callable[[], sqlite3.Connection])
             return _security_headers(
                 JSONResponse({"detail": "Authentication required"}, status_code=401), request.url.path
             )
-        if protected and request.method not in {"GET", "HEAD", "OPTIONS"} and not disabled:
+        if protected and user and user["role"] == "citizen" and not (
+            request.url.path in {"/api/auth/me", "/api/auth/logout"}
+            or request.url.path.startswith("/api/workspace/citizen/")
+        ):
+            return _security_headers(JSONResponse({"detail": "Operator access required"}, status_code=403), request.url.path)
+        owner_write = bool(user) and request.url.path in {"/api/intake", "/api/workspace/intake"}
+        if (protected or owner_write) and request.method not in {"GET", "HEAD", "OPTIONS"} and not disabled:
             csrf = request.headers.get("X-CSRF-Token", "")
             cookie_csrf = request.cookies.get(CSRF_COOKIE, "")
             expected = user.get("csrf_hash", "") if user else ""

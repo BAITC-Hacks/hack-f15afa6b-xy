@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 68" role="img" aria-labelledby="title">
+  <title id="title">Pulse 109</title>
+  <path fill="#3982c1" d="M20 3h24c10 0 18 8 18 18v16c0 10-8 18-18 18H27L13 64V52C6 49 2 43 2 36V21C2 11 10 3 20 3Z"/>
+  <path fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="6" d="M14 34h10V21h9v24h10V31h9"/>
+</svg>

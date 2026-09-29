@@ -1,5 +1,6 @@
-import {applyDetectedCity,applyLanguageResult,beginVoiceTurn,clearLanguageResult,discardSavedVoiceTurn,finishVoiceTurn,mergeTranscript,previewTranscript,retrySavedVoiceTurn,selectedIntakeLanguage,selectedVoiceLanguage,settleTranscriptPreview,speakPrompt,voicePrompts} from './voice.js?v=20260928-19';
-import {mountMaps,resetLocationPicker} from './map.js?v=20260927-13';
+import {applyDetectedCity,applyLanguageResult,beginVoiceTurn,clearLanguageResult,discardSavedVoiceTurn,finishVoiceTurn,mergeTranscript,previewTranscript,retrySavedVoiceTurn,selectedIntakeLanguage,selectedVoiceLanguage,settleTranscriptPreview,speakPrompt,voicePrompts} from './voice.js?v=20260928-motion-orb';
+import {mountMaps,resetLocationPicker} from './map.js?v=20260929-brand';
+import {mountThinkingOrb} from './thinking-orb.js?v=20260929-brand';
 
 const form=document.querySelector('#voice-live-form');
 const control=document.querySelector('#voice-control');
@@ -8,13 +9,15 @@ const language=document.querySelector('#live-language');
 const conversation=document.querySelector('#voice-conversation');
 const liveStatus=document.querySelector('#voice-live-status');
 const orb=document.querySelector('[data-live-orb]');
+const thinkingOrb=mountThinkingOrb(orb);
 const submit=document.querySelector('#voice-submit');
 let stage='idle', mode='idle', finishing=false, cities=[], duplicateApproved=false, clarificationAsked=false;
 
 async function api(path,data) {
   let response;
+  const csrf=document.cookie.split('; ').find(value=>value.startsWith('pulse109_csrf='))?.split('=')[1]||'';
   try {
-    response=await fetch(path,{method:data===undefined?'GET':'POST',credentials:'same-origin',headers:data===undefined?{Accept:'application/json'}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});
+    response=await fetch(path,{method:data===undefined?'GET':'POST',credentials:'same-origin',headers:data===undefined?{Accept:'application/json'}:{'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf)},body:data===undefined?undefined:JSON.stringify(data)});
   } catch {throw new Error('Сервер недоступен. Повторите действие.');}
   const result=await response.json().catch(()=>({detail:'Сервис вернул неверный ответ'}));
   if(!response.ok) throw new Error(result.detail||'Не удалось выполнить действие');
@@ -44,6 +47,7 @@ function showAnalysis(analysis) {
 
 function setMode(next,text='') {
   mode=next;const listening=next==='listening';orb.classList.toggle('listening',listening);
+  thinkingOrb.setState(listening?'listening':['prompting','transcribing','speaking'].includes(next)?'processing':next==='retry'?'error':next==='review'?'result':'idle');
   control.classList.toggle('listening',listening);control.disabled=['prompting','transcribing','speaking'].includes(next);
   reset.disabled=control.disabled||listening;language.disabled=control.disabled||listening;
   const labels={idle:'● Начать разговор',prompting:'Агент говорит…',listening:'■ Готово, закончить ответ',transcribing:'Распознаю ответ…',speaking:'Агент говорит…',review:'↻ Перезаписать ответы',retry:'● Повторить ответ'};
@@ -176,7 +180,8 @@ form.addEventListener('submit',async event=>{
     }
     const result=await api('/api/workspace/intake',payload);
     const synthetic=result.data_origin==='synthetic';
-    document.querySelector('#voice-receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${result.id} · ${synthetic?'номер можно использовать для проверки статуса':'приватное обращение; публикация возможна только после согласия и проверки оператором'}</p>${synthetic?'<a href="/#citizen">Открыть кабинет гражданина</a>':'<small>Защищённый кабинет заявителя ещё не подключён.</small>'}</div>`;
+    const account=await api('/api/auth/config');
+    document.querySelector('#voice-receipt').innerHTML=`<div class="receipt"><strong>✓ Обращение зарегистрировано</strong><p>${result.id} · ${synthetic?'номер можно использовать для проверки статуса':'приватное обращение; публикация возможна только после согласия и проверки оператором'}</p>${account.user?.role==='citizen'?'<a href="/citizen">Открыть мои обращения</a>':'<small>Обращение отправлено без личного кабинета.</small>'}</div>`;
     message('agent',`Готово. Обращение ${result.id} зарегистрировано.`);submit.textContent='Обращение отправлено';
   } catch(error) {toast(error.message);}
   finally {submit.disabled=false;}

@@ -2,21 +2,21 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#102a24"><link rel="icon" href="data:,">
+  <meta name="theme-color" content="#111729"><link rel="icon" href="/static/pulse109-mark.svg">
   <title>Pulse 109 — голосовое обращение</title>
-  <link rel="stylesheet" href="/static/workspace.css?v=20260928-5">
-  <link rel="stylesheet" href="/static/voice-live.css?v=20260927-2">
+  <link rel="stylesheet" href="/static/workspace.css?v=20260929-brand">
+  <link rel="stylesheet" href="/static/voice-live.css?v=20260929-brand">
 </head>
 <body class="voice-live-body">
   <a class="skip" href="#voice-main">К диалогу</a>
   <header class="voice-live-header">
-    <a class="voice-live-brand" href="/"><span class="brandmark" aria-hidden="true">⌁</span><strong>pulse<span>109</span></strong></a>
-    <div><span class="live-health" data-voice-health>Проверяем голосовой сервис…</span><a class="button ghost" href="/#citizen">Обычная форма</a></div>
+    <a class="voice-live-brand" href="/"><img class="brandmark" src="/static/pulse109-mark.svg" alt=""><strong>pulse<span>109</span></strong></a>
+    <div><span class="live-health" data-voice-health>Проверяем голосовой сервис…</span><a class="button ghost" href="/citizen">Обычная форма</a></div>
   </header>
   <main id="voice-main" class="voice-live-main">
     <section class="voice-room" aria-labelledby="voice-title">
       <div class="voice-room-heading"><p class="eyebrow">ГОЛОСОВОЕ ОБРАЩЕНИЕ</p><h1 id="voice-title">Расскажите — помощник заполнит заявку</h1><p>Говорите на русском или казахском без предварительного выбора. Аудио не добавляется к обращению.</p></div>
-      <div class="live-orb" data-live-orb aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+      <canvas class="live-orb" data-live-orb data-thinking-orb data-orb-state="idle" role="img" aria-label="Голосовой помощник готов"></canvas>
       <div id="voice-conversation" class="voice-conversation" aria-live="polite"></div>
       <div class="voice-live-controls">
         <label for="live-language">Язык</label>
@@ -57,6 +57,6 @@
     </aside>
   </main>
   <div id="voice-toast" role="alert" hidden></div>
-  <script type="module" src="/static/voice-live.js?v=20260928-2"></script>
+  <script type="module" src="/static/voice-live.js?v=20260929-accounts"></script>
 </body>
 </html>

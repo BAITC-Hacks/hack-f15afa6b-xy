@@ -74,7 +74,7 @@ def run() -> None:
             "PYTHONPATH": str(root),
             "P109_AUTH_ATTEMPTS": "3",
             "P109_AUTH_WINDOW_SECONDS": "900",
-            "P109_SIGNUP_INVITE": "",
+            "P109_SIGNUP_INVITE": "test-operator-invite",
             "P109_SECURE_COOKIES": "0",
         })
         env.pop("P109_AUTH_DISABLED", None)
@@ -131,7 +131,7 @@ def run() -> None:
             status, signup, signup_headers = account.request(
                 base_url + "/api/auth/signup",
                 "POST",
-                {"name": "Ayan Operator", "email": "  AYAN@Example.KZ ", "password": valid_password},
+                {"name": "Ayan Operator", "email": "  AYAN@Example.KZ ", "password": valid_password, "role": "operator", "invite_code": "test-operator-invite"},
             )
             assert status == 201, (status, signup)
             assert signup["user"]["email"] == "ayan@example.kz"
@@ -157,20 +157,20 @@ def run() -> None:
             assert token_hash == hashlib.sha256(session_token.encode()).hexdigest()
             assert stored_csrf == hashlib.sha256(csrf_token.encode()).hexdigest()
             assert session_token not in (token_hash, stored_csrf)
-            print("PASS 3: first signup creates an admin with scrypt password and hashed session secrets")
+            print("PASS 3: invited operator bootstrap creates an admin with scrypt password and hashed session secrets")
 
             status, closed_config, _ = anonymous.request(base_url + "/api/auth/config")
-            assert status == 200 and not closed_config["signup_available"] and not closed_config["first_account"]
+            assert status == 200 and closed_config["signup_available"] and not closed_config["first_account"]
             duplicate_status, _, _ = anonymous.request(
                 base_url + "/api/auth/signup", "POST",
                 {"name": "Duplicate", "email": "ayan@example.kz", "password": valid_password},
             )
             second_status, _, _ = anonymous.request(
                 base_url + "/api/auth/signup", "POST",
-                {"name": "Second", "email": "second@example.kz", "password": valid_password},
+                {"name": "Second", "email": "second@example.kz", "password": valid_password, "role": "operator"},
             )
             assert duplicate_status == 409 and second_status == 403
-            print("PASS 4: registration closes after bootstrap; duplicate and uninvited accounts are rejected")
+            print("PASS 4: citizen signup stays open; duplicate and uninvited operator accounts are rejected")
 
             status, current, _ = account.request(base_url + "/api/auth/me")
             assert status == 200 and current["user"]["email"] == "ayan@example.kz"

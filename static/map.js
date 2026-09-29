@@ -103,7 +103,7 @@ async function mountPicker(element) {
   element.dataset.mounted='true';
   const form=element.closest('form');
   const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:DEFAULT_CITY.center,zoom:12.4,pitch:18,maxBounds:DEFAULT_CITY.bounds,renderWorldCopies:false});
-  const marker=new maplibregl.Marker({color:'#157665',draggable:true});
+  const marker=new maplibregl.Marker({color:'#3982c1',draggable:true});
   element._pulseMap=map;element._pulseMarker=marker;
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
   const locate=new maplibregl.GeolocateControl({positionOptions:{enableHighAccuracy:true,timeout:10000},fitBoundsOptions:{maxZoom:16},trackUserLocation:false});
@@ -134,7 +134,7 @@ async function mountViewer(element) {
   element._pulseMap=map;
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
   const popup=new maplibregl.Popup({offset:28,closeButton:false}).setText(element.dataset.label||'Место обращения');
-  new maplibregl.Marker({color:'#157665'}).setLngLat([longitude,latitude]).setPopup(popup).addTo(map);
+  new maplibregl.Marker({color:'#3982c1'}).setLngLat([longitude,latitude]).setPopup(popup).addTo(map);
 }
 
 function publicPopup(item) {
@@ -157,7 +157,7 @@ function publicPopup(item) {
 export async function mountPublicMap(element, items, onSelect=()=>{}) {
   const maplibregl=await loadLibrary();
   element._pulseMap?.remove();element.replaceChildren();
-  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:[67.5,48],zoom:4,pitch:12,renderWorldCopies:false});
+  const map=new maplibregl.Map({container:element,style:MAP_STYLE,center:[67.5,48],zoom:4,pitch:0,renderWorldCopies:false,locale:{'NavigationControl.ZoomIn':'Приблизить','NavigationControl.ZoomOut':'Отдалить','Map.Title':'Карта обращений','Popup.Close':'Закрыть'}});
   let currentItems=items, byId=new Map(items.map(item=>[item.id,item]));
   element._pulseMap=map;
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
@@ -190,6 +190,7 @@ export async function mountPublicMap(element, items, onSelect=()=>{}) {
       node.textContent=single?'':String(group.items.length);
       node.title=single?`${single.id}: ${single.text}`:`${group.items.length} обращений`;
       const marker=new maplibregl.Marker({element:node}).setLngLat([longitude,latitude]);
+      node.setAttribute('aria-label',node.title);
       if(single) marker.setPopup(new maplibregl.Popup({offset:18}).setDOMContent(publicPopup(single)));
       node.addEventListener('click',event=>{
         if(single) onSelect(single);
@@ -204,6 +205,7 @@ export async function mountPublicMap(element, items, onSelect=()=>{}) {
   map.on('moveend',draw);
   return {
     focus(id) {const item=byId.get(id);if(item) show(item);},
+    resize() {map.resize();fit();draw();},
     setItems(next) {
       currentItems=next;byId=new Map(next.map(item=>[item.id,item]));
       fit(300);draw();

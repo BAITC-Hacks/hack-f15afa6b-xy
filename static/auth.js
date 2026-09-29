@@ -7,6 +7,7 @@ const loginTab=document.querySelector('#login-tab');
 const signupTab=document.querySelector('#signup-tab');
 let startWorkspace=()=>{};
 let config={};
+const operatorEntry=location.pathname==='/operator';
 
 function csrfToken() {
   const cookie=document.cookie.split('; ').find(item=>item.startsWith('pulse109_csrf='));
@@ -50,7 +51,7 @@ function selectMode(mode,focus=true) {
   loginForm.hidden=signup;
   signupForm.hidden=!signup;
   document.querySelector('#auth-title').textContent=signup?'Создайте аккаунт':'Добро пожаловать';
-  document.querySelector('#auth-intro').textContent=signup?(config.first_account?'Создайте первый аккаунт администратора.':'Введите данные и код приглашения.'):'Войдите, чтобы работать с обращениями.';
+  document.querySelector('#auth-intro').textContent=signup?(operatorEntry?'Введите данные и код приглашения оператора.':'Создайте личный кабинет для подачи и отслеживания обращений.'):'Войдите в Pulse 109, чтобы продолжить.';
   showMessage('');
   if(focus) document.querySelector(signup?'#signup-name':'#login-email').focus();
 }
@@ -89,9 +90,9 @@ function setBusy(form,busy) {
 }
 
 function applyConfig() {
-  signupTab.hidden=!config.signup_available;
-  document.querySelector('#invite-field').hidden=!config.invite_required;
-  document.querySelector('#signup-invite').required=!!config.invite_required;
+  signupTab.hidden=operatorEntry?!config.operator_signup_available:!config.signup_available;
+  document.querySelector('#invite-field').hidden=!operatorEntry;
+  document.querySelector('#signup-invite').required=!!operatorEntry;
 }
 
 async function loadConfig() {
@@ -101,8 +102,19 @@ async function loadConfig() {
 }
 
 async function enterWorkspace(user) {
-  showWorkspace(user.user||user);
-  await startWorkspace();
+  user=user.user||user;
+  const citizen=user.role==='citizen';
+  if(location.pathname!=='/') history.replaceState(null,'','/'+location.hash);
+  document.title=citizen?'Pulse 109 — Личный кабинет':'Pulse 109 — Кабинет оператора';
+  document.querySelectorAll('[data-nav]').forEach(node=>node.hidden=citizen?!['citizen','map'].includes(node.dataset.nav):node.dataset.nav==='citizen');
+  document.querySelector('.nav-more').hidden=citizen;
+  document.querySelector('.copilot-note').hidden=citizen;
+  document.querySelector('.nav-label').textContent=citizen?'МОЙ ГОРОД':'РАБОЧЕЕ ПРОСТРАНСТВО';
+  document.querySelector('.disclaimer').hidden=citizen;
+  document.querySelector('.demo-badge').hidden=citizen;
+  document.querySelectorAll('#workspace-screen .brand').forEach(node=>node.href=citizen?'#citizen':'#queue');
+  showWorkspace(user);
+  await startWorkspace(user);
 }
 
 export async function authFetch(path,options={}) {
@@ -125,7 +137,7 @@ export async function bootstrapAuth(start) {
       await enterWorkspace(config.user);
       return;
     }
-    showAuth(config.first_account?'signup':'login');
+    showAuth('login');
   } catch {
     showAuth('login','Сервер недоступен. Проверьте подключение и обновите страницу.');
   }
@@ -165,7 +177,7 @@ signupForm.addEventListener('submit',async event=>{
   setBusy(signupForm,true);showMessage('');
   try {
     const data=new FormData(signupForm);
-    const payload={name:data.get('name').trim(),email:data.get('email').trim(),password:data.get('password')};
+    const payload={name:data.get('name').trim(),email:data.get('email').trim(),password:data.get('password'),role:operatorEntry?'operator':'citizen'};
     if(data.get('invite_code')) payload.invite_code=data.get('invite_code').trim();
     const user=await authRequest('/api/auth/signup',payload);
     signupForm.reset();
@@ -174,18 +186,18 @@ signupForm.addEventListener('submit',async event=>{
   } catch(error) {showMessage(error.message);} finally {setBusy(signupForm,false);}
 });
 
-document.querySelector('#logout-button').addEventListener('click',async event=>{
+document.querySelectorAll('#logout-button,[data-logout]').forEach(node=>node.addEventListener('click',async event=>{
   const button=event.currentTarget;
   button.disabled=true;
   try {
     const response=await authFetch('/api/auth/logout',{method:'POST'});
     if(!response.ok) throw new Error();
     await loadConfig();
-    showAuth('login','Вы вышли из аккаунта.',true);
+    location.replace('/');
   } catch {
     const toast=document.querySelector('#toast');
     toast.textContent='Не удалось завершить сессию. Попробуйте ещё раз.';
     toast.className='error';toast.hidden=false;
     setTimeout(()=>toast.hidden=true,5000);
   } finally {button.disabled=false;}
-});
+}));

@@ -23,7 +23,9 @@ jobs:
       - name: Run smoke checks
         run: python scripts/smoke.py
       - name: Verify account and session security
-        run: python scripts/check_auth.py
+        run: |
+          python scripts/check_auth.py
+          python scripts/check_citizen.py
       - name: Run clarification and priority semantics checks
         run: python scripts/check_clarification.py
       - name: Run operator queue listing checks

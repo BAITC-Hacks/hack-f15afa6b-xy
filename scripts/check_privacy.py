@@ -88,7 +88,7 @@ def legacy_db(path):
 def start(db_path, demo=False, auth_disabled=False):
     port = free_port()
     env = os.environ.copy()
-    env.update({"DATABASE_PATH": str(db_path), "PYTHONPATH": str(ROOT), "P109_SECURE_COOKIES": "0"})
+    env.update({"DATABASE_PATH": str(db_path), "PYTHONPATH": str(ROOT), "P109_SECURE_COOKIES": "0", "P109_SIGNUP_INVITE": "privacy-test-invite"})
     for key in ("P109_DEMO_MODE", "P109_AUTH_DISABLED", "P109_S3_ENDPOINT", "P109_S3_BUCKET"):
         env.pop(key, None)
     if demo:
@@ -124,7 +124,7 @@ def signup(base):
     client = Client()
     status, payload = client.request(base + "/api/auth/signup", "POST", {
         "name": "Privacy Reviewer", "email": "privacy@example.kz",
-        "password": "correct horse battery staple",
+        "password": "correct horse battery staple", "role": "operator", "invite_code": "privacy-test-invite",
     })
     assert status == 201, (status, payload)
     return client, client.cookie("pulse109_csrf"), payload["user"]["id"]

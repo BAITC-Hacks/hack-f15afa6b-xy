@@ -5,28 +5,28 @@
     if (location.protocol === 'file:') location.replace('http://127.0.0.1:8769/' + location.search + location.hash);
   </script>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#172925"><link rel="icon" href="data:,">
-  <title>Pulse 109 — Рабочее место оператора</title>
-  <link rel="stylesheet" href="/static/workspace.css?v=20260928-5">
+  <meta name="theme-color" content="#111729"><link rel="icon" href="/static/pulse109-mark.svg">
+  <title>Pulse 109 — Вход</title>
+  <link rel="stylesheet" href="/static/workspace.css?v=20260929-clarity">
   <link rel="stylesheet" href="/static/operations.css">
-  <link rel="stylesheet" href="/static/auth.css">
-  <link rel="stylesheet" href="/static/public-map.css?v=20260927-12">
+  <link rel="stylesheet" href="/static/auth.css?v=20260929-accounts">
+  <link rel="stylesheet" href="/static/public-map.css?v=20260929-clarity">
 </head>
 <body>
   <a id="skip-link" class="skip" href="#auth-title">К содержимому</a>
   <main id="auth-screen" class="auth-screen" aria-labelledby="auth-title">
     <div class="auth-brand" aria-hidden="true">
-      <div class="auth-brand-lockup"><span class="brandmark">⌁</span><span>pulse<span class="brand-num">109</span></span></div>
+      <div class="auth-brand-lockup"><img class="brandmark" src="/static/pulse109-mark.svg" alt=""><span>pulse<span class="brand-num">109</span></span></div>
       <div>
         <p class="eyebrow">ГОРОД НА СВЯЗИ</p>
         <h1>Решения города<br>начинаются с сигнала</h1>
-        <p>Защищённое рабочее пространство операторов Алматы 109.</p>
+        <p>Подайте обращение и следите за решением в личном кабинете.</p>
       </div>
       <small>ИИ предлагает. Оператор решает.</small>
     </div>
     <div class="auth-panel">
       <div class="auth-card">
-        <div class="auth-mobile-brand"><span class="brandmark" aria-hidden="true">⌁</span><strong>pulse<span class="brand-num">109</span></strong></div>
+        <div class="auth-mobile-brand"><img class="brandmark" src="/static/pulse109-mark.svg" alt=""><strong>pulse<span class="brand-num">109</span></strong></div>
         <p class="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</p>
         <h2 id="auth-title">Добро пожаловать</h2>
         <p id="auth-intro" class="auth-intro">Войдите, чтобы работать с обращениями.</p>
@@ -36,8 +36,8 @@
         </div>
         <p id="auth-message" class="auth-message" role="alert" aria-live="polite" hidden></p>
         <form id="login-form" class="auth-form" role="tabpanel" aria-labelledby="login-tab">
-          <label for="login-email">Рабочая почта</label>
-          <input id="login-email" name="email" type="email" inputmode="email" autocomplete="username" required placeholder="operator@pulse109.kz">
+          <label for="login-email">Электронная почта</label>
+          <input id="login-email" name="email" type="email" inputmode="email" autocomplete="username" required placeholder="name@example.kz">
           <label for="login-password">Пароль</label>
           <div class="password-field">
             <input id="login-password" name="password" type="password" autocomplete="current-password" required>
@@ -48,8 +48,8 @@
         <form id="signup-form" class="auth-form" role="tabpanel" aria-labelledby="signup-tab" hidden>
           <label for="signup-name">Имя и фамилия</label>
           <input id="signup-name" name="name" autocomplete="name" required minlength="2" maxlength="80" placeholder="Айжан Омарова">
-          <label for="signup-email">Рабочая почта</label>
-          <input id="signup-email" name="email" type="email" inputmode="email" autocomplete="username" required placeholder="operator@pulse109.kz">
+          <label for="signup-email">Электронная почта</label>
+          <input id="signup-email" name="email" type="email" inputmode="email" autocomplete="username" required placeholder="name@example.kz">
           <label for="signup-password">Пароль</label>
           <div class="password-field">
             <input id="signup-password" name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="128" aria-describedby="password-help">
@@ -63,13 +63,14 @@
           <button class="auth-submit" type="submit">Создать аккаунт</button>
         </form>
         <a class="public-map-link" href="/map">Посмотреть карту обращений →</a>
-        <p class="auth-footnote">На общем компьютере обязательно выйдите из аккаунта после смены.</p>
+        <p class="auth-footnote">На общем компьютере выходите из аккаунта после завершения работы.</p>
       </div>
     </div>
   </main>
   <div id="workspace-screen" hidden>
+  <header class="mobile-appbar"><a class="brand" href="#queue"><img class="brandmark" src="/static/pulse109-mark.svg" alt=""><span>pulse<span class="brand-num">109</span></span></a><button type="button" data-logout aria-label="Выйти из аккаунта" title="Выйти">↪</button></header>
   <aside class="sidebar">
-    <a class="brand" href="#queue"><span class="brandmark" aria-hidden="true">⌁</span><span>pulse<span class="brand-num">109</span><small>ГОРОД НА СВЯЗИ</small></span></a>
+    <a class="brand" href="#queue"><img class="brandmark" src="/static/pulse109-mark.svg" alt=""><span>pulse<span class="brand-num">109</span><small>ГОРОД НА СВЯЗИ</small></span></a>
     <div class="workspace-label"><span class="city-dot"></span> Алматы <span class="muted">/ 109</span></div>
     <p class="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</p>
     <nav aria-label="Главное меню">
@@ -77,23 +78,22 @@
       <a href="#radar" data-nav="radar"><span aria-hidden="true">◉</span> Радар <b id="radar-count">—</b></a>
       <a href="#incidents" data-nav="incidents"><span aria-hidden="true">◎</span> Инциденты <b id="incident-count">—</b></a>
       <a href="#map" data-nav="map"><span aria-hidden="true">⌖</span> Карта</a>
+      <a href="#citizen" data-nav="citizen"><span aria-hidden="true">↗</span> Мои обращения</a>
+      <details class="nav-more"><summary>Ещё</summary><div class="nav-more-links">
       <a href="#dashboard" data-nav="dashboard"><span aria-hidden="true">▥</span> Аналитика</a>
       <a href="#operators" data-nav="operators"><span aria-hidden="true">♧</span> Команда</a>
-      <a href="#routing" data-nav="routing"><span aria-hidden="true">⇄</span> Маршрутизация</a>
+      <a href="#routing" data-nav="routing"><span aria-hidden="true">⇄</span> Распределение обращений</a>
       <a href="#quarantine" data-nav="quarantine"><span aria-hidden="true">◇</span> Карантин <b id="quarantine-count">0</b></a>
-    </nav>
-    <p class="nav-label">ДЕМО И ДАННЫЕ</p>
-    <nav aria-label="Дополнительные разделы">
-      <a href="#citizen" data-nav="citizen"><span aria-hidden="true">↗</span> Кабинет гражданина</a>
       <a href="/legacy#coverage-heading"><span aria-hidden="true">▦</span> Покрытие регионов</a>
       <a href="/legacy#intake-heading"><span aria-hidden="true">⊞</span> Исходный интерфейс</a>
+      </div></details>
     </nav>
     <div class="sidebar-bottom"><div class="copilot-note"><span>✦</span><strong>ИИ предлагает.<br>Вы решаете.</strong><p>Каждое решение объяснимо<br>и сохраняется в истории.</p></div>
     <div class="profile"><span id="profile-avatar" class="avatar">ОП</span><div class="profile-copy"><strong id="profile-name">Оператор 109</strong><small id="profile-email"><i></i> Демонстрационная смена</small></div><button id="logout-button" type="button" aria-label="Выйти из аккаунта" title="Выйти">↪</button></div></div>
   </aside>
   <div class="shell">
-    <header class="topbar"><span>Рабочее пространство <span class="crumb">/ <strong id="breadcrumb">Обращения</strong></span></span><div><span class="demo-badge"><i></i> Операционная база · источник в карточке</span><span id="today"></span></div></header>
-    <main id="main" tabindex="-1"><div class="loading" role="status">Загружаем рабочее пространство…</div></main>
+    <header class="topbar"><span>Рабочее пространство <span class="crumb">/ <strong id="breadcrumb">Обращения</strong></span></span><div><span class="demo-badge"><i></i> Источник данных указан в карточке</span><span id="today"></span></div></header>
+    <main id="main" tabindex="-1"><div class="loading loading-skeleton" role="status" aria-busy="true" aria-label="Загружаем рабочее пространство"><strong>Загружаем рабочее пространство…</strong><span></span><span></span><span></span></div></main>
     <footer class="disclaimer">КАЖДАЯ ЗАЯВКА ХРАНИТ ПРОИСХОЖДЕНИЕ · ДЕМОНСТРАЦИОННЫЕ ДАННЫЕ И ДАННЫЕ ОРГАНИЗАТОРОВ НЕ СМЕШИВАЮТСЯ · РЕКОМЕНДАЦИИ ИИ ТРЕБУЮТ ПРОВЕРКИ.</footer>
   </div>
   <dialog id="case-dialog" aria-labelledby="case-title"><div id="case-content"></div></dialog>
@@ -101,6 +101,8 @@
   <dialog id="command-dialog" aria-labelledby="command-title"><div class="case-header"><h2 id="command-title">Команды карточки</h2><button class="button icon-button" data-action="close-commands" aria-label="Закрыть команды">×</button></div><div class="command-body"><label for="command-search">Найти действие</label><input id="command-search" type="search" autocomplete="off" placeholder="Например: уточнение"><p class="micro">Сначала вы увидите все изменения. Для выполнения потребуется подтверждение.</p><div id="command-options"></div></div></dialog>
   <div id="toast" role="status" aria-live="polite" hidden></div>
   </div>
-  <script type="module" src="/static/workspace.js?v=20260928-12"></script>
+  <script src="/static/vendor/gsap-3.13.0.min.js"></script>
+  <script src="/static/vendor/Flip-3.13.0.min.js"></script>
+  <script type="module" src="/static/workspace.js?v=20260929-unified-login"></script>
 </body>
 </html>
