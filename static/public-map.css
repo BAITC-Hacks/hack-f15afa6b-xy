@@ -23,6 +23,7 @@
 .public-status.error{color:var(--red)}
 .public-view-switch{display:none;gap:4px;flex-shrink:0}
 .public-view-switch .button[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#fff}
+.workspace-public-map [data-current-map][aria-pressed="true"],.workspace-public-map [data-time-machine-toggle][aria-pressed="true"]{background:#2f6fa8;border-color:#2f6fa8;color:#fff}
 .public-map-error{position:absolute;inset:70px 20px auto;padding:18px;background:#fff;border:1px solid var(--line);border-radius:8px;font-size:14px;line-height:1.6}
 .public-map-error[hidden]{display:none}
 .public-map .maplibregl-ctrl-group button{width:44px;height:44px}

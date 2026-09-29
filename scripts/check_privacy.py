@@ -175,10 +175,11 @@ def real_mode_check(db_path):
         assert demo["id"] in {item["id"] for item in feed["items"]}
         print("PASS 2b: authenticated jury demo creates an explicitly synthetic public record")
         assert operator.request(base + f"/api/workspace/complaints/{cid}/photo", raw=True) == (200, b"\x89PNG\r\n\x1a\n")
-        status, approved = operator.request(base + f"/api/workspace/complaints/{cid}/moderation", "POST",
-                                             {"status": "approved", "public_text": PRIVATE_TEXT}, headers)
-        assert status == 200 and approved["moderation_status"] == "approved"
-        safe = approved["public_text"]
+        assert operator.request(base + f"/api/workspace/complaints/{cid}/triage", "POST", {}, headers)[0] == 200
+        status, decided = operator.request(base + f"/api/workspace/complaints/{cid}/decide", "POST",
+                                            {"topic": "water_supply", "priority": "normal"}, headers)
+        assert status == 200 and decided["complaint"]["moderation_status"] == "approved"
+        safe = decided["complaint"]["public_text"]
         for secret in ("citizen@example.kz", "+7 (777) 123-45-67", "900101301234", "кв. 17"):
             assert secret not in safe
         assert all(label in safe for label in ("[EMAIL СКРЫТ]", "[ТЕЛЕФОН СКРЫТ]", "[ИИН СКРЫТ]",
@@ -197,7 +198,7 @@ def real_mode_check(db_path):
             event = conn.execute("""SELECT actor, payload FROM audit_events
                                      WHERE complaint_id = ? AND event_type = 'public_moderation'""", (cid,)).fetchone()
         assert event[0] == actor and PRIVATE_TEXT not in event[1]
-        print("PASS 3: authenticated approval redacts PII, audits safely and unlocks public actions")
+        print("PASS 3: operator confirmation publishes the consented case with redaction and map coordinates")
 
         status, rejected = anonymous.request(base + "/api/workspace/intake", "POST", {
             "text": "На улице не горит фонарь", "region_id": "KZ-ALA", "public_consent": True,

@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from auth import current_actor
+from radar_state import init_radar_state
 from triage import SERVICE_NAMES, moment
 
 VALID_INCIDENT_STATUSES = ["Проверяется", "Передано службе", "Работы ведутся", "Завершён"]
@@ -74,6 +75,7 @@ def init_incidents(conn) -> None:
             ON complaints(COALESCE(received_at, ingested_at));
         """
     )
+    init_radar_state(conn)
     conn.commit()
 
 
@@ -126,6 +128,17 @@ def incident_timeline(conn, iid: str, item: dict) -> list[dict]:
     return entries
 
 
+def owner_name(conn, owner_id):
+    if not owner_id:
+        return None
+    if owner_id == "operator_demo":
+        return "Демо-оператор"
+    row = conn.execute("SELECT full_name AS name FROM auth_users WHERE id = ? AND disabled = 0 "
+                       "AND role IN ('operator', 'admin') UNION ALL SELECT name FROM operators WHERE id = ? LIMIT 1",
+                       (owner_id, owner_id)).fetchone()
+    return row["name"] if row else None
+
+
 def incident_detail(conn, iid: str) -> dict:
     """One incident with its related cases, owner and timeline. Raises 404 when unknown."""
     row = conn.execute("SELECT * FROM incidents WHERE id = ?", (iid,)).fetchone()
@@ -140,6 +153,7 @@ def incident_detail(conn, iid: str) -> dict:
     item["first_signal_at"] = item.get("first_signal_at") or item["started_at"]
     item["last_update_at"] = item.get("last_update_at") or item["created_at"]
     item["revision"] = item.get("revision") or 1
+    item["owner_name"] = owner_name(conn, item["incident_owner_id"])
     item["count"] = len(members)
     item["streets"] = len({m["address"].rsplit(" ", 1)[0] for m in members if m["address"]})
     item["service_name"] = SERVICE_NAMES.get(item["service_id"], item["service_id"])
@@ -189,7 +203,7 @@ def attach_incident_routes(router: APIRouter, get_connection: Callable[[], Any])
         now = datetime.now(timezone.utc).isoformat()
         with get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            if owner and not conn.execute("SELECT 1 FROM operators WHERE id = ?", (owner,)).fetchone():
+            if owner and not owner_name(conn, owner):
                 raise HTTPException(422, f"Неизвестный ответственный: {owner}")
             row = conn.execute("SELECT * FROM incidents WHERE id = ?", (iid,)).fetchone()
             if not row:

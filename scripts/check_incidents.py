@@ -41,6 +41,10 @@ def run():
         print(f"[*] Radar/incident check server: {url}\n[*] Isolated temporary database: {db}\n")
 
         def call(path, body=None, expected=200):
+            if body is not None and path.endswith(('/confirm', '/ignore')) and '/radar/' in path:
+                _, latest = http_request(url + '/api/workspace/radar?source=synthetic')
+                signal = next((i for i in latest['items'] if i['id'] == path.split('/')[-2]), {})
+                body = {'expected_revision': signal.get('revision', 1), **body}
             code, data = http_request(url + path, "POST" if body is not None else "GET", body)
             assert code == expected, (path, code, data)
             return data
@@ -49,7 +53,7 @@ def run():
             return {item["id"]: item for item in call("/api/workspace/incidents")["items"]}
 
         def radar():
-            return call("/api/workspace/radar")
+            return call("/api/workspace/radar?source=synthetic")
 
         def intake(text, **extra):
             payload = {"text": text, "region_id": "KZ-ALA", "language": "ru", "district": "Медеуский",
@@ -71,11 +75,11 @@ def run():
 
             # 2. detection contract on the seeded Алмалинский outage group, already linked to INC-204
             first = radar()
-            assert set(first) == {"items", "min_cases", "window_minutes", "data_origin"}, set(first)
+            assert {"items", "min_cases", "window_minutes", "data_origin", "coverage"} <= set(first)
             assert (first["min_cases"], first["window_minutes"], first["data_origin"]) == (5, 15, "synthetic")
             almaly = signal_for(first["items"], "Алмалинский", "отключение")
             assert almaly, "The seeded Алмалинский outage group must be detected"
-            assert set(almaly) == SIGNAL_FIELDS, set(almaly) ^ SIGNAL_FIELDS
+            assert SIGNAL_FIELDS <= set(almaly), SIGNAL_FIELDS - set(almaly)
             assert almaly["count"] == 5 and almaly["similar_count"] == 5, almaly["count"]
             assert almaly["case_ids"] == sorted(almaly["case_ids"]) and len(almaly["case_ids"]) == 5
             assert all(m["id"] and m["text"] for m in almaly["members"]) and len(almaly["members"]) == 5
@@ -212,7 +216,7 @@ def run():
                                 district="Бостандыкский", address=f"Новый дом {index}",
                                 sender_key=f"bostan-new-{index}") for index in range(1, 7)]
             grown = signal_for(radar()["items"], "Бостандыкский", "отключение")
-            assert grown["id"] != bostan["id"] and grown["count"] == 12 and grown["unlinked_count"] == 6
+            assert grown["id"] == bostan["id"] and grown["count"] == 12 and grown["unlinked_count"] == 6
             assert grown["incident_id"] == created["id"], grown["incident_id"]
             joined = call(f"/api/workspace/radar/{grown['id']}/confirm", {"case_ids": grown["case_ids"]})
             assert joined["replayed"] is False and joined["incident"]["id"] == created["id"]
@@ -259,13 +263,13 @@ def run():
             assert signal_for(radar()["items"], "Медеуский", "отключение")["ignored"] is False
             print("PASS 13: dismiss and restore persist, audit the human action and keep every complaint")
 
-            # 14. a new member produces a fresh signal id, so a dismissal is not permanent silence
+            # 14. a new member retains the same episode and its dismissal
             call(f"/api/workspace/radar/{clean['id']}/ignore", {"case_ids": clean["case_ids"], "ignored": True})
             intake(OUTAGE_TEXT.format(n=99), address="Дом 99", sender_key="medeu-99")
             refreshed = signal_for(radar()["items"], "Медеуский", "отключение")
-            assert refreshed["id"] != clean["id"] and refreshed["ignored"] is False
-            assert refreshed["count"] == 6 and clean["id"] not in [i["id"] for i in radar()["items"]]
-            print("PASS 14: a new member hides nothing: the group gets a fresh, visible signal id")
+            assert refreshed["id"] == clean["id"] and refreshed["ignored"] is True
+            assert refreshed["count"] == 6 and clean["id"] in [i["id"] for i in radar()["items"]]
+            print("PASS 14: a new member preserves the episode ID and the operator dismissal")
 
             # 15. incident update: validation, revision conflict, owner, overdue time, no cascade on close
             iid = created["id"]

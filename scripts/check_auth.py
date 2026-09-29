@@ -14,6 +14,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -91,6 +92,7 @@ def run() -> None:
 
             assert anonymous.request(base_url + "/api/auth/me")[0] == 401
             assert anonymous.request(base_url + "/api/workspace/queue")[0] == 401
+            assert anonymous.request(base_url + "/api/workspace/radar")[0] == 401
             assert anonymous.request(base_url + "/map")[0] == 200
             voice_status, voice_page, voice_headers = anonymous.request(base_url + "/voice")
             assert voice_status == 200 and 'id="voice-live-form"' in voice_page["raw"]
@@ -197,6 +199,35 @@ def run() -> None:
             event = next(item for item in clarified["events"] if item["event_type"] == "clarification_requested")
             assert event["actor"] == signup["user"]["id"]
             print("PASS 5: session grants access, CSRF protects writes and audit actors cannot be spoofed")
+
+            # Generated test records exercise the private citizen intake origin.
+            with sqlite3.connect(db_path) as connection:
+                at = datetime.now(timezone.utc).isoformat()
+                for n in range(5):
+                    connection.execute(
+                        "INSERT INTO complaints (id, data_origin, text, region_id, received_at, ingested_at, "
+                        "language, district, topic, decision_status) VALUES (?, 'citizen', ?, 'KZ-ALA', ?, ?, "
+                        "'ru', 'Тестовый', 'water_supply', 'confirmed')",
+                        (f"TEST-RADAR-AUTH-{n}", f"Тест: в доме {n} нет воды", at, at))
+            status, radar, _ = account.request(base_url + "/api/workspace/radar")
+            assert status == 200 and len(radar["items"]) == 1
+            signal = radar["items"][0]
+            radar_path = base_url + f"/api/workspace/radar/{signal['id']}/action"
+            body = {"expected_revision": signal["revision"], "action": "claim", "actor": "spoofed"}
+            assert account.request(radar_path, "POST", body)[0] == 403
+            status, claimed, _ = account.request(radar_path, "POST", body, {"X-CSRF-Token": csrf_token})
+            assert status == 200 and claimed["signal"]["owner_id"] == signup["user"]["id"]
+            assert claimed["signal"]["owner_name"] == "Ayan Operator"
+            assert account.request(base_url + "/api/workspace/radar/demo", "POST", {},
+                                   {"X-CSRF-Token": csrf_token})[0] == 403
+            citizen = Client()
+            assert citizen.request(base_url + "/api/auth/signup", "POST", {
+                "name": "Test Citizen", "email": "radar-citizen@example.kz", "password": valid_password,
+            })[0] == 201
+            assert citizen.request(base_url + "/api/workspace/radar")[0] == 403
+            assert citizen.request(radar_path, "POST", body,
+                                   {"X-CSRF-Token": citizen.cookie("pulse109_csrf")})[0] == 403
+            print("PASS 5b: Radar is operator-only; CSRF enforced; real account owns signal; demo blocked")
 
             status, logout, _ = account.request(
                 base_url + "/api/auth/logout", "POST", {}, {"X-CSRF-Token": csrf_token}
