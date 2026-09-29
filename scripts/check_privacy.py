@@ -67,6 +67,9 @@ def legacy_db(path):
                 decision_status TEXT NOT NULL DEFAULT 'pending',
                 incident_id TEXT, duplicate_of TEXT, resolution_text TEXT, resolved_at TEXT,
                 proposed_topic TEXT, proposed_service_id TEXT, proposed_priority TEXT
+                , public_consent INTEGER NOT NULL DEFAULT 0
+                , moderation_status TEXT NOT NULL DEFAULT 'private'
+                , public_text TEXT
             );
             CREATE TABLE audit_events (
                 id TEXT PRIMARY KEY, complaint_id TEXT NOT NULL, event_type TEXT NOT NULL,
@@ -83,6 +86,11 @@ def legacy_db(path):
         conn.executemany("""INSERT INTO complaints
             (id, data_origin, source_system, text, region_id, ingested_at, language, decision_status)
             VALUES (?, ?, ?, ?, ?, '2026-09-28T00:00:00+00:00', 'ru', 'pending')""", rows)
+        conn.execute("""INSERT INTO complaints
+            (id, data_origin, text, region_id, ingested_at, language, decision_status,
+             public_consent, moderation_status)
+            VALUES ('legacy-confirmed', 'citizen', ?, 'KZ-ALA', '2026-09-28T00:00:00+00:00',
+                    'ru', 'confirmed', 1, 'pending')""", (PRIVATE_TEXT,))
 
 
 def start(db_path, demo=False, auth_disabled=False):
@@ -147,6 +155,8 @@ def real_mode_check(db_path):
                 assert migrated[key]["public_consent"] == 0
                 assert migrated[key]["moderation_status"] == "private"
                 assert migrated[key]["public_text"] is None
+            assert migrated["legacy-confirmed"]["moderation_status"] == "approved"
+            assert PRIVATE_TEXT not in migrated["legacy-confirmed"]["public_text"]
         print("PASS 1: migration publishes only known seed rows and keeps ambiguous legacy intake private")
 
         intake = {"text": PRIVATE_TEXT, "region_id": "KZ-ALA", "language": "ru",

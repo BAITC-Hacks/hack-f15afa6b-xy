@@ -343,7 +343,7 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                 assigned_operator = ?, incident_id = ?, related_to = ?, first_response_at = COALESCE(first_response_at, ?) WHERE id = ?""",
                 (req.topic, topic_services[req.topic], req.priority, req.operator_id, req.incident_id or c["incident_id"], related, now, cid))
             if c["data_origin"] == "citizen" and c["public_consent"] and c["moderation_status"] == "pending":
-                public_text = redact_public_text(c["text"])
+                public_text = redact_public_text(c["text"][:1000])
                 conn.execute("UPDATE complaints SET moderation_status = 'approved', public_text = ? WHERE id = ?",
                              (public_text, cid))
                 event(conn, cid, "public_moderation", {
