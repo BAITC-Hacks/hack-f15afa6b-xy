@@ -1,0 +1,257 @@
+"""Safe public views and duplicate deflection for synthetic complaints."""
+import hashlib
+import re
+from datetime import datetime, timezone
+from math import asin, cos, radians, sin, sqrt
+
+from fastapi import APIRouter, HTTPException, Path as ApiPath, Response
+from pydantic import BaseModel, Field, model_validator
+
+from cities import CITIES, CITY_BY_CODE
+from object_storage import ObjectStorageError, object_storage
+from triage import SERVICE_NAMES, analyze, address_in, risk_for, symptom, tokens
+
+
+REGION_CENTERS = {
+    "KZ-ABA": (50.41, 80.23), "KZ-AKM": (53.28, 69.38), "KZ-AKT": (50.28, 57.17),
+    "KZ-ALM": (43.88, 77.07), "KZ-ATY": (47.12, 51.88), "KZ-ZKO": (51.23, 51.37),
+    "KZ-ZHA": (42.90, 71.37), "KZ-ZHE": (45.02, 78.37), "KZ-KAR": (49.81, 73.09),
+    "KZ-KOS": (53.21, 63.62), "KZ-KZY": (44.85, 65.51), "KZ-MAN": (43.65, 51.20),
+    "KZ-PAV": (52.29, 76.97), "KZ-SEV": (54.88, 69.16), "KZ-TUR": (43.30, 68.25),
+    "KZ-ULY": (47.78, 67.77), "KZ-VKO": (49.95, 82.63), "KZ-AST": (51.17, 71.45),
+    "KZ-ALA": (43.24, 76.92), "KZ-SHY": (42.34, 69.59),
+}
+ALMATY_DISTRICT_CENTERS = {
+    "Алмалинский": (43.25, 76.93), "Ауэзовский": (43.23, 76.84),
+    "Бостандыкский": (43.21, 76.91), "Медеуский": (43.26, 76.98),
+    "Алатауский": (43.30, 76.82), "Жетысуский": (43.29, 76.92),
+    "Наурызбайский": (43.22, 76.75), "Турксибский": (43.34, 77.00),
+}
+REGION_PLACE = {}
+for city in CITIES:
+    REGION_PLACE.setdefault(city["region_id"], city["name_ru"])
+
+EMAIL = re.compile(r"(?<![\w.-])[\w.+-]+@[\w.-]+\.[a-zа-я]{2,}(?![\w.-])", re.IGNORECASE)
+PHONE = re.compile(r"(?<!\d)(?:\+?7|8)(?:[\s().-]*\d){10}(?!\d)")
+IIN = re.compile(r"(?<!\d)\d{12}(?!\d)")
+APARTMENT = re.compile(r"\b(?:кв(?:артира)?|квартира|пәтер)\s*[:№#.-]?\s*\d+[a-zа-я]?\b", re.IGNORECASE)
+
+
+def redact_public_text(text):
+    text = EMAIL.sub("[EMAIL СКРЫТ]", text)
+    text = PHONE.sub("[ТЕЛЕФОН СКРЫТ]", text)
+    text = IIN.sub("[ИИН СКРЫТ]", text)
+    return APARTMENT.sub("[КВАРТИРА СКРЫТА]", text)
+
+
+def public_eligible(item):
+    return bool(item.get("public_consent") and item.get("moderation_status") == "approved"
+                and item.get("public_text") and item.get("data_origin") != "organizer"
+                and not item.get("quarantined"))
+
+
+class SimilarRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=10000)
+    region_id: str
+    city_code: str | None = Field(default=None, pattern=r"^\d{9}$")
+    address: str | None = Field(default=None, max_length=200)
+    district: str | None = Field(default=None, max_length=100)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @model_validator(mode="after")
+    def location_is_complete(self):
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("Укажите широту и долготу вместе")
+        return self
+
+
+class Subscription(BaseModel):
+    subscriber_key: str = Field(min_length=8, max_length=100)
+
+
+def distance_metres(a_lat, a_lng, b_lat, b_lng):
+    earth = 6_371_000
+    d_lat, d_lng = radians(b_lat - a_lat), radians(b_lng - a_lng)
+    value = sin(d_lat / 2) ** 2 + cos(radians(a_lat)) * cos(radians(b_lat)) * sin(d_lng / 2) ** 2
+    return round(earth * 2 * asin(sqrt(min(1, value))))
+
+
+def public_location(item):
+    if item.get("latitude") is not None and item.get("longitude") is not None:
+        return round(item["latitude"], 3), round(item["longitude"], 3), 100, "user_selected"
+    center = ALMATY_DISTRICT_CENTERS.get(item.get("district")) if item["region_id"] == "KZ-ALA" else None
+    center, precision, source, spread = ((center, 2500, "district_approximate", .012) if center else
+                                         (REGION_CENTERS[item["region_id"]], 25000, "region_approximate", .08))
+    digest = hashlib.sha256(item["id"].encode()).digest()
+    lat = center[0] + (digest[0] / 255 - .5) * spread
+    lng = center[1] + (digest[1] / 255 - .5) * spread
+    return round(lat, 3), round(lng, 3), precision, source
+
+
+def attach_public_issue_routes(router: APIRouter, get_connection, classifier, topic_services,
+                               valid_regions, topic_names):
+    storage = object_storage()
+    def category(item):
+        return item.get("topic") or item.get("proposed_topic") or analyze(
+            item, classifier, topic_services
+        )["category"]
+
+    @router.get("/public/complaints")
+    def public_complaints():
+        with get_connection() as conn:
+            rows = [dict(row) for row in conn.execute("""SELECT c.id, substr(c.public_text, 1, 1000) AS text,
+                    c.public_text, c.public_consent, c.moderation_status, c.data_origin, c.region_id,
+                    c.city_code, c.district, c.latitude, c.longitude,
+                    COALESCE(c.topic, c.proposed_topic) AS topic, c.service_id, c.incident_id,
+                    c.sender_key, c.ingested_at, c.quarantined,
+                    CASE WHEN c.resolved_at IS NOT NULL THEN 'resolved' ELSE c.decision_status END AS status,
+                    COALESCE(c.received_at, c.ingested_at) AS registered_at,
+                    COALESCE((SELECT MAX(a.occurred_at) FROM audit_events a WHERE a.complaint_id = c.id),
+                             c.received_at, c.ingested_at) AS last_updated,
+                    (SELECT i.next_update FROM incidents i WHERE i.id = c.incident_id) AS next_update,
+                    (SELECT COUNT(*) FROM complaint_subscriptions s WHERE s.complaint_id = c.id) AS subscribers,
+                    EXISTS(SELECT 1 FROM complaint_photos p WHERE p.complaint_id = c.id) AS has_photo,
+                    EXISTS(SELECT 1 FROM complaint_videos v WHERE v.complaint_id = c.id) AS has_video
+                FROM complaints c
+                WHERE c.public_consent = 1 AND c.moderation_status = 'approved'
+                  AND c.public_text IS NOT NULL AND c.quarantined = 0
+                ORDER BY COALESCE(c.received_at, c.ingested_at) DESC""")]
+        items = []
+        origins = set()
+        for row in rows:
+            item = dict(row)
+            if not public_eligible(item):
+                continue
+            if risk_for(item, rows)["reasons"]:
+                continue
+            item["topic"] = category(item)
+            item["city"] = CITY_BY_CODE.get(item.pop("city_code"), {}).get("name_ru") or REGION_PLACE.get(item["region_id"])
+            item["topic_name"] = topic_names.get(item["topic"], "Другая проблема")
+            item["service_name"] = SERVICE_NAMES.get(item.pop("service_id"))
+            item["latitude"], item["longitude"], item["location_precision_m"], item["location_source"] = public_location(item)
+            item["location_label"] = ("Точка указана заявителем" if item["location_source"] == "user_selected" else
+                                      "Примерно по району" if item["location_source"] == "district_approximate" else
+                                      "Примерно по региону")
+            item["has_photo"] = item["data_origin"] == "synthetic" and bool(item["has_photo"])
+            item["has_video"] = item["data_origin"] == "synthetic" and bool(item["has_video"])
+            origins.add(item["data_origin"])
+            for key in ("sender_key", "ingested_at", "quarantined", "public_text",
+                        "public_consent", "moderation_status", "data_origin"):
+                item.pop(key)
+            items.append(item)
+        origin = next(iter(origins)) if len(origins) == 1 else "mixed" if origins else None
+        return {"items": items, "count": len(items), "data_origin": origin}
+
+    @router.post("/public/similar")
+    def similar(req: SimilarRequest):
+        if req.region_id not in valid_regions or not req.text.strip():
+            raise HTTPException(422, "Укажите текст обращения и известный регион")
+        city = CITY_BY_CODE.get(req.city_code) if req.city_code else None
+        if req.city_code and (not city or city["region_id"] != req.region_id):
+            raise HTTPException(422, "Город не соответствует выбранному региону")
+        probe = {"text": req.text.strip(), "address": req.address, "region_id": req.region_id}
+        probe_topic, probe_symptom = category(probe), symptom(req.text)
+        if not probe_topic:
+            return {"items": [], "count": 0, "method": "category + symptom + place"}
+        with get_connection() as conn:
+            rows = [dict(row) for row in conn.execute("""SELECT c.*,
+                    (SELECT COUNT(*) FROM complaint_subscriptions s WHERE s.complaint_id = c.id) AS subscribers
+                FROM complaints c WHERE c.region_id = ? AND c.resolved_at IS NULL""", (req.region_id,))]
+        probe_address = (req.address or address_in(req.text) or "").strip().casefold()
+        radius = 2500 if probe_symptom == "outage" else 500 if probe_topic in {
+            "roads", "street_lighting", "waste_management", "sewerage"
+        } else 900
+        found = []
+        for row in rows:
+            if not public_eligible(row):
+                continue
+            row["text"] = row["public_text"]
+            if req.city_code and row.get("city_code") and req.city_code != row["city_code"]:
+                continue
+            if category(row) != probe_topic or symptom(row["text"]) != probe_symptom:
+                continue
+            row_address = (row.get("address") or address_in(row["text"]) or "").strip().casefold()
+            same_address = bool(probe_address and probe_address == row_address)
+            metres = None
+            if req.latitude is not None and row.get("latitude") is not None:
+                metres = distance_metres(req.latitude, req.longitude, row["latitude"], row["longitude"])
+            nearby = metres is not None and metres <= radius
+            district_outage = bool(probe_symptom == "outage" and req.district and
+                                   req.district.casefold() == (row.get("district") or "").casefold())
+            if not (same_address or nearby or district_outage):
+                continue
+            overlap = len(tokens(req.text) & tokens(row["text"])) / max(1, len(tokens(req.text) | tokens(row["text"])))
+            reason = ("Тот же адрес и тип проблемы" if same_address else
+                      f"Похожая проблема примерно в {metres} м" if nearby else
+                      "Такой же массовый сбой в этом районе")
+            found.append({"id": row["id"], "text": row["text"][:280], "district": row.get("district"),
+                          "status": "confirmed" if row.get("decision_status") == "confirmed" else "pending",
+                          "registered_at": row.get("received_at") or row["ingested_at"],
+                          "incident_id": row.get("incident_id"), "subscribers": row["subscribers"],
+                          "distance_m": metres, "reason": reason,
+                          "_score": (2 if same_address else 1 if nearby else 0) + overlap})
+        found.sort(key=lambda item: (-item["_score"], item["distance_m"] or 10**9, item["id"]))
+        for item in found:
+            item.pop("_score")
+        return {"items": found[:3], "count": min(3, len(found)), "method": "category + symptom + place"}
+
+    @router.post("/public/complaints/{cid}/subscribe")
+    def subscribe(cid: str, req: Subscription):
+        with get_connection() as conn:
+            cid = cid.strip()
+            row = conn.execute("""SELECT id, data_origin, public_consent, moderation_status, public_text, quarantined
+                                  FROM complaints WHERE id = ?""", (cid,)).fetchone()
+            if not row or not public_eligible(dict(row)):
+                raise HTTPException(404, "Обращение не найдено")
+            conn.execute("INSERT OR IGNORE INTO complaint_subscriptions VALUES (?, ?, ?)",
+                         (cid, req.subscriber_key, datetime.now(timezone.utc).isoformat()))
+            count = conn.execute("SELECT COUNT(*) FROM complaint_subscriptions WHERE complaint_id = ?", (cid,)).fetchone()[0]
+        return {"subscribed": True, "subscribers": count, "delivery": "in_app"}
+
+    @router.get("/public/subscriptions/{subscriber_key}")
+    def subscriptions(subscriber_key: str = ApiPath(min_length=8, max_length=100)):
+        with get_connection() as conn:
+            subscribed = {row["complaint_id"]: row["created_at"] for row in conn.execute(
+                "SELECT complaint_id, created_at FROM complaint_subscriptions WHERE subscriber_key = ?",
+                (subscriber_key,),
+            )}
+        # ponytail: reuse the privacy-filtered public feed until it needs pagination.
+        items = [{**item, "subscribed_at": subscribed[item["id"]]}
+                 for item in public_complaints()["items"] if item["id"] in subscribed]
+        items.sort(key=lambda item: item["last_updated"], reverse=True)
+        return {"items": items, "count": len(items), "delivery": "in_app"}
+
+    @router.get("/public/complaints/{cid}/photo")
+    def public_photo(cid: str):
+        with get_connection() as conn:
+            row = conn.execute("""SELECT p.mime_type, p.content, p.object_key, c.data_origin,
+                    c.public_consent, c.moderation_status, c.public_text, c.quarantined
+                FROM complaint_photos p
+                JOIN complaints c ON c.id = p.complaint_id
+                WHERE p.complaint_id = ?""", (cid,)).fetchone()
+        if not row or row["data_origin"] != "synthetic" or not public_eligible(dict(row)):
+            raise HTTPException(404, "Фото не найдено")
+        try:
+            content = storage.get_media(row["object_key"]) if row["object_key"] else row["content"]
+        except ObjectStorageError as error:
+            raise HTTPException(503, "Фото временно недоступно") from error
+        return Response(content, media_type=row["mime_type"],
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+    @router.get("/public/complaints/{cid}/video")
+    def public_video(cid: str):
+        with get_connection() as conn:
+            row = conn.execute("""SELECT v.mime_type, v.content, v.object_key, c.data_origin,
+                    c.public_consent, c.moderation_status, c.public_text, c.quarantined
+                FROM complaint_videos v
+                JOIN complaints c ON c.id = v.complaint_id
+                WHERE v.complaint_id = ?""", (cid,)).fetchone()
+        if not row or row["data_origin"] != "synthetic" or not public_eligible(dict(row)):
+            raise HTTPException(404, "Видео не найдено")
+        try:
+            content = storage.get_media(row["object_key"]) if row["object_key"] else row["content"]
+        except ObjectStorageError as error:
+            raise HTTPException(503, "Видео временно недоступно") from error
+        return Response(content, media_type=row["mime_type"],
+                        headers={"Cache-Control": "public, max-age=3600"})

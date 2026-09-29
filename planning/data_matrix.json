@@ -1,0 +1,244 @@
+{
+  "as_of": "2026-09-10",
+  "purpose": "Матрица доступности полей для двадцати регионов кейса Pulse 109. Это инвентарь заголовков и источников, а не подсчёт строк и не подтверждение качества данных.",
+  "source_of_truth": "https://drive.google.com/drive/folders/1rOKRZeEvpJlBkNeWKoIVzq8Lq3zeVi1B",
+  "unknown_value": null,
+  "status_semantics": {
+    "present_in_header": "Имя столбца увидено; заполненность и смысл значения ещё не проверены.",
+    "candidate_unverified": "Столбец может соответствовать полю, но его смысл не согласован с владельцем данных.",
+    "not_observed": "В проверенном заголовке нет подходящего имени столбца; это не доказательство отсутствия значения внутри файла.",
+    "missing_source": null
+  },
+  "coverage": {
+    "required_regions": 20,
+    "listed_regions": 7,
+    "listed_csv_files": 8,
+    "listed_source_status": "Публичный listing папки организаторов проверен; полный содержательный экспорт не проверен.",
+    "missing_regions": [
+      "область Абай",
+      "Актюбинская область",
+      "Атырауская область",
+      "Жамбылская область",
+      "область Жетісу",
+      "Западно-Казахстанская область",
+      "Кызылординская область",
+      "Мангистауская область",
+      "Северо-Казахстанская область",
+      "область Ұлытау",
+      "город Астана",
+      "город Алматы",
+      "город Шымкент"
+    ]
+  },
+  "field_matrix": [
+    {
+      "region": "область Абай",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "Акмолинская область",
+      "source": {"type": "organizer_drive", "folder": "root", "file_id": "1IZMuu3TSKqVSRTh872zGbnzlnR7vB0rH", "file_name": "Обращения граждан 109 - Акмолинская область.csv"},
+      "period": null,
+      "last_updated": null,
+      "fields": {
+        "original_text": {"status": "candidate_unverified", "columns": ["request_subject"]},
+        "language": {"status": "not_observed", "columns": []},
+        "category": {"status": "candidate_unverified", "columns": ["direction"]},
+        "event_time": {"status": "present_in_header", "columns": ["creation_date"]},
+        "resolution": {"status": "not_observed", "columns": []},
+        "record_id": {"status": "present_in_header", "columns": ["request_number"]}
+      },
+      "next_action": "Проверить смысл request_subject и direction на разрешённой локальной выборке."
+    },
+    {
+      "region": "Актюбинская область",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "Алматинская область",
+      "source": {"type": "organizer_drive", "folder": "root", "file_id": "10xsVo5SQx5faBactxookxJevzhziPd1G", "file_name": "Обращения граждан 109 - Алматинская область.csv"},
+      "period": null,
+      "last_updated": null,
+      "fields": {
+        "original_text": {"status": "not_observed", "columns": []},
+        "language": {"status": "not_observed", "columns": []},
+        "category": {"status": "present_in_header", "columns": ["category"]},
+        "event_time": {"status": "present_in_header", "columns": ["creation_date"]},
+        "resolution": {"status": "candidate_unverified", "columns": ["result"]},
+        "record_id": {"status": "present_in_header", "columns": ["application_number"]}
+      },
+      "next_action": "Подтвердить, является ли result текстом решения или только кодом/итогом."
+    },
+    {
+      "region": "Атырауская область",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "Восточно-Казахстанская область",
+      "source": {"type": "organizer_drive", "folder": "root", "file_id": "1zhaNNmuQ5f-y0Str0LzH4RoY19T8sY-W", "file_name": "Обращения граждан 109 - Восточно-Казахстанская область.csv"},
+      "period": null,
+      "last_updated": null,
+      "fields": {
+        "original_text": {"status": "not_observed", "columns": []},
+        "language": {"status": "not_observed", "columns": []},
+        "category": {"status": "present_in_header", "columns": ["category"]},
+        "event_time": {"status": "present_in_header", "columns": ["creation_date"]},
+        "resolution": {"status": "candidate_unverified", "columns": ["result"]},
+        "record_id": {"status": "present_in_header", "columns": ["application_number"]}
+      },
+      "next_action": "Согласовать обезличивание: заголовок также содержит full_name, applicant_number и street."
+    },
+    {
+      "region": "Жамбылская область",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "область Жетісу",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "Западно-Казахстанская область",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "Карагандинская область",
+      "source": {"type": "organizer_drive", "folder": "root", "file_id": "1MlqIkbKlCPBkjdHAnvhb4lSPOzKjFLYX", "file_name": "Обращения граждан 109 - Карагандинская область.csv"},
+      "period": null,
+      "last_updated": null,
+      "fields": {
+        "original_text": {"status": "not_observed", "columns": []},
+        "language": {"status": "not_observed", "columns": []},
+        "category": {"status": "present_in_header", "columns": ["category", "sub_category"]},
+        "event_time": {"status": "present_in_header", "columns": ["created_date", "submission_date"]},
+        "resolution": {"status": "candidate_unverified", "columns": ["answer_type"]},
+        "record_id": {"status": "not_observed", "columns": []}
+      },
+      "next_action": "Получить стабильный ID и проверить, есть ли текст обращения вне проверенного заголовка."
+    },
+    {
+      "region": "Костанайская область",
+      "source": {"type": "organizer_drive", "folder": "root", "file_id": "1ZZNEjeQHLfMXtWsD1-Op1RSc5C90Gfl0", "file_name": "Обращения жителей 109 - Костанайская область.csv"},
+      "period": null,
+      "last_updated": null,
+      "fields": {
+        "original_text": {"status": "not_observed", "columns": []},
+        "language": {"status": "not_observed", "columns": []},
+        "category": {"status": "present_in_header", "columns": ["category"]},
+        "event_time": {"status": "present_in_header", "columns": ["createddate"]},
+        "resolution": {"status": "candidate_unverified", "columns": ["result"]},
+        "record_id": {"status": "present_in_header", "columns": ["incidentid"]}
+      },
+      "next_action": "Подтвердить, что result — пригодное решение, и проверить координаты как чувствительные поля."
+    },
+    {
+      "region": "Кызылординская область",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "Мангистауская область",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "Павлодарская область",
+      "source": {"type": "organizer_drive", "folder": "pavlodar_subfolder", "file_ids": ["1pUBQBcPHQX05kxNQK0AKwfEmJvV96WIU", "1iKrV-ZVy74v2-mxe4H7jwp9sEjTg6drV"], "file_names": ["Данные по обращениям 109 — Павлодарская область_part_001_of_002.csv", "Данные по обращениям 109 — Павлодарская область_part_002_of_002.csv"]},
+      "period": null,
+      "last_updated": null,
+      "fields": {
+        "original_text": {"status": "not_observed", "columns": []},
+        "language": {"status": "not_observed", "columns": []},
+        "category": {"status": "present_in_header", "columns": ["category_name"]},
+        "event_time": {"status": "present_in_header", "columns": ["create_date"]},
+        "resolution": {"status": "not_observed", "columns": []},
+        "record_id": {"status": "present_in_header", "columns": ["id"]}
+      },
+      "next_action": "Проверить, что обе части имеют одинаковую схему и не пересекаются; получить текст и решение."
+    },
+    {
+      "region": "Северо-Казахстанская область",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "Туркестанская область",
+      "source": {"type": "organizer_drive", "folder": "root", "file_id": "16IoeM8yJ-eNxOYHdw8_Rmo0U0P_HY7Th", "file_name": "Обращения жителей 109 - Туркестанская область.csv"},
+      "period": null,
+      "last_updated": null,
+      "fields": {
+        "original_text": {"status": "not_observed", "columns": []},
+        "language": {"status": "not_observed", "columns": []},
+        "category": {"status": "present_in_header", "columns": ["category"]},
+        "event_time": {"status": "present_in_header", "columns": ["createddate"]},
+        "resolution": {"status": "not_observed", "columns": []},
+        "record_id": {"status": "present_in_header", "columns": ["incidentid"]}
+      },
+      "next_action": "Описание каталога называет result, но CSV-заголовок его не содержит: согласовать версию схемы."
+    },
+    {
+      "region": "область Ұлытау",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "город Астана",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    },
+    {
+      "region": "город Алматы",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Не объединять с Алматинской областью; получить отдельный файл и словарь полей."
+    },
+    {
+      "region": "город Шымкент",
+      "source": null,
+      "period": null,
+      "last_updated": null,
+      "fields": {"original_text": null, "language": null, "category": null, "event_time": null, "resolution": null, "record_id": null},
+      "next_action": "Получить файл и словарь полей от организатора."
+    }
+  ]
+}

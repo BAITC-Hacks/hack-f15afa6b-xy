@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Verify planning artifacts
+        run: python scripts/check_plan.py
+      - name: Run smoke checks
+        run: python scripts/smoke.py
+      - name: Verify account and session security
+        run: |
+          python scripts/check_auth.py
+          python scripts/check_citizen.py
+      - name: Run clarification and priority semantics checks
+        run: python scripts/check_clarification.py
+      - name: Run operator queue listing checks
+        run: python scripts/check_queue_api.py
+      - name: Verify operator demo and incident decisions
+        run: python scripts/check_demo.py
+      - name: Verify atomic playbooks and preview conflicts
+        run: python scripts/check_playbooks.py
+      - name: Verify radar and incident lifecycle
+        run: python scripts/check_incidents.py
+      - name: Verify routing and presence
+        run: python scripts/check_routing.py
+      - name: Verify Laya decision integration and fallback
+        run: python scripts/check_laya.py
+      - name: Verify similarity, Copilot, voice and privacy boundaries
+        run: |
+          python scripts/check_similarity.py
+          python scripts/check_copilot.py
+          python scripts/check_voice.py
+          python scripts/check_privacy.py
+          python scripts/check_backup.py
+      - name: Verify Laya training data and evidence checks
+        run: |
+          python scripts/build_laya_training_data.py --self-check
+          python scripts/prepare_laya_review_batch.py self-check
+          python scripts/run_laya_gpu_experiments.py --self-check
+          python scripts/promote_laya_checkpoint.py --self-check
+          python scripts/serve_pulse_laya.py --self-check
+      - name: Verify private object storage adapter
+        run: python scripts/check_object_storage.py
+      - name: Verify coverage evidence boundaries
+        run: python scripts/check_coverage.py
+      - name: Verify local audit with synthetic inputs
+        run: python scripts/test_audit_received_csv.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser QA tools outside the repository
+        run: |
+          npm install --prefix "$RUNNER_TEMP/p109-ui" --no-audit --no-fund playwright@1.62.1
+          "$RUNNER_TEMP/p109-ui/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Verify operator safety and coverage UI
+        env:
+          P109_BROWSER: chromium
+          P109_AUTH_DISABLED: '1'
+          P109_DEMO_MODE: '1'
+        run: |
+          export NODE_PATH="$RUNNER_TEMP/p109-ui/node_modules"
+          DATABASE_PATH="$RUNNER_TEMP/p109-ui.db" python -m uvicorn app:app --host 127.0.0.1 --port 8765 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8765/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check_operator_ui.cjs http://127.0.0.1:8765
+          node scripts/check_coverage_ui.cjs http://127.0.0.1:8765
+          P109_BROWSER=chromium node scripts/check_operator_flow.cjs http://127.0.0.1:8765
+          DATABASE_PATH="$RUNNER_TEMP/p109-demo-ui.db" python -m uvicorn app:app --host 127.0.0.1 --port 8766 &
+          demo_pid=$!
+          trap 'kill "$server_pid" "$demo_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8766/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check_demo_ui.cjs http://127.0.0.1:8766
+          DATABASE_PATH="$RUNNER_TEMP/p109-playbooks-ui.db" python -m uvicorn app:app --host 127.0.0.1 --port 8767 &
+          playbooks_pid=$!
+          trap 'kill "$server_pid" "$demo_pid" "$playbooks_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8767/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check_playbooks_ui.cjs http://127.0.0.1:8767
+          node scripts/check_incidents_ui.cjs http://127.0.0.1:8767
+          node scripts/check_support_ui.cjs http://127.0.0.1:8767
+          python scripts/fake_laya_server.py --port 8790 &
+          laya_pid=$!
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8790/health > /dev/null; then break; fi
+            sleep 1
+          done
+          P109_DECISION_PROVIDER=laya P109_LAYA_BASE_URL=http://127.0.0.1:8790 P109_LAYA_TIMEOUT=.2 P109_LAYA_DEMO_FALLBACK=1 DATABASE_PATH="$RUNNER_TEMP/p109-laya-ui.db" python -m uvicorn app:app --host 127.0.0.1 --port 8791 &
+          laya_app_pid=$!
+          trap 'kill "$server_pid" "$demo_pid" "$playbooks_pid" "$laya_pid" "$laya_app_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8791/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check_laya_ui.cjs http://127.0.0.1:8791 laya
+          P109_DECISION_PROVIDER=hybrid P109_LAYA_BASE_URL=http://127.0.0.1:8790 P109_LAYA_TIMEOUT=.2 DATABASE_PATH="$RUNNER_TEMP/p109-hybrid-ui.db" python -m uvicorn app:app --host 127.0.0.1 --port 8792 &
+          hybrid_app_pid=$!
+          trap 'kill "$server_pid" "$demo_pid" "$playbooks_pid" "$laya_pid" "$laya_app_pid" "$hybrid_app_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8792/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check_laya_ui.cjs http://127.0.0.1:8792 hybrid

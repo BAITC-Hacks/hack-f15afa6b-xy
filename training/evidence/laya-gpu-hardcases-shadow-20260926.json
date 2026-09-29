@@ -1,0 +1,297 @@
+{
+  "schema_version": "pulse109-laya-gpu-shadow-evidence-v1",
+  "generated_at": "2026-09-26T19:24:56.411018+00:00",
+  "result": "Two CE-only seeds passed validation recall guardrails; the best checkpoint was promoted and served in shadow.",
+  "production_eligible": false,
+  "shadow_eligible": true,
+  "claim_boundary": "Synthetic-only repeated runs prove training and calibration execution, not production accuracy.",
+  "source": {
+    "repository": "https://github.com/Eliasans02/pulse109",
+    "branch": "feat/laya-gpu-training",
+    "training_git_commit": "f122d1ae716d1aacca9655d87e2f855cf9ed476d",
+    "serving_fix_git_commit": "4a9709d",
+    "base_model": "convaiinnovations/laya-multilingual",
+    "base_model_revision": "e4e9ddf21a7b1903b7acffd8814ad4307bf63a67"
+  },
+  "compute": {
+    "provider": "NVIDIA Brev",
+    "instance": "pulse109-laya-20260926",
+    "machine": "n1-standard-4:nvidia-tesla-t4:2",
+    "gpus": 2,
+    "gpu_model": "Tesla T4",
+    "price_per_hour_usd": 1.067999,
+    "instance_started_at": "2026-09-26T18:46:33Z",
+    "stop_requested_at": "2026-09-26T19:22:26Z",
+    "stop_confirmed_by_brev_status_at_approx": "2026-09-26T19:23:03Z",
+    "billable_runtime_upper_bound_minutes": 36.5,
+    "estimated_cost_upper_bound_usd": 0.65,
+    "approved_cost_limit_usd": 0.9,
+    "final_status": "STOPPED"
+  },
+  "dataset": {
+    "data_status": "synthetic_only",
+    "records": 1536,
+    "semantic_groups": 96,
+    "dataset_manifest_sha256": "978a74242531d96bac130612a4a6e85bd6c84ad11e46640ac46aea5e84ece90d",
+    "counts": {
+      "calibration|kk|synthetic_simulation": 96,
+      "calibration|ru|synthetic_simulation": 96,
+      "test|kk|synthetic_simulation": 96,
+      "test|ru|synthetic_simulation": 96,
+      "train|kk|synthetic_simulation": 384,
+      "train|ru|synthetic_simulation": 384,
+      "validation|kk|synthetic_simulation": 192,
+      "validation|ru|synthetic_simulation": 192
+    },
+    "privacy": "Only whitelisted approved fields are written; common IIN, email and Kazakhstan phone patterns are rejected."
+  },
+  "experiment": {
+    "status": "complete",
+    "started_at": "2026-09-26T19:00:27.684051+00:00",
+    "finished_at": "2026-09-26T19:11:29.385248+00:00",
+    "experiment_manifest_sha256": "834fb071cc7c3406116c4f49a69c942c1c1c72642e0d0490b5b4169048a3f9b7",
+    "seeds": [
+      17,
+      29
+    ],
+    "epochs": 2,
+    "rlcd_weight": 0.0,
+    "encoder_lr": 5e-06,
+    "head_lr": 2e-05,
+    "max_slice_recall_drop": 0.25,
+    "aggregate_test_metrics": {
+      "baseline_overall_accuracy": {
+        "mean": 0.697917,
+        "population_std": 0.0,
+        "values": [
+          0.697917,
+          0.697917
+        ]
+      },
+      "trained_overall_accuracy": {
+        "mean": 0.816221,
+        "population_std": 0.021578,
+        "values": [
+          0.794643,
+          0.837798
+        ]
+      },
+      "baseline_category_accuracy": {
+        "mean": 0.375,
+        "population_std": 0.0,
+        "values": [
+          0.375,
+          0.375
+        ]
+      },
+      "trained_category_accuracy": {
+        "mean": 0.703125,
+        "population_std": 0.021875,
+        "values": [
+          0.68125,
+          0.725
+        ]
+      },
+      "trained_category_macro_f1": {
+        "mean": 0.674449,
+        "population_std": 0.020294,
+        "values": [
+          0.654155,
+          0.694743
+        ]
+      },
+      "trained_urgency_kk_recall": {
+        "mean": 0.359375,
+        "population_std": 0.078125,
+        "values": [
+          0.4375,
+          0.28125
+        ]
+      },
+      "trained_urgency_ru_recall": {
+        "mean": 0.671875,
+        "population_std": 0.078125,
+        "values": [
+          0.75,
+          0.59375
+        ]
+      },
+      "checkpoint_calibrated_ece": {
+        "mean": 0.043995,
+        "population_std": 0.013387,
+        "values": [
+          0.030608,
+          0.057382
+        ]
+      },
+      "checkpoint_calibrated_nll": {
+        "mean": 0.46994,
+        "population_std": 0.012459,
+        "values": [
+          0.482399,
+          0.457482
+        ]
+      }
+    },
+    "verify_only_result": {
+      "status": "verified",
+      "runs": 2,
+      "seeds": [
+        17,
+        29
+      ]
+    },
+    "runs": [
+      {
+        "seed": 17,
+        "status": "complete",
+        "world_size": 2,
+        "epochs": 2,
+        "git_commit": "f122d1ae716d1aacca9655d87e2f855cf9ed476d",
+        "git_dirty": false,
+        "weight_change_proof": true,
+        "checkpoint_model_sha256": "a06c38eef76cd964612924c933d7ca405283272eb846c25f4a1c58ccdf9bfe7e",
+        "run_manifest_sha256": "c55643761d6d3b4b4dac1c15fbe2c92aaff0b933f8b2f7b781cac469e39cf254",
+        "metrics_sha256": "2c9e3d43d2643b3eb8b434cf6b43fee348bcf68a1c63429145178ab86b23aa7a",
+        "validation_checkpoint_selection": {
+          "eligible": true,
+          "rank": [
+            0.40625,
+            0.789103,
+            0.841518
+          ],
+          "worst_class_recall": 0.40625,
+          "task_macro_f1": 0.789103,
+          "max_recall_drop": 0.1875,
+          "guardrail_failures": {},
+          "inherited_low_recall": {},
+          "policy": "task_classes_plus_non_category_language_slices"
+        },
+        "test": {
+          "baseline_raw": {
+            "overall_accuracy": 0.697917,
+            "category_accuracy": 0.375,
+            "category_macro_f1": 0.322434,
+            "urgency_macro_f1": 0.531085,
+            "needs_clarification_macro_f1": 0.531604,
+            "spam_macro_f1": 0.830769,
+            "ece": 0.170136,
+            "nll": 1.038441
+          },
+          "trained_raw": {
+            "overall_accuracy": 0.794643,
+            "category_accuracy": 0.68125,
+            "category_macro_f1": 0.654155,
+            "urgency_macro_f1": 0.667088,
+            "needs_clarification_macro_f1": 0.61776,
+            "spam_macro_f1": 1.0,
+            "ece": 0.060117,
+            "nll": 0.521506
+          },
+          "trained_checkpoint_calibrated": {
+            "overall_accuracy": 0.794643,
+            "category_accuracy": 0.68125,
+            "category_macro_f1": 0.654155,
+            "urgency_macro_f1": 0.667088,
+            "needs_clarification_macro_f1": 0.61776,
+            "spam_macro_f1": 1.0,
+            "ece": 0.030608,
+            "nll": 0.482399
+          }
+        }
+      },
+      {
+        "seed": 29,
+        "status": "complete",
+        "world_size": 2,
+        "epochs": 2,
+        "git_commit": "f122d1ae716d1aacca9655d87e2f855cf9ed476d",
+        "git_dirty": false,
+        "weight_change_proof": true,
+        "checkpoint_model_sha256": "f56bcae3d1270eb4ca271569eb7e3c3ce4b997c7ae0bd6f510f8f79c42480062",
+        "run_manifest_sha256": "f840105fc1262ba9d8945e0f29bdf7a98e1675f35cf21a6ccb156db50335dae8",
+        "metrics_sha256": "7556335f2269b71bdbd79bc58d4d55061ccd1384da1b2bdc7a5daa413d2c3151",
+        "validation_checkpoint_selection": {
+          "eligible": true,
+          "rank": [
+            0.40625,
+            0.827114,
+            0.869048
+          ],
+          "worst_class_recall": 0.40625,
+          "task_macro_f1": 0.827114,
+          "max_recall_drop": 0.25,
+          "guardrail_failures": {},
+          "inherited_low_recall": {},
+          "policy": "task_classes_plus_non_category_language_slices"
+        },
+        "test": {
+          "baseline_raw": {
+            "overall_accuracy": 0.697917,
+            "category_accuracy": 0.375,
+            "category_macro_f1": 0.322434,
+            "urgency_macro_f1": 0.531085,
+            "needs_clarification_macro_f1": 0.531604,
+            "spam_macro_f1": 0.830769,
+            "ece": 0.170136,
+            "nll": 1.038441
+          },
+          "trained_raw": {
+            "overall_accuracy": 0.837798,
+            "category_accuracy": 0.725,
+            "category_macro_f1": 0.694743,
+            "urgency_macro_f1": 0.604837,
+            "needs_clarification_macro_f1": 0.849297,
+            "spam_macro_f1": 1.0,
+            "ece": 0.089,
+            "nll": 0.664652
+          },
+          "trained_checkpoint_calibrated": {
+            "overall_accuracy": 0.837798,
+            "category_accuracy": 0.725,
+            "category_macro_f1": 0.694743,
+            "urgency_macro_f1": 0.604837,
+            "needs_clarification_macro_f1": 0.849297,
+            "spam_macro_f1": 1.0,
+            "ece": 0.057382,
+            "nll": 0.457482
+          }
+        }
+      }
+    ]
+  },
+  "promotion": {
+    "stage": "shadow",
+    "version": "f56bcae3d1270eb4ca271569eb7e3c3ce4b997c7ae0bd6f510f8f79c42480062",
+    "selected_seed": 29,
+    "previous_version": null,
+    "immutable_source_verified": true,
+    "canary_blocked_reason": "Synthetic-only data does not satisfy the reviewed-data gate."
+  },
+  "serving_smoke": {
+    "health": {
+      "status": "ok",
+      "loaded": [
+        "multilingual"
+      ],
+      "device": "cuda"
+    },
+    "gpu_memory_used_mib": 1377,
+    "request": {
+      "text_language": "ru",
+      "category": "sewerage",
+      "category_probability": 0.415,
+      "urgency": "urgent",
+      "needs_clarification_probability": 0.1725,
+      "latency_ms": 2040
+    },
+    "promoted_checkpoint_unchanged_after_inference": true,
+    "integrity_fix": "Laya mutates tokenizer_config.json while loading, so serving now loads a temporary writable copy after verifying the immutable promoted tree."
+  },
+  "activation": {
+    "mode": "shadow",
+    "visible_product_decisions_unchanged": true,
+    "canary_or_production_enabled": false,
+    "next_gate": "Approved anonymized RU/KK cases meeting canary coverage minimums."
+  }
+}

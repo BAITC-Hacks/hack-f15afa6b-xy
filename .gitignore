@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+data/
+artifacts/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite*
+*.log
+__pycache__/
+.venv/
+.DS_Store

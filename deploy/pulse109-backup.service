@@ -1,0 +1,14 @@
+[Unit]
+Description=Back up Pulse 109 database
+After=pulse109.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/pulse109
+EnvironmentFile=%h/pulse109/.env
+ExecStartPre=/usr/bin/mkdir -p %h/pulse109-backups
+ExecStart=%h/pulse109/.venv/bin/python %h/pulse109/scripts/backup_database.py --output-dir %h/pulse109-backups --keep 7
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+Nice=10

@@ -1,0 +1,214 @@
+{
+  "schema_version": "pulse109-voice-tts-ab-evidence-v1",
+  "generated_at": "2026-09-27T11:59:39Z",
+  "result": "Both open-source TTS engines ran on NVIDIA T4. OmniVoice produced exact RU/KK round-trip transcripts; public Chatterbox V3 was exact or near-exact in RU, while its unsupported Kazakh fallback was not acceptable.",
+  "recommendation": "Keep Chatterbox as the preferred candidate for human listening, but do not promote it for bilingual use until the gated Kazakh checkpoint is approved and passes the same test. OmniVoice is the current bilingual benchmark leader.",
+  "claim_boundary": "Synthetic TTS-to-STT round trips prove the GPU paths, latency and basic intelligibility. They do not replace native-speaker listening tests, MOS, field audio, or streaming latency measurements.",
+  "source": {
+    "repository": "https://github.com/Eliasans02/pulse109",
+    "branch": "feat/laya-gpu-training",
+    "git_commit": "bc4792367bf9014053955e11030a1d436f4d4628"
+  },
+  "compute": {
+    "provider": "NVIDIA Brev",
+    "instance": "pulse109-laya-20260926",
+    "available_gpus": 2,
+    "gpu_model": "Tesla T4",
+    "gpu_memory_mib_each": 15360,
+    "gpus_used_per_engine": 1,
+    "price_per_hour_usd": 1.09,
+    "instance_started_at": "2026-09-27T11:33:48Z",
+    "stop_confirmed_at": "2026-09-27T11:59:39Z",
+    "billable_runtime_upper_bound_minutes": 26,
+    "estimated_cost_upper_bound_usd": 0.48,
+    "final_status": "STOPPED"
+  },
+  "engines": [
+    {
+      "engine": "chatterbox-multilingual-v3",
+      "package_version": "0.1.7",
+      "gpu": "Tesla T4",
+      "load_seconds": 37.833,
+      "samples": [
+        {
+          "text": "Здравствуйте. Я помогу оформить обращение. Расскажите, что произошло.",
+          "language": "ru",
+          "language_id": "ru",
+          "path": "/home/ubuntu/pulse109-tts-results/chatterbox/ru_1.wav",
+          "duration_seconds": 4.2,
+          "generation_seconds": 19.884,
+          "real_time_factor": 4.734,
+          "peak_vram_mb": 3197,
+          "sha256": "c94d856d8d39c64dadf265eacf07d9c02bd70427b30bd6350cb3cba0b69440c5"
+        },
+        {
+          "text": "Правильно ли я понял: возле дома двадцать шесть прорвало трубу?",
+          "language": "ru",
+          "language_id": "ru",
+          "path": "/home/ubuntu/pulse109-tts-results/chatterbox/ru_2.wav",
+          "duration_seconds": 4.12,
+          "generation_seconds": 4.066,
+          "real_time_factor": 0.987,
+          "peak_vram_mb": 3227,
+          "sha256": "0d2b28b7fca2b993ab33472a006f85399a21fa5fde5d1fea1f235c6b50ec3b2d"
+        },
+        {
+          "text": "Сәлеметсіз бе. Өтінішті толтыруға көмектесемін. Не болғанын айтып беріңіз.",
+          "language": "kk-experimental",
+          "language_id": "ru",
+          "path": "/home/ubuntu/pulse109-tts-results/chatterbox/kk-experimental_3.wav",
+          "duration_seconds": 5.0,
+          "generation_seconds": 4.731,
+          "real_time_factor": 0.946,
+          "peak_vram_mb": 3241,
+          "sha256": "59c3fbe4ad6d6f4fe9081567062e8dd5e3d5b3f1794c98e7af5f34806782324e"
+        }
+      ],
+      "code_repository": "https://github.com/resemble-ai/chatterbox",
+      "code_revision": "5de7a54aa4e5e2baadb0182dde554908b48b85c2",
+      "model_revision": "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18",
+      "license": "MIT",
+      "kazakh_status": "The dedicated gated checkpoint was pending author review; kk-experimental used language_id=ru and is not a valid Kazakh production result."
+    },
+    {
+      "engine": "omnivoice",
+      "package_version": "0.2.1",
+      "gpu": "Tesla T4",
+      "load_seconds": 25.843,
+      "samples": [
+        {
+          "text": "Здравствуйте. Я помогу оформить обращение. Расскажите, что произошло.",
+          "language": "ru",
+          "path": "/home/ubuntu/pulse109-tts-results/omnivoice/ru_1.wav",
+          "duration_seconds": 4.52,
+          "generation_seconds": 2.826,
+          "real_time_factor": 0.625,
+          "peak_vram_mb": 2211,
+          "sha256": "e73c281ed31c25152865f35a2be16f1480188fff6ea09bd7bf63eb4cdd134d85"
+        },
+        {
+          "text": "Правильно ли я понял: возле дома двадцать шесть прорвало трубу?",
+          "language": "ru",
+          "path": "/home/ubuntu/pulse109-tts-results/omnivoice/ru_2.wav",
+          "duration_seconds": 3.51,
+          "generation_seconds": 1.416,
+          "real_time_factor": 0.403,
+          "peak_vram_mb": 2211,
+          "sha256": "144b93f099f1ab8e010bb10351d4752223ea11995c13c3b50f3afab9ff25c4c3"
+        },
+        {
+          "text": "Сәлеметсіз бе. Өтінішті толтыруға көмектесемін. Не болғанын айтып беріңіз.",
+          "language": "kk",
+          "path": "/home/ubuntu/pulse109-tts-results/omnivoice/kk_3.wav",
+          "duration_seconds": 4.88,
+          "generation_seconds": 1.436,
+          "real_time_factor": 0.294,
+          "peak_vram_mb": 2212,
+          "sha256": "8a5cd60649b7f97938fcf03cc56251884939bfdde7dae911193cfc7efb3b5b27"
+        }
+      ],
+      "code_repository": "https://github.com/k2-fsa/OmniVoice",
+      "code_revision": "08be0b4ccbac3e13e374e86fbfead4b4cac343e2",
+      "model_revision": "c5fdb5ccb189668d56333f77ba2629f4cd7535f4",
+      "code_license": "Apache-2.0",
+      "weights_license": "CC-BY-NC",
+      "production_note": "The current pretrained weights are suitable for evaluation and a noncommercial demo, not commercial deployment."
+    }
+  ],
+  "roundtrip_evaluation": {
+    "stt_model": "92fe1791d7c93f385fc10a959dd216caa98c6a571df72f11d1605c6327393b88",
+    "results": [
+      {
+        "engine": "chatterbox",
+        "sample": "kk-experimental_3",
+        "expected": "сәлеметсіз бе өтінішті толтыруға көмектесемін не болғанын айтып беріңіз",
+        "transcript": "слеметсіз бе дахатанышт талтырушек мектесемін не балкінін айтып берціз",
+        "character_error_rate": 0.268,
+        "stt_latency_ms": 1765
+      },
+      {
+        "engine": "chatterbox",
+        "sample": "ru_1",
+        "expected": "здравствуйте я помогу оформить обращение расскажите что произошло",
+        "transcript": "здравствуйте я помогу оформить обращение расскажите что произошло",
+        "character_error_rate": 0.0,
+        "stt_latency_ms": 270
+      },
+      {
+        "engine": "chatterbox",
+        "sample": "ru_2",
+        "expected": "правильно ли я понял возле дома двадцать шесть прорвало трубу",
+        "transcript": "правильно ли я понял возле дома двадцать шесть прорвала трубу",
+        "character_error_rate": 0.016,
+        "stt_latency_ms": 85
+      },
+      {
+        "engine": "omnivoice",
+        "sample": "kk_3",
+        "expected": "сәлеметсіз бе өтінішті толтыруға көмектесемін не болғанын айтып беріңіз",
+        "transcript": "сәлеметсіз бе өтінішті толтыруға көмектесемін не болғанын айтып беріңіз",
+        "character_error_rate": 0.0,
+        "stt_latency_ms": 97
+      },
+      {
+        "engine": "omnivoice",
+        "sample": "ru_1",
+        "expected": "здравствуйте я помогу оформить обращение расскажите что произошло",
+        "transcript": "здравствуйте я помогу оформить обращение расскажите что произошло",
+        "character_error_rate": 0.0,
+        "stt_latency_ms": 51
+      },
+      {
+        "engine": "omnivoice",
+        "sample": "ru_2",
+        "expected": "правильно ли я понял возле дома двадцать шесть прорвало трубу",
+        "transcript": "правильно ли я понял возле дома двадцать шесть прорвало трубу",
+        "character_error_rate": 0.0,
+        "stt_latency_ms": 45
+      }
+    ]
+  },
+  "artifacts": {
+    "local_directory": "/Users/eliasansariy/Documents/Codex/2026-09-24/new-chat/outputs/pulse109-tts-ab-20260927",
+    "audio_tracked_in_git": false,
+    "contains_personal_data": false
+  },
+  "integration_verification": {
+    "verified_at": "2026-09-27T12:22:42Z",
+    "status": "PASS",
+    "implementation_commits": [
+      "61b586c feat: add private OmniVoice speech bridge",
+      "6ea34c7 feat: play OmniVoice prompts in citizen intake"
+    ],
+    "behavior": {
+      "pulse_endpoint": "POST /api/voice/speak",
+      "gpu_endpoint": "POST /v1/speech",
+      "allowed_prompts": 9,
+      "browser_fallback": true,
+      "audio_stored": false
+    },
+    "real_gpu_bridge_results": [
+      {
+        "prompt": "ru_problem",
+        "model": "k2-fsa/OmniVoice@c5fdb5ccb189668d56333f77ba2629f4cd7535f4",
+        "tts_latency_ms": 3441,
+        "sample_rate": 24000,
+        "duration_seconds": 3.64
+      },
+      {
+        "prompt": "kk_problem",
+        "model": "k2-fsa/OmniVoice@c5fdb5ccb189668d56333f77ba2629f4cd7535f4",
+        "tts_latency_ms": 1732,
+        "sample_rate": 24000,
+        "duration_seconds": 3.67
+      }
+    ],
+    "checks": [
+      "OmniVoice request validation and WAV encoding: PASS",
+      "voice integration checks: 5/5 PASS",
+      "application smoke checks: 14/14 PASS",
+      "JavaScript syntax checks: PASS",
+      "NVIDIA Brev final status: STOPPED"
+    ]
+  }
+}

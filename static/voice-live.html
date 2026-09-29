@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111729"><link rel="icon" href="/static/pulse109-mark.svg">
+  <title>Pulse 109 — голосовое обращение</title>
+  <link rel="stylesheet" href="/static/workspace.css?v=20260929-brand">
+  <link rel="stylesheet" href="/static/voice-live.css?v=20260929-brand">
+</head>
+<body class="voice-live-body">
+  <a class="skip" href="#voice-main">К диалогу</a>
+  <header class="voice-live-header">
+    <a class="voice-live-brand" href="/"><img class="brandmark" src="/static/pulse109-mark.svg" alt=""><strong>pulse<span>109</span></strong></a>
+    <div><span class="live-health" data-voice-health>Проверяем голосовой сервис…</span><select class="language-switch" data-language-switch aria-label="Язык интерфейса"><option value="kk" data-i18n-ignore>Қазақша</option><option value="ru" data-i18n-ignore>Русский</option><option value="en" data-i18n-ignore>English</option></select><a class="button ghost" href="/citizen">Обычная форма</a></div>
+  </header>
+  <main id="voice-main" class="voice-live-main">
+    <section class="voice-room" aria-labelledby="voice-title">
+      <div class="voice-room-heading"><h1 id="voice-title">Подать обращение голосом</h1><p>Назовите проблему и адрес на русском или казахском. Проверьте текст перед отправкой. Аудиозапись не прикладывается к обращению.</p></div>
+      <canvas class="live-orb" data-live-orb data-thinking-orb data-orb-state="idle" role="img" aria-label="Голосовой помощник готов"></canvas>
+      <div id="voice-conversation" class="voice-conversation" aria-live="polite"></div>
+      <div class="voice-live-controls">
+        <label for="live-language">Язык</label>
+        <select id="live-language" name="language" form="voice-live-form">
+          <option value="auto" selected>Определять автоматически</option><option value="kk">Қазақша</option><option value="ru">Русский</option>
+        </select>
+        <button id="voice-control" class="live-control" type="button"><span aria-hidden="true">●</span> Начать разговор</button>
+        <button id="voice-reset" class="button ghost" type="button">Начать заново</button>
+      </div>
+      <p id="voice-live-status" class="voice-live-status" role="status" aria-live="polite">Язык: определять автоматически</p>
+    </section>
+
+    <aside class="voice-draft" aria-labelledby="draft-title">
+      <div class="draft-heading"><div><h2 id="draft-title">Черновик обращения</h2></div><span class="draft-state">Сохранится после отправки</span></div>
+      <form id="voice-live-form">
+        <label for="citizen-text">Что произошло?</label>
+        <textarea id="citizen-text" name="text" rows="5" maxlength="10000" required placeholder="Например: со вчерашнего вечера нет воды"></textarea>
+        <div id="voice-ai-insight" class="voice-ai-insight" role="status" aria-live="polite" hidden></div>
+
+        <div class="draft-grid">
+          <div><label for="citizen-region">Регион</label><select id="citizen-region" name="region_id" required></select></div>
+          <div><label for="citizen-city">Город</label><select id="citizen-city" name="city_code" required></select></div>
+        </div>
+        <input id="citizen-district" name="district" type="hidden">
+
+        <label for="citizen-address">Адрес или ориентир</label>
+        <div class="address-search"><input id="citizen-address" name="address" maxlength="200" autocomplete="street-address" placeholder="Например: улица Абая, дом 44"><button type="button" class="button" data-address-search>Найти</button></div>
+        <div class="geocode-results" data-geocode-results aria-live="polite"></div>
+
+        <fieldset class="location-field"><legend>Точка на карте</legend><div class="map-shell"><div id="citizen-map" class="issue-map issue-map-picker" data-map-mode="picker" aria-label="Выберите место обращения на карте"></div><span class="map-tip" data-city-label>Алматы · интерактивная карта</span></div><div class="location-status"><span data-location-status role="status">Назовите адрес или выберите точку</span><button type="button" class="button ghost small" data-location-clear>Сбросить</button></div><input type="hidden" name="latitude"><input type="hidden" name="longitude"><input type="hidden" name="location_accuracy_m"></fieldset>
+
+        <label for="citizen-media">Фото или видео проблемы</label>
+        <input id="citizen-media" name="media" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" aria-describedby="media-help"><p id="media-help" class="micro photo-help">Фото до 4 МБ · видео MP4/WebM до 12 МБ</p>
+        <label class="consent-row"><input id="public-consent" name="public_consent" type="checkbox"><span>Разрешаю показать обезличенное описание и место на публичной карте после проверки оператором. Фото и видео останутся приватными.</span></label>
+        <button id="voice-submit" class="button primary wide" type="submit">Проверить и отправить обращение</button>
+        <div id="voice-receipt" role="status" aria-live="polite"></div>
+      </form>
+    </aside>
+  </main>
+  <div id="voice-toast" role="alert" hidden></div>
+  <script src="/static/i18n.js?v=20260929-i18n11"></script>
+  <script type="module" src="/static/voice-live.js?v=20260929-openai1"></script>
+</body>
+</html>

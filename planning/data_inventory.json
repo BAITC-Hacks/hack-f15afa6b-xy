@@ -1,0 +1,276 @@
+{
+  "as_of": "2026-09-10",
+  "organizer_export_verified": false,
+  "received_package_status": {
+    "status": "reported_final_by_team",
+    "reported_on": "2026-09-10",
+    "additional_files_expected": false,
+    "basis": "Сообщение команды: в папке находится всё, что организаторы отправили команде. Это не отдельное письмо организаторов о полноте и не подтверждение семантики полей.",
+    "implication": "Не ждать новую папку. Проверять и документировать ограничения текущих 7 регионов; отсутствие 13 регионов и пригодного текста остаётся риском соответствия ТЗ.",
+    "do_not_re_request_same_folder": true
+  },
+  "organizer_source": {
+    "priority": "primary",
+    "folder_url": "https://drive.google.com/drive/folders/1rOKRZeEvpJlBkNeWKoIVzq8Lq3zeVi1B",
+    "folder_title": "Аналитика обращений граждан по call-центрам 109",
+    "folder_listing_verified": true,
+    "nested_folder_url": "https://drive.google.com/drive/folders/1ZyslcfXWVzELbWJS27dEAiT1i1Uuji3X",
+    "nested_folder_listing_verified": true,
+    "observed_regions": 7,
+    "observed_csv_files": 8,
+    "csv_headers_verified": 8,
+    "method": "Публичный HTML listing корня и Павлодара; HTTP 206 bytes=0-4095 для каждого из восьми Drive CSV. Выведены только имена столбцов, не строки обращений.",
+    "catalog_header_match": true,
+    "catalog_full_file_identity_verified": false,
+    "full_export_audited": false,
+    "note": "organizer_export_verified=false означает отсутствие полного содержательного аудита выгрузки, а не отсутствие доступа к ссылке. Все восемь Drive-заголовков совпали с соответствующими каталоговыми схемами; полные файлы не сравнивались. Размер первой части Павлодара отличается от публичного аналога: версии нельзя считать идентичными.",
+    "files": [
+      {"region": "Акмолинская область", "file_id": "1IZMuu3TSKqVSRTh872zGbnzlnR7vB0rH", "size_bytes": 1098728, "local_profile": {"parsed_data_records": 3506, "complete_record_count_verified": true, "header_matches_inventory": true, "size_bytes": 1098728, "checked_at_utc": "2026-09-10T15:37:22.747328+00:00"}},
+      {"region": "Алматинская область", "file_id": "10xsVo5SQx5faBactxookxJevzhziPd1G", "size_bytes": 6936634, "local_profile": {"parsed_data_records": 19912, "complete_record_count_verified": true, "header_matches_inventory": true, "size_bytes": 6936634, "checked_at_utc": "2026-09-10T15:37:22.747328+00:00"}},
+      {"region": "Восточно-Казахстанская область", "file_id": "1zhaNNmuQ5f-y0Str0LzH4RoY19T8sY-W", "size_bytes": 25620765, "local_profile": {"parsed_data_records": 83385, "complete_record_count_verified": true, "header_matches_inventory": true, "size_bytes": 25620765, "checked_at_utc": "2026-09-10T15:37:22.747328+00:00"}},
+      {"region": "Карагандинская область", "file_id": "1MlqIkbKlCPBkjdHAnvhb4lSPOzKjFLYX", "size_bytes": 63311584, "local_profile": {"parsed_data_records": 143954, "complete_record_count_verified": true, "header_matches_inventory": true, "size_bytes": 63311584, "checked_at_utc": "2026-09-10T15:37:22.747328+00:00"}},
+      {"region": "Костанайская область", "file_id": "1ZZNEjeQHLfMXtWsD1-Op1RSc5C90Gfl0", "size_bytes": 11188196, "local_profile": {"parsed_data_records": 20591, "complete_record_count_verified": true, "header_matches_inventory": true, "size_bytes": 11188196, "checked_at_utc": "2026-09-10T15:37:22.747328+00:00"}},
+      {"region": "Туркестанская область", "file_id": "16IoeM8yJ-eNxOYHdw8_Rmo0U0P_HY7Th", "size_bytes": 41102525, "local_profile": {"parsed_data_records": 98876, "complete_record_count_verified": true, "header_matches_inventory": true, "size_bytes": 41102525, "checked_at_utc": "2026-09-10T15:37:22.747328+00:00"}},
+      {"region": "Павлодарская область", "part": 1, "file_id": "1pUBQBcPHQX05kxNQK0AKwfEmJvV96WIU", "size_bytes": 67732915, "local_profile": {"parsed_data_records": 333317, "complete_record_count_verified": true, "header_matches_inventory": true, "size_bytes": 67732915, "checked_at_utc": "2026-09-10T15:37:22.747328+00:00"}},
+      {"region": "Павлодарская область", "part": 2, "file_id": "1iKrV-ZVy74v2-mxe4H7jwp9sEjTg6drV", "size_bytes": 67709557, "local_profile": {"parsed_data_records": 333317, "complete_record_count_verified": true, "header_matches_inventory": true, "size_bytes": 67709557, "checked_at_utc": "2026-09-10T15:37:22.747328+00:00"}}
+    ],
+    "download_url_template": "https://drive.google.com/uc?export=download&id={file_id}"
+  },
+  "expected_regions": [
+    "область Абай",
+    "Акмолинская область",
+    "Актюбинская область",
+    "Алматинская область",
+    "Атырауская область",
+    "Восточно-Казахстанская область",
+    "Жамбылская область",
+    "область Жетісу",
+    "Западно-Казахстанская область",
+    "Карагандинская область",
+    "Костанайская область",
+    "Кызылординская область",
+    "Мангистауская область",
+    "Павлодарская область",
+    "Северо-Казахстанская область",
+    "Туркестанская область",
+    "область Ұлытау",
+    "город Астана",
+    "город Алматы",
+    "город Шымкент"
+  ],
+  "catalog_query_evidence": {
+    "api_base_url": "https://ashyq.data.gov.kz/api/v0/search/datasets",
+    "query": "109",
+    "title_filter": "Содержит 109",
+    "returned_cards": 19,
+    "reported_hit_count": 19,
+    "matching_title_cards": 12,
+    "selected_csv_datasets": 7,
+    "observed_regions": 7,
+    "complete_national_catalogue_verified": false,
+    "note": "Покрытие относится только к сохранённому результату этого запроса и выбранным CSV-карточкам. Это не проверка всего национального каталога и не доказательство отсутствия данных остальных регионов. CSV/XLSX-карточки одного региона не считаются дополнительными регионами; город Алматы не равен Алматинской области."
+  },
+  "schema_evidence": {
+    "method": "CSV-заголовки из HTTP 206 Partial Content / Range-запросов",
+    "provenance": "Сначала проверены CSV публичного каталога; затем непосредственно все восемь CSV основной Drive-папки. Ниже общие совпавшие имена столбцов; идентичность полного содержимого не установлена.",
+    "scope": "Только имена столбцов. Заголовок не подтверждает заполненность, смысл значений или пригодность поля для обучения.",
+    "raw_rows_included": false,
+    "languages_verified": false,
+    "history_verified": false,
+    "row_counts_verified": true,
+    "row_count_scope": "Локально подсчитаны CSV-записи, не уникальные обращения. scripts/audit_received_csv.py; размеры/заголовки совпали, полная идентичность Drive не проверена.",
+    "all_twenty_regions_verified": false
+  },
+  "license_evidence": {
+    "metadata_name": "Creative Commons Attribution 3.0 New Zealand",
+    "interpretation": "Название взято из метаданных всех выбранных CSV. Применимость этой лицензии и право распространять тексты обращений или персональные данные не проверены; считать условия неоднозначными.",
+    "publication_permission_verified": false
+  },
+  "datasets": [
+    {
+      "region": "Алматинская область",
+      "id": "magda-ds-c41916ac-9ad1-4cf3-b1d4-8bcd9e7bc778",
+      "title": "Обращения граждан в call-центр 109 Алматинской области",
+      "page_url": "https://ashyq.data.gov.kz/dataset/magda-ds-c41916ac-9ad1-4cf3-b1d4-8bcd9e7bc778/details",
+      "downloadURL": "https://magda-minio-web.data.gov.kz/magda-datasets/almaty_region_109_appeals/Обращения граждан 109 - Алматинская область.csv",
+      "columns": [
+        "application_number",
+        "creation_date",
+        "closing_date",
+        "com_exp",
+        "result",
+        "contractor",
+        "status",
+        "category",
+        "service",
+        "status_1",
+        "submittal_channel"
+      ]
+    },
+    {
+      "region": "Павлодарская область",
+      "id": "magda-ds-fd4a5a8e-ad9c-4622-bc7e-6dc28b338464",
+      "title": "Данные по обращениям населения по call-центру 109 (Павлодарская область)",
+      "page_url": "https://ashyq.data.gov.kz/dataset/magda-ds-fd4a5a8e-ad9c-4622-bc7e-6dc28b338464/details",
+      "downloadURL": "https://magda-minio-web.data.gov.kz/magda-datasets/pavlodar_109/Данные по обращениям 109 — Павлодарская область_part_001_of_002.csv",
+      "additional_downloadURLs": [
+        "https://magda-minio-web.data.gov.kz/magda-datasets/pavlodar_109/Данные по обращениям 109 — Павлодарская область_part_002_of_002.csv"
+      ],
+      "columns": [
+        "id",
+        "public_code",
+        "create_date",
+        "status",
+        "service_id",
+        "service_name",
+        "category_id",
+        "category_name",
+        "request_type_id",
+        "request_type",
+        "sdu_load_date"
+      ]
+    },
+    {
+      "region": "Восточно-Казахстанская область",
+      "id": "magda-ds-278b6270-77ae-4402-880b-f994da878441",
+      "title": "Данные по обращениям населения по call-центру 109 (ВКО)",
+      "page_url": "https://ashyq.data.gov.kz/dataset/magda-ds-278b6270-77ae-4402-880b-f994da878441/details",
+      "downloadURL": "https://magda-minio-web.data.gov.kz/magda-datasets/east_kazakhstan_109_appeals/Обращения граждан 109 - Восточно-Казахстанская область.csv",
+      "columns": [
+        "application_number",
+        "creation_date",
+        "closing_date",
+        "region",
+        "district",
+        "street",
+        "full_name",
+        "applicant_number",
+        "application_type",
+        "submittal_channel",
+        "category",
+        "service",
+        "contractor",
+        "com_exp",
+        "result",
+        "status",
+        "operator"
+      ],
+      "schema_notes": [
+        "Заголовок содержит full_name, applicant_number и street; значения не включены в инвентарь."
+      ]
+    },
+    {
+      "region": "Акмолинская область",
+      "id": "magda-ds-d60c530b-4fc5-42a2-b20b-df76274a9b57",
+      "title": "Данные по обращениям населения по call-центру 109 Акмолинской области",
+      "page_url": "https://ashyq.data.gov.kz/dataset/magda-ds-d60c530b-4fc5-42a2-b20b-df76274a9b57/details",
+      "downloadURL": "https://magda-minio-web.data.gov.kz/magda-datasets/akmola_109_appeals/Обращения граждан 109 - Акмолинская область.csv",
+      "columns": [
+        "request_number",
+        "request_subject",
+        "creation_date",
+        "status",
+        "current_project",
+        "planned_closing_date",
+        "completion_deadline",
+        "region_g_a",
+        "direction"
+      ],
+      "schema_notes": [
+        "Названия нескольких столбцов в CSV отличаются от описания каталога; здесь записан наблюдавшийся CSV-заголовок."
+      ]
+    },
+    {
+      "region": "Костанайская область",
+      "id": "magda-ds-6e4dcb06-8d76-4716-844a-94beddddc567",
+      "title": "Обращения жителей в 109 Костанайской области",
+      "page_url": "https://ashyq.data.gov.kz/dataset/magda-ds-6e4dcb06-8d76-4716-844a-94beddddc567/details",
+      "downloadURL": "https://magda-minio-web.data.gov.kz/magda-datasets/kostanay_109_incidents/Обращения жителей 109 - Костанайская область.csv",
+      "columns": [
+        "incidentid",
+        "incidentcode",
+        "createddate",
+        "servicelevel1",
+        "servicelevel2",
+        "servicelevel3",
+        "sla",
+        "finishdate",
+        "daysspent",
+        "startdate",
+        "confirmdate",
+        "slabreach",
+        "category",
+        "openagain",
+        "source",
+        "status",
+        "organizationname",
+        "grade",
+        "xcoordinate",
+        "ycoordinate",
+        "region",
+        "expireddays",
+        "result",
+        "updateddate",
+        "uploadeddate"
+      ]
+    },
+    {
+      "region": "Туркестанская область",
+      "id": "magda-ds-3ddf71d0-1021-41d3-843e-55551715497d",
+      "title": "Обращения жителей в 109 Туркестанской области",
+      "page_url": "https://ashyq.data.gov.kz/dataset/magda-ds-3ddf71d0-1021-41d3-843e-55551715497d/details",
+      "downloadURL": "https://magda-minio-web.data.gov.kz/magda-datasets/turkestan_109_incidents/Обращения жителей 109 - Туркестанская область.csv",
+      "columns": [
+        "incidentid",
+        "incidentcode",
+        "createddate",
+        "servicelevel1",
+        "servicelevel2",
+        "servicelevel3",
+        "sla",
+        "finishdate",
+        "daysspent",
+        "startdate",
+        "confirmdate",
+        "slabreach",
+        "category",
+        "openagain",
+        "source",
+        "status",
+        "organizationname",
+        "grade",
+        "xcoordinate",
+        "ycoordinate",
+        "region",
+        "expireddays",
+        "updateddate",
+        "uploadeddate"
+      ],
+      "schema_notes": [
+        "Описание каталога перечисляет RESULT, но в проверенном CSV-заголовке result отсутствует."
+      ]
+    },
+    {
+      "region": "Карагандинская область",
+      "id": "magda-ds-9eeb42d6-2f1b-4ea5-bb85-b7457bf26c6f",
+      "title": "Данные по обращениям граждан в call-центр 109 Карагандинской области",
+      "page_url": "https://ashyq.data.gov.kz/dataset/magda-ds-9eeb42d6-2f1b-4ea5-bb85-b7457bf26c6f/details",
+      "downloadURL": "https://magda-minio-web.data.gov.kz/magda-datasets/karaganda_109_appeals/Обращения граждан 109 - Карагандинская область.csv",
+      "columns": [
+        "created_date",
+        "updated_date",
+        "submission_date",
+        "appeal_type",
+        "source",
+        "region",
+        "district",
+        "appeal_address",
+        "category",
+        "sub_category",
+        "executor_gov_org",
+        "answer_type",
+        "type"
+      ]
+    }
+  ]
+}

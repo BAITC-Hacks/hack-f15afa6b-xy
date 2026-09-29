@@ -1,0 +1,29 @@
+name: Задача команды
+description: Небольшой результат с проверяемой приёмкой
+body:
+  - type: textarea
+    id: result
+    attributes:
+      label: Проблема и результат
+      description: Кто использует результат? Какое требование ТЗ он закрывает?
+    validations:
+      required: true
+  - type: input
+    id: owner
+    attributes:
+      label: Владелец и оценка времени
+      placeholder: Ольга, 4 часа
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии приёмки и зависимости
+      description: Входы, разрешённые файлы, проверка и ожидаемый результат.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Доказательство выполнения
+      description: Ссылка на PR, фактический вывод проверки или результат QA; без исходных обращений, персональных данных и секретов.

@@ -1,0 +1,215 @@
+# Laya integration
+
+> Первые CPU-измерения ниже сохранены как baseline. Актуальный synthetic-trained shadow checkpoint и GPU evidence описаны в [handoff](handoff.md).
+
+Pulse uses Laya as a decision layer for category, clarification need, spam suspicion and urgency.
+Laya does not select a service, queue or operator. The existing Pulse routing engine still uses the
+confirmed category, region, language, district, operator skills, availability and workload.
+
+The HTTP contract was audited against the requested
+[he-jev/laya bundle](https://github.com/he-jev/laya/tree/c5d78730f3493e4fe16d61507ef4b78eef7318cf)
+and its current [upstream implementation](https://github.com/NandhaKishorM/laya/tree/4066d5d5fbf08b66c6757ddeedbd797bd7655bc0).
+
+```text
+Intake → Laya → DecisionGate → accept / verify / clarify → Pulse routing → operator
+```
+
+## Run
+
+Laya 0.3.20 exposes the current Jev-compatible API at `POST /v1/systemone`. One request contains a
+sanitized state plus the four typed questions. The response uses `choice` for category and urgency,
+and `noul` for clarification and spam. A medium category result triggers one binary `noul`
+verification request. Pulse reads the reported category probability; Laya's entropy-based
+`confidence` field is not treated as accuracy.
+
+The same endpoint also supports `score`, returning an expected score with probabilities and a
+legend. Pulse does not use it because the existing urgency contract is the categorical
+`normal`/`urgent` choice. Laya accepts multiple questions in one request, requires bearer auth only
+when `LAYA_API_KEY` is configured, and reports overload/model startup failures as HTTP errors; Pulse
+maps those failures and malformed typed answers to the existing fallback.
+
+Start a local Laya server in a separate environment:
+
+```sh
+pip install "laya[serve]==0.3.20"
+LAYA_PRELOAD=1 LAYA_MODELS=multilingual laya-serve
+```
+
+Then start Pulse:
+
+```sh
+P109_DECISION_PROVIDER=laya \
+P109_LAYA_BASE_URL=http://127.0.0.1:8000 \
+python -m uvicorn app:app --host 127.0.0.1 --port 8769
+```
+
+Use `P109_DECISION_PROVIDER=shadow` for the first rollout. Pulse calls Laya and records agreement,
+latency and failures in the existing audit event, while category, urgency and decision mode still
+come from the existing classifier. `hybrid` exposes disagreements to the operator, and `laya` uses
+the Laya proposal. None of these modes confirms a category automatically. A remote endpoint uses
+the same application code; set `P109_LAYA_BASE_URL` and, when required, `P109_LAYA_API_KEY`.
+
+## Fallback and thresholds
+
+`P109_HIGH_CONFIDENCE` and `P109_MEDIUM_CONFIDENCE` default to provisional demo values `0.85` and
+`0.55`. They must be calibrated on approved RU/KK labels before production use. Laya timeout,
+transport, HTTP and schema failures fall back to the existing classifier. Setting
+`P109_LAYA_DEMO_FALLBACK=1` labels that path as `DEMO FALLBACK`; the UI never presents it as Laya.
+`GET /api/health` reports Laya separately, so an unavailable decision service does not make Pulse
+unhealthy.
+
+Every classification and operator override is stored in the existing append-only audit table.
+Audit payloads contain labels, probabilities, provider/version, decision mode and latency, without
+the complaint text or sender identifiers. The Laya request removes common phone, email and IIN
+patterns and sends no case ID, sender key or operator data.
+
+## Verification
+
+```sh
+python scripts/check_laya.py
+python scripts/evaluate_laya.py --base-url http://127.0.0.1:8000
+python scripts/benchmark_laya.py --base-url http://127.0.0.1:8000 --requests 50
+```
+
+The evaluation uses only the checked synthetic RU/KK fixture labels. Its output is a harness result,
+not production accuracy. Real data must be split by incident, duplicate cluster and fingerprint so
+related reports cannot cross train/test boundaries.
+
+## Measured local evidence
+
+On 25 September 2026 the real Laya 0.3.20 multilingual checkpoint was run locally on an Apple M1
+with 16 GB RAM, CPU inference and four threads. The required demo request completed through Pulse in
+463 ms total (462 ms in Laya), then the existing router selected Алматы Су and Айдана К.
+
+The checked 20-case synthetic RU/KK fixture set produced 55% accuracy and 0.5033 macro F1 overall:
+60% accuracy for RU and 50% for KK. Urgent recall was 0.6667. The set has no labeled spam cases or
+operator outcomes, so spam precision and override rate are unavailable. A separate 50-request run
+completed with 0 errors, 459.93 ms median latency, 554.76 ms p95 and 32% verification requests.
+
+These are small synthetic baseline measurements, not production quality evidence. A later
+synthetic-trained checkpoint was promoted to `shadow`, while production decisions still require
+approved, group-aware RU/KK evaluation and human confirmation. See `docs/handoff.md` for the current
+checkpoint and metrics.
+
+## Promote and serve a trained checkpoint
+
+Only a completed experiment whose checkpoints passed validation guardrails can be promoted. Shadow
+promotion may use a synthetic experiment for technical testing; canary and production promotion
+also require a review-manifest-bound approved dataset. Canary requires at least 40 reviewed semantic
+groups, two examples in every category/language cell and four examples of every binary label.
+Production raises those limits to 200, ten and twenty respectively.
+
+```sh
+python scripts/promote_laya_checkpoint.py \
+  --experiment artifacts/laya-gpu-ce \
+  --destination /srv/pulse109/laya \
+  --stage shadow
+
+python scripts/serve_pulse_laya.py \
+  --checkpoint /srv/pulse109/laya/<version-sha256> \
+  --device cuda \
+  --host 127.0.0.1 \
+  --port 8000
+
+P109_DECISION_PROVIDER=shadow \
+P109_LAYA_BASE_URL=http://127.0.0.1:8000 \
+P109_LAYA_CHECKPOINT_ID=<version-sha256> \
+python -m uvicorn app:app --host 127.0.0.1 --port 8769
+```
+
+The promotion command copies immutable, hash-verified weights and updates a stage pointer atomically.
+Its output includes `previous_version`; rollback means restarting the Laya service with that version
+directory and restoring `P109_LAYA_CHECKPOINT_ID`. The server verifies that tree, then loads Laya from
+a temporary writable copy because the library updates tokenizer metadata during startup. Keep Laya on a private network and set
+`LAYA_API_KEY`/`P109_LAYA_API_KEY` when it is reachable beyond localhost.
+
+## NVIDIA fine-tuning and calibration
+
+The repeatable GPU job fine-tunes the full Laya encoder and decision head, fits temperature scaling
+on a separate calibration split, evaluates once on the untouched test split, and repeats the run for
+three seeds. Start it only from a clean committed checkout on an NVIDIA host with Python 3.11:
+
+```sh
+nvidia-smi
+python -m pip install "laya==0.3.20"
+python scripts/run_laya_gpu_experiments.py \
+  --output artifacts/laya-gpu-ce \
+  --gpus 2 \
+  --seeds 17,29,43 \
+  --rlcd-weight 0
+
+python scripts/run_laya_gpu_experiments.py \
+  --output artifacts/laya-gpu-rlcd \
+  --gpus 2 \
+  --seeds 17,29,43 \
+  --rlcd-weight 1
+```
+
+The 2026-09-26 Phase 0 run rejected every candidate checkpoint. CE preserved urgency far better than
+the earlier imbalanced run, reaching 0.7411 validation urgency macro F1, but regressed supported
+`electricity` recall. RLCD degraded calibration and signal recalls; reducing both learning rates fivefold
+did not remove the category regression. The compact evidence is tracked at
+`training/evidence/laya-gpu-phase0-rejected-20260926.json`.
+
+A follow-up run added paired RU/KK hard cases for every category and both binary edge-case groups, then
+used CE-only training with encoder LR `5e-6` and head LR `2e-5`. Both seeds passed the unchanged recall
+guardrails. On the untouched synthetic test split, mean category accuracy rose from 0.3750 to 0.7031,
+mean category macro F1 reached 0.6744, and checkpoint-calibrated ECE reached 0.0440. Seed 29 was promoted
+to immutable shadow version `f56bcae3d1270eb4ca271569eb7e3c3ce4b997c7ae0bd6f510f8f79c42480062`;
+its CUDA server passed health and real inference checks while leaving the promoted hashes unchanged.
+The compact evidence is tracked at `training/evidence/laya-gpu-hardcases-shadow-20260926.json`.
+These results remain synthetic-only and do not authorize canary or production activation.
+
+Omit `--gpus` to use every visible GPU. The two commands form a controlled CE-only versus CE+RLCD
+comparison: data, seed and optimization settings stay equal. The job pins the base checkpoint revision,
+builds deterministic group-stratified RU/KK simulations, balances task/language/class influence, launches
+one DDP training job per seed, and saves only checkpoints within the configured recall tolerance.
+
+Private candidate text must pass the review gate before training. Candidate JSONL contains only
+`id`, `group_id`, `source_kind`, `language` and `text`; keep every file in this flow outside Git.
+
+```sh
+python scripts/prepare_laya_review_batch.py prepare \
+  --input /private/path/candidates.jsonl \
+  --output /private/path/review.jsonl
+
+# A reviewer completes status, labels, reviewer, reviewed_at,
+# training_use_approved and approval_reference in review.jsonl.
+python scripts/prepare_laya_review_batch.py export \
+  --input /private/path/review.jsonl \
+  --output /private/path/approved.jsonl
+
+python scripts/run_laya_gpu_experiments.py \
+  --output artifacts/laya-gpu-reviewed \
+  --approved-jsonl /private/path/approved.jsonl \
+  --approved-manifest /private/path/approved.jsonl.manifest.json \
+  --seeds 17,29 \
+  --rlcd-weight 0
+```
+
+The gate rejects common PII, changed candidate fields, incomplete review, missing training-use
+approval, duplicate rows and path collisions. The GPU runner verifies the approved export hash and
+copies its privacy-safe review manifest into the evidence bundle. Reviewer declarations and hashes
+record the workflow; they do not prove that a label is correct.
+
+Each seed produces the trained checkpoint, training history, per-class confusion/precision/recall/F1,
+baseline and post-training metrics, held-out temperatures, privacy-safe test predictions, CUDA/NVIDIA
+inventory, hashes, Git commit and a full log. The experiment
+manifest reports mean and population standard deviation across seeds. Verify a copied evidence bundle
+without training again:
+
+```sh
+python scripts/run_laya_gpu_experiments.py \
+  --output artifacts/laya-gpu-20260926 \
+  --verify-only
+```
+
+Verification rejects split leakage, changed data, logs or checkpoint files, identical seed outputs,
+missing CUDA evidence, uncommitted training code, unsafe temperatures and unchanged base weights.
+`trained_checkpoint_calibrated` measures the calibration saved into `rl_agent_config.json` and used by
+standard Laya serving. `trained_pulse_calibrated` is a finer RU/KK decision-level analysis kept in the
+evidence bundle; it is not silently applied by the stock server.
+
+The checked simulation corpus is evidence that the training and calibration pipeline executed. It is
+not evidence of production accuracy. Promotion still requires approved citizen-text labels, a frozen
+group-aware test set, human error review and thresholds chosen on validation/calibration data only.

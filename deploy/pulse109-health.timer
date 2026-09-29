@@ -1,0 +1,10 @@
+[Unit]
+Description=Monitor Pulse 109 application health
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=5m
+Unit=pulse109-health.service
+
+[Install]
+WantedBy=timers.target

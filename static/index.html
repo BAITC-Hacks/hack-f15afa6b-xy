@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="/static/pulse109-mark.svg">
+  <title>Pulse 109 — демонстрационное рабочее место</title>
+  <link rel="stylesheet" href="/static/style.css?v=20260929-brand">
+</head>
+<body>
+  <div class="top-banner" role="banner">
+    ДЕМОНСТРАЦИОННЫЕ ДАННЫЕ · РЕШЕНИЕ ПОДТВЕРЖДАЕТ ОПЕРАТОР
+  </div>
+
+  <header class="app-header">
+    <div class="header-main">
+      <h1 class="legacy-brand"><img src="/static/pulse109-mark.svg" alt=""><span>pulse <b>109</b></span></h1>
+      <span class="sub-title">Ассистент оператора 109 и ситуационный центр</span>
+      <select class="language-switch" data-language-switch aria-label="Язык интерфейса"><option value="kk" data-i18n-ignore>Қазақша</option><option value="ru" data-i18n-ignore>Русский</option><option value="en" data-i18n-ignore>English</option></select>
+    </div>
+    <div class="system-badge" id="system-badge" aria-live="polite">
+      Демонстрационный режим · рекомендации требуют проверки
+      <strong id="app-mode" hidden></strong><strong id="app-training" hidden></strong>
+    </div>
+  </header>
+
+  <nav class="workspace-nav" aria-label="Разделы рабочего места">
+    <a href="#coverage-heading">Покрытие данных</a>
+    <a href="#intake-heading">Приём и оператор</a>
+    <a href="#analytics-heading">Демо-счётчики</a>
+  </nav>
+  <main class="dashboard-grid">
+    <section class="panel coverage-panel" aria-labelledby="coverage-heading" aria-busy="true" id="coverage-panel">
+      <div class="coverage-heading-row">
+        <div>
+
+          <h2 id="coverage-heading" tabindex="-1">Данные по регионам</h2>
+        </div>
+        <span class="evidence-badge">Файлы организаторов</span>
+      </div>
+      <p class="panel-desc">Наличие файла не подтверждает качество текстов или полноту истории. Демо-обращения ниже — синтетические.</p>
+      <div class="coverage-counters" aria-label="Покрытие всего пакета, независимо от фильтра">
+        <div><strong id="coverage-supplied">—</strong><span>регионов с файлами</span></div>
+        <div><strong id="coverage-missing">—</strong><span>регионов без файлов</span></div>
+        <div><strong id="coverage-files">—</strong><span>CSV в полученном пакете</span></div>
+      </div>
+      <div class="coverage-controls">
+        <div>
+          <label for="coverage-region">Регион покрытия</label>
+          <select id="coverage-region" disabled><option value="">Все регионы</option></select>
+        </div>
+        <div>
+          <label for="coverage-supply">Наличие файлов</label>
+          <select id="coverage-supply"><option value="all">Все статусы</option><option value="supplied">Файлы получены</option><option value="missing">Файлов нет</option></select>
+        </div>
+        <button type="button" class="btn btn-secondary" id="coverage-retry">Обновить покрытие</button>
+      </div>
+      <p id="coverage-status" role="status" aria-live="polite">Загружаем сведения о покрытии…</p>
+      <div id="coverage-error" class="error-msg" role="alert" hidden></div>
+      <div id="coverage-content" hidden>
+        <p id="coverage-empty" class="empty-state" hidden>Нет регионов с выбранным сочетанием фильтров. Измените регион или наличие файлов.</p>
+        <div class="coverage-table-wrap" id="coverage-table-wrap" tabindex="0" role="region" aria-label="Таблица покрытия регионов, прокручивается">
+          <table class="coverage-table">
+            <caption>Файлы организаторов: проверка доступности и полей</caption>
+            <thead><tr><th scope="col">Регион</th><th scope="col">Файлы</th><th scope="col">CSV-записи</th><th scope="col">История и обновление</th><th scope="col">Текст и тема</th><th scope="col">Язык и решение</th></tr></thead>
+            <tbody id="coverage-rows"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="coverage-note">
+        <p><strong>Как читать:</strong> «Есть в заголовке» — проверено имя поля; «Назначение поля не подтверждено» — смысл нужно уточнить; «Нет явного поля» — не найден подходящий заголовок.</p>
+        <p>Подсчёт CSV-записей не подтверждает число уникальных обращений. «Не проверено» и «Нет файла» не означают нулевой спрос. Языки RU/KK и полнота истории требуют отдельной проверки.</p>
+        <p id="coverage-source">Источник: список и проверка файлов организаторов.</p>
+      </div>
+    </section>
+    <!-- Section 1: Intake -->
+    <section class="panel intake-panel" aria-labelledby="intake-heading">
+      <h2 id="intake-heading">1. Приём обращения</h2>
+      <p class="panel-desc">Демонстрационный ввод обращения гражданина без персональных данных.</p>
+
+      <form id="intake-form" novalidate>
+        <div class="form-group">
+          <label for="intake-region">Регион (20 регионов РК) <span class="req">*</span></label>
+          <select id="intake-region" required aria-required="true">
+            <option value="">-- Выберите регион --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="intake-lang">Язык обращения</label>
+          <select id="intake-lang">
+            <option value="ru">Русский (ru)</option>
+            <option value="kk">Қазақша (kk)</option>
+            <option value="mixed">Смешанный (mixed)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="intake-text">Текст обращения <span class="req">*</span></label>
+          <textarea id="intake-text" rows="4" placeholder="Опишите проблему (например: Отсутствует уличное освещение по ул. Абая...)" maxlength="10000" required aria-required="true"></textarea>
+          <div class="char-count"><span id="char-num">0</span> / 10000 символов</div>
+        </div>
+
+        <div id="intake-error" class="error-msg" role="alert" style="display:none;"></div>
+        <button type="submit" class="btn btn-primary" id="btn-submit-intake">Зарегистрировать обращение</button>
+      </form>
+
+      <div class="recent-queue">
+        <h3>Очередь обращений</h3>
+        <div class="queue-controls">
+          <div class="queue-view-tabs" role="group" aria-label="Представления очереди">
+            <button type="button" class="btn btn-sm btn-secondary active" data-queue-view="pending" aria-pressed="true">К разбору <span class="queue-count">—</span></button>
+            <button type="button" class="btn btn-sm btn-secondary" data-queue-view="clarification" aria-pressed="false">Нужно уточнение <span class="queue-count">—</span></button>
+            <button type="button" class="btn btn-sm btn-secondary" data-queue-view="confirmed" aria-pressed="false">Обработанные <span class="queue-count">—</span></button>
+            <button type="button" class="btn btn-sm btn-secondary" data-queue-view="all" aria-pressed="false">Все <span class="queue-count">—</span></button>
+          </div>
+          <div class="queue-filters">
+            <label for="queue-region-filter">Регион</label>
+            <select id="queue-region-filter"><option value="">Все регионы</option></select>
+            <label for="queue-priority-filter">Срочность</label>
+            <select id="queue-priority-filter">
+              <option value="">Любая</option>
+              <option value="urgent">Срочные</option>
+              <option value="normal">Обычные</option>
+              <option value="unknown">Неизвестно</option>
+            </select>
+            <button type="button" class="btn btn-sm btn-secondary" id="queue-next" disabled>Следующая</button>
+          </div>
+        </div>
+        <ul id="queue-list" class="queue-list" role="list">
+          <li class="empty-state">Загрузка обращений...</li>
+        </ul>
+        <div class="queue-pagination">
+          <button type="button" class="btn btn-sm btn-secondary" id="queue-prev" disabled>Назад</button>
+          <span id="queue-page-info" class="meta-note">Страница 1 из 1</span>
+          <button type="button" class="btn btn-sm btn-secondary" id="queue-next-page" disabled>Вперёд</button>
+        </div>
+        <button type="button" class="btn btn-secondary" id="queue-refresh">Обновить очередь</button>
+        <p id="queue-status" class="meta-note" role="status" aria-live="polite"></p>
+        <p id="queue-error" class="error-msg" role="alert" hidden></p>
+      </div>
+    </section>
+
+    <!-- Section 2: Operator Workbench -->
+    <section class="panel workbench-panel" aria-labelledby="workbench-heading">
+      <h2 id="workbench-heading">2. Рабочее место оператора</h2>
+      <p class="panel-desc">Проверьте категорию и похожие обращения, затем назначьте службу.</p>
+
+      <div id="active-complaint-card" class="card active-card">
+        <div class="card-header">
+          <span class="badge" id="active-status-badge">Нет выбранного обращения</span>
+          <span class="record-id" id="active-id"></span>
+        </div>
+        <div class="card-body">
+          <p id="active-text" class="complaint-text">Выберите обращение из очереди слева или создайте новое через форму приёма.</p>
+          <div class="meta-row">
+            <span>Регион: <strong id="active-region">—</strong></span>
+          <span>Источник: <strong id="active-origin">Демонстрационные данные</strong></span>
+          </div>
+          <div class="meta-row" id="active-clarification" hidden>
+            <span>Уточнение: <strong id="active-clarification-text">—</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="proposal-box">
+        <div class="box-header">
+          <h3>Рекомендация по категории</h3>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-classify" disabled>Получить рекомендацию</button>
+        </div>
+        <div class="mock-meta-note">
+          <small>Категорию проверяет и подтверждает оператор.</small>
+        </div>
+        <div id="proposal-content" class="proposal-details">
+          <p class="empty-state">Нажмите «Получить рекомендацию», чтобы определить категорию.</p>
+        </div>
+        <div id="proposal-error" class="error-msg" role="alert" hidden>Не удалось получить рекомендацию. Повторите попытку.</div>
+      </div>
+
+      <div class="confirm-box" id="clarification-box">
+        <h3>Нужно уточнение</h3>
+        <p class="meta-note"><small>Причина и вопрос сохраняются в истории. Гражданину ничего не отправляется автоматически.</small></p>
+        <form id="clarification-form" novalidate>
+          <div class="form-group">
+            <label for="clarification-reason">Причина уточнения</label>
+            <select id="clarification-reason">
+              <option value="unknown_place">Неизвестно место</option>
+              <option value="unclear_event">Непонятно, что произошло</option>
+              <option value="insufficient_detail">Недостаточно деталей</option>
+              <option value="multiple_problems">Несколько проблем</option>
+              <option value="other">Другое</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="clarification-question">Вопрос гражданину (редактируемый)</label>
+            <textarea id="clarification-question" rows="2" maxlength="1000"></textarea>
+          </div>
+          <div id="clarification-error" class="error-msg" role="alert" style="display:none;"></div>
+          <div id="clarification-success" class="success-msg" role="status" style="display:none;"></div>
+          <button type="submit" class="btn btn-secondary" id="btn-request-clarification" disabled>Запросить уточнение</button>
+        </form>
+        <div class="form-group" style="margin-top:0.8rem;">
+          <label for="clarification-supplement">Полученное уточнение</label>
+          <textarea id="clarification-supplement" rows="2" maxlength="10000"></textarea>
+        </div>
+        <div id="clarification-response-error" class="error-msg" role="alert" style="display:none;"></div>
+        <div id="clarification-response-success" class="success-msg" role="status" style="display:none;"></div>
+        <button type="button" class="btn btn-secondary" id="btn-save-supplement" disabled>Сохранить уточнение</button>
+        <button type="button" class="btn btn-secondary" id="btn-resume" disabled>Вернуть в обработку</button>
+      </div>
+
+      <div class="similar-box">
+        <h3>Похожие обращения</h3>
+        <p class="meta-note"><small>Похожие обращения могут относиться к разным проблемам. Проверьте их перед объединением.</small></p>
+        <div id="similar-list" class="similar-items">
+          <p class="empty-state">Выберите обращение, чтобы увидеть похожие.</p>
+        </div>
+      </div>
+
+      <div class="confirm-box">
+        <h3>3. Подтверждение оператором</h3>
+        <form id="confirm-form" novalidate>
+          <div class="form-row">
+            <div class="form-group col">
+              <label for="confirm-topic">Тема обращения <span class="req">*</span></label>
+              <select id="confirm-topic" required></select>
+            </div>
+            <div class="form-group col">
+              <label for="confirm-priority">Приоритет <span class="req">*</span></label>
+              <select id="confirm-priority" required>
+                <option value="">-- Выберите приоритет --</option>
+                <option value="normal">Обычный</option>
+                <option value="urgent">Срочный</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="confirm-service">Ответственная служба <span class="req">*</span></label>
+            <input type="text" id="confirm-service" required>
+          </div>
+          <div id="confirm-error" class="error-msg" role="alert" style="display:none;"></div>
+          <div id="confirm-success" class="success-msg" role="status" style="display:none;"></div>
+          <button type="submit" class="btn btn-success" id="btn-confirm" disabled>Подтвердить решение оператора</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Section 3: City Analytics & 501 Stubs -->
+    <section class="panel analytics-panel" aria-labelledby="analytics-heading">
+      <h2 id="analytics-heading">4. Статистика демо-обращений</h2>
+      <p class="panel-desc">Здесь учитываются только искусственные примеры. Данные организаторов в эти счётчики не входят.</p>
+
+      <div class="stats-counters">
+        <div class="stat-card">
+          <div class="stat-num" id="stat-total">0</div>
+          <div class="stat-label">Всего обращений</div>
+        </div>
+        <div class="stat-card stat-pending">
+          <div class="stat-num" id="stat-pending">0</div>
+          <div class="stat-label">На рассмотрении</div>
+        </div>
+        <div class="stat-card stat-confirmed">
+          <div class="stat-num" id="stat-confirmed">0</div>
+          <div class="stat-label">Подтверждено</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="stat-clarification">0</div>
+          <div class="stat-label">Нужно уточнение</div>
+        </div>
+      </div>
+
+      <div class="summary-section">
+        <h3>Распределение по темам</h3>
+        <div id="topics-breakdown" class="breakdown-list"></div>
+      </div>
+
+      <div class="stubs-section">
+        <h3>Проверка API</h3>
+        <p class="meta-note"><small>Кнопки отправляют запросы к API и показывают ответ сервера.</small></p>
+        <div class="stub-buttons">
+          <button type="button" class="btn btn-outline" onclick="callStub('/api/alerts')">GET /api/alerts</button>
+          <button type="button" class="btn btn-outline" onclick="callStub('/api/forecast?horizon_months=1')">GET /api/forecast (1 мес)</button>
+          <button type="button" class="btn btn-outline" onclick="callStub('/api/query', 'POST')">POST /api/query (NL)</button>
+          <button type="button" class="btn btn-outline" onclick="callStub('/api/reports?format=pdf')">GET /api/reports (PDF)</button>
+        </div>
+        <div id="stub-output" class="stub-output" style="display:none;"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Pulse 109 · Демонстрационные данные · Решения подтверждает оператор</p>
+  </footer>
+
+  <script src="/static/i18n.js?v=20260929-i18n11"></script>
+  <script src="/static/app.js?v=20260929-i18n11"></script>
+  <script src="/static/coverage.js?v=20260929-copy"></script>
+  <script src="/static/clarification.js?v=20260929-copy"></script>
+</body>
+</html>
