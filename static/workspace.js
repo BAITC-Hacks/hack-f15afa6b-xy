@@ -1,5 +1,5 @@
 import {citizenPages,citizenHome,citizenRequests,citizenHelp,citizenContent,citizenList} from './citizen-home.js?v=20260929-2gis';
-import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260930-queue-filter';
+import {esc, button, badge, groups, time, queueView, dashboardView, incidentsView, operatorsView, citizenView, trackingView, subscriptionsView} from './views.js?v=20260930-incident-area';
 import {routingHealthView,watchPresence,stopPresence,caseCommands,commandList} from './support.js?v=20260929-copy';
 import {caseView} from './case.js?v=20260929-2gis';
 import {radarView,signalView,incidentView,stamp} from './incidents.js?v=20260929-radar';
