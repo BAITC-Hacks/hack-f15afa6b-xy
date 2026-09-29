@@ -1,4 +1,5 @@
 """Operator workspace on the existing complaint and audit tables."""
+import base64
 import json
 import uuid
 from collections import Counter
@@ -240,6 +241,20 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
             raise HTTPException(503, "Вложение временно недоступно") from error
         return Response(content, media_type=row["mime_type"], headers={"Cache-Control": "private, no-store"})
 
+    def copilot_image(conn, cid):
+        row = conn.execute(
+            "SELECT mime_type, content, object_key FROM complaint_photos WHERE complaint_id = ?", (cid,)
+        ).fetchone()
+        if not row or row["mime_type"] not in {"image/jpeg", "image/png", "image/webp"}:
+            raise HTTPException(422, "Для ИИ доступно только JPEG, PNG или WebP изображение")
+        try:
+            content = storage.get_media(row["object_key"]) if row["object_key"] else row["content"]
+        except ObjectStorageError as error:
+            raise HTTPException(503, "Изображение временно недоступно") from error
+        if not content or len(content) > 4 * 1024 * 1024:
+            raise HTTPException(422, "Изображение для ИИ должно быть не больше 4 МБ")
+        return f"data:{row['mime_type']};base64," + base64.b64encode(content).decode()
+
     attach_citizen_routes(router, get_connection, complaint, private_media)
 
     @router.get("/complaints/{cid}/photo")
@@ -436,7 +451,8 @@ def build_workspace_router(get_connection, classifier, topic_services, valid_reg
                 "ai_evidence": ai_evidence(),
                 "note": "Счётчики синтетической SQLite. Экономия времени не измерялась."}
 
-    attach_copilot_routes(router, get_connection, complaint, detail, suggested_response, event, copilot)
+    attach_copilot_routes(router, get_connection, complaint, detail, suggested_response, event, copilot,
+                          copilot_image)
     attach_playbook_routes(router, get_connection, {
         "complaint": complaint, "detail": detail, "analysis": analysis, "routing": routing_for,
         "operators": operators_with_load, "checked_incident": checked_incident, "writable": writable,

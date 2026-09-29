@@ -135,10 +135,9 @@ def run():
 
         try:
             health = call("/api/voice/health")
-            assert health == {"status": "healthy", "model": "fixture-rukk", "device": "cpu",
-                              "latency_ms": health["latency_ms"],
-                              "tts": {"status": "healthy", "model": "fixture-omnivoice",
-                                      "device": "cpu", "latency_ms": health["tts"]["latency_ms"]}}
+            assert health["status"] == "healthy" and health["model"] == "fixture-rukk"
+            assert health["tts"]["status"] == "healthy"
+            assert health["realtime"]["status"] == "disabled"
             print("PASS 1: Pulse reports private RU/KK STT and OmniVoice health")
 
             speech = call("/api/voice/speak", {"prompt": "ru_problem"})
@@ -167,6 +166,12 @@ def run():
             assert address["language"] == "kk" and address["response_language"] == "kk"
             assert address["detected_city"] == {"code": "710000000", "name_ru": "Астана", "region_id": "KZ-AST"}
             assert address["next_field"] == "review"
+            realtime_final = call("/api/voice/finalize-transcript", {
+                "text": "Астана Абай көшесі қырық төртінші үй", "language": "kk",
+                "field": "address",
+            })
+            assert realtime_final["text"] == "Абай көшесі 44 үй"
+            assert realtime_final["detected_city"]["code"] == "710000000"
             call("/api/voice/transcribe", {
                 "audio_data": "data:audio/wav;base64,bm90LXdhdg==", "language": "ru", "field": "problem",
             }, 422)

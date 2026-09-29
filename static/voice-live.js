@@ -12,12 +12,13 @@ const orb=document.querySelector('[data-live-orb]');
 const thinkingOrb=mountThinkingOrb(orb);
 const submit=document.querySelector('#voice-submit');
 let stage='idle', mode='idle', finishing=false, cities=[], duplicateApproved=false, clarificationAsked=false;
+let realtimeAvailable=false,liveDebounceMs=2500,liveAnalysisTimer=null,liveAnalysisRevision=0,liveAnalysisController=null;
 
-async function api(path,data) {
+async function api(path,data,signal) {
   let response;
   const csrf=document.cookie.split('; ').find(value=>value.startsWith('pulse109_csrf='))?.split('=')[1]||'';
   try {
-    response=await fetch(path,{method:data===undefined?'GET':'POST',credentials:'same-origin',headers:data===undefined?{Accept:'application/json'}:{'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf)},body:data===undefined?undefined:JSON.stringify(data)});
+    response=await fetch(path,{method:data===undefined?'GET':'POST',credentials:'same-origin',headers:data===undefined?{Accept:'application/json'}:{'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf)},body:data===undefined?undefined:JSON.stringify(data),signal});
   } catch {throw new Error('Сервер недоступен. Повторите действие.');}
   const result=await response.json().catch(()=>({detail:'Сервис вернул неверный ответ'}));
   if(!response.ok) throw new Error(result.detail||'Не удалось выполнить действие');
@@ -45,6 +46,18 @@ function showAnalysis(analysis) {
   node.append(title,detail);
 }
 
+function scheduleLiveAnalysis(text,result) {
+  clearTimeout(liveAnalysisTimer);liveAnalysisController?.abort();const revision=++liveAnalysisRevision;
+  liveAnalysisTimer=setTimeout(async()=>{
+    if(stage!=='problem'||revision!==liveAnalysisRevision||text.trim().length<8) return;
+    liveAnalysisController=new AbortController();
+    try {
+      const analysis=await api('/api/voice/analyze',{text,language:result.language||language.value,region_id:form.elements.region_id.value},liveAnalysisController.signal);
+      if(revision===liveAnalysisRevision&&stage==='problem') showAnalysis(analysis);
+    } catch { /* The final transcript and manual flow remain available. */ }
+  },liveDebounceMs);
+}
+
 function setMode(next,text='') {
   mode=next;const listening=next==='listening';orb.classList.toggle('listening',listening);
   thinkingOrb.setState(listening?'listening':['prompting','transcribing','speaking'].includes(next)?'processing':next==='retry'?'error':next==='review'?'result':'idle');
@@ -58,14 +71,16 @@ async function beginTurn(field) {
   const selected=selectedVoiceLanguage(language),promptLanguage=selected.language==='auto'?(selected.hintLanguage||'mixed'):selected.language;
   stage=field;message('agent',voicePrompts[promptLanguage][field]);
   try {
-    await beginVoiceTurn({field,...selected,api,onState:state=>setMode(state,state==='listening'&&language.value==='auto'?'Определяем язык…':''),onSpeech:()=>setMode('listening','Слышу вас · определяем язык'),onPartial:(text,result)=>{
+    await beginVoiceTurn({field,...selected,api,realtime:realtimeAvailable,onState:state=>setMode(state,state==='listening'&&language.value==='auto'?'Определяем язык…':''),onSpeech:()=>setMode('listening','Слышу вас · определяем язык'),onPartial:(text,result)=>{
       previewTranscript(document.querySelector(field==='problem'?'#citizen-text':'#citizen-address'),text);
       liveStatus.textContent=applyLanguageResult(language,result)||'Заполняем черновик…';
+      scheduleLiveAnalysis(text,result);
     },onSilence:finishTurn,onTimeout:finishTurn});
   } catch(error) {setMode('retry',error.message);toast(error.message);}
 }
 
 async function useTranscript(field,result) {
+    clearTimeout(liveAnalysisTimer);liveAnalysisController?.abort();liveAnalysisRevision++;
     const input=document.querySelector(field==='problem'?'#citizen-text':'#citizen-address');
     settleTranscriptPreview(input);
     mergeTranscript(input,result.text);message('citizen',result.text);
@@ -106,6 +121,7 @@ async function finishTurn() {
 }
 
 function resetDialogue(clearFields=true) {
+  clearTimeout(liveAnalysisTimer);liveAnalysisController?.abort();liveAnalysisRevision++;
   conversation.replaceChildren();message('agent','Здравствуйте! Сәлеметсіз бе! Говорите на русском или казахском — я определю язык автоматически.');
   if(clearFields) {
     settleTranscriptPreview(form.elements.text);settleTranscriptPreview(form.elements.address);
@@ -144,7 +160,9 @@ async function initialize() {
     cities=result.items;
     form.elements.region_id.replaceChildren(...regions.regions.map(region=>new Option(region.name_ru,region.id,false,region.id==='KZ-ALA')));
     updateCities();mountMaps(document);
-    const healthNode=document.querySelector('[data-voice-health]'),ready=health.status==='healthy';
+    realtimeAvailable=health.realtime?.status==='configured';
+    liveDebounceMs=health.realtime?.live_copilot_debounce_ms||2500;
+    const healthNode=document.querySelector('[data-voice-health]'),ready=realtimeAvailable||health.status==='healthy';
     healthNode.textContent=ready?'Голосовое распознавание подключено':'Голос временно недоступен · можно продолжить вручную';healthNode.classList.toggle('offline',!ready);
   } catch(error) {toast(error.message);document.querySelector('[data-voice-health]').textContent='Голосовой сервис недоступен';}
 }

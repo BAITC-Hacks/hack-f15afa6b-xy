@@ -1,6 +1,6 @@
 # Pulse 109 — текущая передача
 
-Актуальная ветка: `feat/laya-gpu-training`. Runtime: FastAPI, SQLite, vanilla JS. Production: https://xy.govtech-kz.com. GovTech / Pulse 109 не связан с HackAlem.
+Актуальная development-ветка: `feat/openai-provider-router` от `27ed32d`. Runtime: FastAPI, SQLite, vanilla JS. Production: https://xy.govtech-kz.com. GovTech / Pulse 109 не связан с HackAlem.
 
 ## Текущее состояние
 
@@ -9,7 +9,9 @@
 - Режим `organizer` сохраняет неполный и устаревший time-series срез шести регионов. Исходный пакет содержит 7 регионов / 8 CSV, но только шесть сейчас представлены проверенными временными агрегатами; остальные регионы не подменяются нулями.
 - Laya checkpoint `f56bca…80062` прошёл synthetic validation guardrails и используется только в `shadow`. Видимое решение остаётся за существующим классификатором и оператором.
 - multilingual E5 checkpoint `8df810…755e` обучен для RU/KK similarity. При недоступном приватном endpoint приложение явно использует lexical fallback.
-- self-hosted Qwen Copilot работает только через private/loopback endpoint. Невалидный ответ, timeout или выключенный GPU дают deterministic fallback; действия и сроки не выдумываются.
+- Pulse AI Copilot использует provider router: hosted OpenAI Responses API → optional private Qwen → deterministic. Все providers проходят один schema/safety validator; RU, KK и mixed не отключают Copilot.
+- OpenAI использует native Pydantic Structured Outputs, model tiers, bounded retry, circuit breaker, token/latency audit и configurable cost guard. Фото отправляется только после явного выбора оператора и остаётся неподтверждённым наблюдением.
+- Optional OpenAI Realtime transcription идёт через backend WebSocket proxy; browser не получает API key. Existing STT и ручной текст остаются fallback.
 - GPU можно выключать: основное приложение, очередь, операторские решения и аналитика продолжают работать. Health честно показывает fallback.
 
 ## Проверяемые ML evidence
@@ -25,7 +27,7 @@
 - Номер-only tracking и подписка доступны только для синтетического local demo. Для гражданской production-заявки интерфейс честно сообщает о необходимости защищённого owner-auth кабинета; публичная карта открывается только после согласия и операторской модерации.
 - `synthetic_demo` / `organizer` — отдельный API/UI-фильтр аналитики и не зависит от demo mode.
 - `P109_AUTH_DISABLED=1` разрешён только для локального loopback demo; production auth включён.
-- Laya, similarity, Qwen, STT и TTS endpoints должны оставаться private/loopback. API keys — только в `.env`, вне Git.
+- Laya, similarity, Qwen, STT и TTS endpoints должны оставаться private/loopback. Hosted OpenAI использует официальный public HTTPS/WebSocket API только с backend. API keys — только в `.env`, вне Git.
 
 ## Быстрая проверка
 

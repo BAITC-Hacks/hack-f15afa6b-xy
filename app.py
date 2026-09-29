@@ -1,5 +1,4 @@
 """Pulse 109 — Synthetic Skeleton API and Operator Assistant."""
-
 from __future__ import annotations
 
 import json
@@ -20,7 +19,7 @@ from pydantic import BaseModel, Field
 from auth import assign_owner, current_actor, init_auth, install_auth
 from data_coverage import CoverageUnavailable, load_coverage
 from clarification import build_clarification_router, get_received_clarifications
-from copilot import QwenCopilot
+from copilot import build_copilot_router
 from queue_api import build_queue_router
 from demo_data import init_workspace, intake_privacy
 from playbooks import faq_closed
@@ -211,7 +210,7 @@ def mock_classify(text: str) -> tuple[Optional[str], Optional[str], Optional[str
 
 
 decision_service = DecisionService(mock_classify, TOPIC_SERVICE_MAP, TOPICS)
-copilot = QwenCopilot.from_env()
+copilot = build_copilot_router()
 similarity_client = SimilarityClient.from_env()
 app.include_router(build_voice_router(decision_service.classify, TOPICS))
 @app.get("/api/health")
@@ -223,7 +222,7 @@ def health_check():
         "mode": decision_service.mode,
         **model,
         "laya": decision_service.health(),
-        "copilot": copilot.status() if copilot else {"configured": False, "mode": "deterministic_fallback"},
+        "copilot": copilot.health(),
         "similarity": similarity_client.status() if similarity_client else {
             "configured": False, "mode": "lexical_fallback", "status": "not_configured", "checkpoint_id": None,
         },

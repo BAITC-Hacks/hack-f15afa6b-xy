@@ -11,8 +11,8 @@ GovTech / Pulse 109 не связан с HackAlem. Канонический ре
 - операторская очередь, playbooks с preview, Radar и управление инцидентами;
 - обученный Laya RU/KK checkpoint в `shadow`: категория, уточнение, спам и срочность;
 - обученный multilingual E5 для похожих решённых обращений и проверки дублей;
-- приватный self-hosted Qwen Copilot с проверкой схемы и безопасным fallback;
-- голосовой RU/KK flow через приватные STT/TTS endpoints;
+- Pulse AI Copilot: hosted OpenAI primary, optional private Qwen и всегда доступный deterministic fallback;
+- голосовой RU/KK/mixed flow через private STT/TTS и optional server-proxied OpenAI Realtime;
 - alerts, прогноз на 1–3 месяца, ограниченные RU/KK-вопросы и PDF/XLSX.
 
 Обучение Laya и E5 действительно выполнялось на NVIDIA GPU. Evidence хранится в `training/evidence/`. Метрики получены на group-separated синтетических RU/KK наборах и показывают работоспособность ML pipeline, но не production accuracy на реальных обращениях.
@@ -57,9 +57,23 @@ python scripts/smoke.py
 python scripts/check_laya.py
 python scripts/check_similarity.py
 python scripts/check_copilot.py
+python scripts/benchmark_copilot_providers.py
 ```
 
-Laya, E5 и Qwen запускаются отдельно на приватном GPU или через SSH tunnel. Если GPU выключен, Pulse остаётся доступен: Laya shadow не меняет решение существующего классификатора, E5 явно переходит в `lexical_fallback`, Qwen — в `deterministic_fallback`. `/api/health` показывает фактический режим каждого сервиса.
+Pulse запускается без GPU и без Brev. Рекомендуемый Copilot использует hosted OpenAI Responses API; Qwen остаётся optional private provider. Если OpenAI и Qwen недоступны, тот же endpoint возвращает проверенную deterministic-подсказку без HTTP 500. Laya и E5 сохраняют свои прежние роли и fallback. `/api/health` показывает provider chain и circuit state.
+
+Минимальная production-конфигурация Copilot:
+
+```env
+OPENAI_API_KEY=...
+P109_COPILOT_PROVIDER=openai
+P109_COPILOT_FALLBACKS=deterministic
+P109_OPENAI_MODEL_FAST=gpt-5.6-luna
+P109_OPENAI_MODEL_PRIMARY=gpt-5.6-terra
+P109_OPENAI_MODEL_COMPLEX=gpt-6-astra
+```
+
+Model IDs меняются через environment. Фото передаётся модели только после явного выбора оператора. Подробности: [docs/copilot-architecture.md](docs/copilot-architecture.md).
 
 Пример всех переменных находится в `.env.example`; секреты и `.env` не коммитятся.
 
@@ -101,7 +115,7 @@ Production `.env` должен оставлять авторизацию вкл�
 
 - национальная аналитика — синтетическая демонстрация возможностей, не статистика госорганов;
 - Laya и E5 обучены и оценены на синтетике; canary/production quality на гражданах не доказана;
-- Qwen работает в приватном контуре, предлагает черновик и не выполняет действие за оператора;
+- hosted OpenAI и optional Qwen предлагают черновик; общий validator и оператор сохраняют границу принятия решений;
 - delivery во внешние службы и гражданам остаётся demo-only;
 - маршруты, нагрузки и пороги всплесков демонстрационные;
 - пакет организаторов содержит 7 регионов / 8 CSV, но текущий проверенный time-series aggregate пригоден только для 6 регионов и не доказывает полноту истории.

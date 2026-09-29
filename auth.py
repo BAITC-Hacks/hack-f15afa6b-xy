@@ -239,7 +239,7 @@ def _is_public(request: Request) -> bool:
         return True
     if method == "POST" and path in {
         "/api/intake", "/api/workspace/intake", "/api/voice/transcribe", "/api/voice/speak",
-        "/api/voice/analyze"
+        "/api/voice/analyze", "/api/voice/finalize-transcript"
     }:
         return True
     if method == "GET" and re.fullmatch(r"/api/workspace/tracking/[^/]+", path):

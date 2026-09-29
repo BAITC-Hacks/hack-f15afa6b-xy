@@ -87,6 +87,39 @@ function dataUrl(blob) {
   return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(blob);});
 }
 
+function pcmBase64(input,inputRate) {
+  const samples=resample(input,inputRate,24000),bytes=new Uint8Array(samples.length*2),view=new DataView(bytes.buffer);
+  samples.forEach((sample,index)=>view.setInt16(index*2,Math.max(-1,Math.min(1,sample))*0x7fff,true));
+  let binary='';for(let offset=0;offset<bytes.length;offset+=8192) binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192));
+  return btoa(binary);
+}
+
+function openRealtime(onPartial) {
+  return new Promise((resolve,reject)=>{
+    const socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/voice/realtime`);
+    let transcript='',settleFinal,failFinal,ready=false;
+    const timer=setTimeout(()=>{socket.close();reject(new Error('Realtime timeout'));},5000);
+    socket.onmessage=event=>{
+      const message=JSON.parse(event.data);
+      if(message.type==='pulse.ready') {
+        ready=true;clearTimeout(timer);
+        resolve({
+          append:samples=>socket.readyState===WebSocket.OPEN&&socket.send(JSON.stringify({type:'input_audio_buffer.append',audio:pcmBase64(samples.samples,samples.rate)})),
+          finish:()=>new Promise((done,fail)=>{settleFinal=done;failFinal=fail;socket.send(JSON.stringify({type:'input_audio_buffer.commit'}));setTimeout(()=>fail(new Error('Realtime transcript timeout')),10000);}),
+          close:()=>socket.close(),
+        });
+      } else if(message.type==='conversation.item.input_audio_transcription.delta') {
+        transcript+=message.delta||'';onPartial(transcript,{realtime:true});
+      } else if(message.type==='conversation.item.input_audio_transcription.completed') {
+        transcript=message.transcript||transcript;if(settleFinal) settleFinal(transcript);socket.close();
+      } else if(message.type==='pulse.error'||message.type==='error') {
+        if(failFinal) failFinal(new Error('Realtime unavailable'));else if(!ready) reject(new Error('Realtime unavailable'));
+      }
+    };
+    socket.onerror=()=>{clearTimeout(timer);if(failFinal) failFinal(new Error('Realtime unavailable'));else reject(new Error('Realtime unavailable'));};
+  });
+}
+
 export function voiceActivity(samples,state,now) {
   let energy=0;for(const sample of samples) energy+=sample*sample;
   const rms=Math.sqrt(energy/samples.length),speaking=rms>=voiceThreshold;
@@ -95,7 +128,7 @@ export function voiceActivity(samples,state,now) {
 }
 
 async function previewVoice(current) {
-  if(recording!==current||current.previewPromise||!current.activity.heard) return;
+  if(recording!==current||current.realtime||current.previewPromise||!current.activity.heard) return;
   const chunks=current.chunks.slice(),sampleCount=chunks.reduce((sum,chunk)=>sum+chunk.length,0);
   if(sampleCount<current.context.sampleRate*2) return;
   current.previewPromise=(async()=>{
@@ -112,7 +145,7 @@ async function previewVoice(current) {
   if(recording===current) current.previewPromise=null;
 }
 
-export async function beginVoiceTurn({field,language,hintLanguage=null,api,onState=()=>{},onTimeout=()=>{},onPartial=()=>{},onSpeech=()=>{},onSilence=()=>{}}) {
+export async function beginVoiceTurn({field,language,hintLanguage=null,api,realtime=false,onState=()=>{},onTimeout=()=>{},onPartial=()=>{},onSpeech=()=>{},onSilence=()=>{}}) {
   if(recording||processing) throw new Error('Дождитесь завершения текущего ответа');
   if(!navigator.mediaDevices?.getUserMedia) throw new Error('Браузер не поддерживает запись с микрофона');
   const promptLanguage=language==='auto'?(hintLanguage||'mixed'):language;
@@ -121,12 +154,14 @@ export async function beginVoiceTurn({field,language,hintLanguage=null,api,onSta
   const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
   const context=new AudioContext(), source=context.createMediaStreamSource(stream);
   const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];
-  const current={field,language,hintLanguage,stream,context,source,processor,mute,chunks,api,onPartial,activity:{heard:false,lastVoiceAt:0},silenceTriggered:false,previewPromise:null};
+  const current={field,language,hintLanguage,stream,context,source,processor,mute,chunks,api,onPartial,activity:{heard:false,lastVoiceAt:0},silenceTriggered:false,previewPromise:null,realtime:null};
+  if(realtime) try {current.realtime=await openRealtime(onPartial);} catch {current.realtime=null;}
   failedTurn=null;
   recording=current;
   mute.gain.value=0;source.connect(processor);processor.connect(mute);mute.connect(context.destination);
   processor.onaudioprocess=event=>{
     const samples=new Float32Array(event.inputBuffer.getChannelData(0));chunks.push(samples);
+    if(current.realtime) current.realtime.append({samples,rate:context.sampleRate});
     const previous=current.activity,currentState=voiceActivity(samples,previous,performance.now());current.activity=currentState;
     if(currentState.speaking&&!previous.heard) onSpeech();
     if(currentState.shouldStop&&!current.silenceTriggered) {current.silenceTriggered=true;queueMicrotask(onSilence);}
@@ -144,6 +179,12 @@ export async function finishVoiceTurn(onState=()=>{}) {
   try {
     if(current.previewPromise) await current.previewPromise;
     const samples=prepareSpeech(flatten(current.chunks),sampleRate);
+    if(current.realtime) {
+      try {
+        const text=await current.realtime.finish();
+        if(text) return await current.api('/api/voice/finalize-transcript',{text,language:current.language,hint_language:current.hintLanguage,field:current.field});
+      } catch {current.realtime.close();}
+    }
     const payload={audio_data:await dataUrl(wav(samples)),language:current.language,hint_language:current.hintLanguage,field:current.field};
     failedTurn={api:current.api,payload};
     const result=await current.api('/api/voice/transcribe',payload);failedTurn=null;return result;

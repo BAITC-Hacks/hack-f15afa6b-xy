@@ -442,14 +442,15 @@ async function handleAction(node) {
   if(action==='ask-copilot') {
     if(d.copilotPending) return;
     const version=caseVersion;
+    const includeImage=!!document.querySelector('#include-ai-image')?.checked;
     d.copilotPending=true;rerenderCase();
     try {
-      const result=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/copilot`,{});
+      const result=await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/copilot`,{include_image:includeImage});
       if(version!==caseVersion||!dialog.open) return;
       d.copilot=result;
       const history=await api(`/api/complaints/${encodeURIComponent(c.id)}`);
       if(version===caseVersion) d.events=history.events;
-      toast(result.available?'ИИ-помощник подготовил рекомендацию':'ИИ-помощник недоступен. Показана стандартная заготовка ответа.');
+      toast(result.provider==='deterministic'?'ИИ временно недоступен. Показана безопасная подсказка.':'ИИ-помощник подготовил рекомендацию');
     } finally {
       d.copilotPending=false;
       if(version===caseVersion&&dialog.open) rerenderCase();
@@ -459,6 +460,7 @@ async function handleAction(node) {
   if(action==='copilot-helpful'||action==='copilot-unhelpful') {
     await api(`/api/workspace/complaints/${encodeURIComponent(c.id)}/copilot/feedback`,{
       result_id:d.copilot.result_id,helpful:action==='copilot-helpful',
+      reason:document.querySelector('#copilot-feedback-reason')?.value||null,
     });
     d.copilot.feedbackSaved=true;rerenderCase();toast('Оценка сохранена');return;
   }

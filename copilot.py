@@ -1,276 +1,206 @@
-"""Private Qwen assistant for operator-facing summaries and reply drafts."""
+"""Provider-neutral operator Copilot routes and runtime composition."""
 
 from __future__ import annotations
 
-import hashlib
-import ipaddress
 import json
 import os
-import re
-import socket
-import time
-from dataclasses import asdict, dataclass
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from clarification import get_received_clarifications
+from copilot_contracts import (
+    ACTIONS,
+    CopilotAuthError,
+    CopilotContext,
+    CopilotError,
+    CopilotQuotaError,
+    CopilotRateLimitError,
+    CopilotResponseError,
+    CopilotResult,
+    CopilotSchemaError,
+    CopilotTimeout,
+    CopilotUnavailable,
+    sanitize_text,
+)
+from copilot_router import CircuitBreaker, ProviderRouter
+from deterministic_copilot import DeterministicCopilot
+from openai_copilot import OpenAICopilot
+from qwen_copilot import MODEL, MODEL_REVISION, QwenCopilot
 
 
-MODEL = "Qwen/Qwen3-4B-Instruct-2507"
-MODEL_REVISION = "cdbee75f17c01a7cc42f958dc650907174af0554"
-ACTIONS = {"clarify", "prepare_reply", "review_incident", "manual_review"}
-
-
-class CopilotError(RuntimeError):
-    pass
-
-
-class CopilotUnavailable(CopilotError):
-    pass
-
-
-class CopilotResponseError(CopilotError):
-    pass
-
-
-@dataclass(frozen=True)
-class CopilotResult:
-    summary: str
-    reasoning: str
-    suggested_reply: str
-    clarification_question: str | None
-    recommended_action: str
-    model: str
-    model_revision: str
-    latency_ms: int
-    result_id: str
-    mode: str = "self_hosted_qwen"
-    available: bool = True
-
-    def dict(self):
-        return asdict(self)
+FEEDBACK_REASONS = {
+    "wrong_category", "bad_language", "hallucination", "not_useful", "too_long", "wrong_tone"
+}
 
 
 class CopilotFeedback(BaseModel):
     result_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     helpful: bool
+    reason: Literal[
+        "wrong_category", "bad_language", "hallucination", "not_useful", "too_long", "wrong_tone"
+    ] | None = None
 
 
-def sanitize_text(text: str, address: str | None = None) -> str:
-    """Remove common direct identifiers before text leaves the app process."""
-    value = str(text or "")[:10000]
-    if address and address.strip():
-        value = re.sub(re.escape(address.strip()), "[АДРЕС]", value, flags=re.IGNORECASE)
-    value = re.sub(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "[EMAIL]", value,
-                   flags=re.IGNORECASE)
-    value = re.sub(r"(?<!\d)(?:\d[\s-]?){12}(?!\d)", "[ИИН]", value)
-    value = re.sub(r"(?<!\d)(?:\+?7|8)[\s()\-]*\d{3}[\s()\-]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}(?!\d)",
-                   "[ТЕЛЕФОН]", value)
-    return value.strip()[:6000]
+class CopilotRequest(BaseModel):
+    include_image: bool = False
 
 
-class QwenCopilot:
-    def __init__(self, base_url: str, api_key: str, model: str = MODEL,
-                 revision: str = MODEL_REVISION, timeout: float = 18.0):
-        base_url = base_url.strip().rstrip("/")
-        parsed = urlparse(base_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("P109_COPILOT_BASE_URL must be an HTTP URL")
-        if not self._private_host(parsed.hostname):
-            raise ValueError("P109_COPILOT_BASE_URL must use a private or loopback host")
-        if not api_key:
-            raise ValueError("P109_COPILOT_API_KEY is required for a configured Qwen service")
-        if timeout <= 0:
-            raise ValueError("P109_COPILOT_TIMEOUT must be positive")
-        if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision):
-            raise ValueError("P109_COPILOT_REVISION must be a pinned commit or model digest")
-        self.base_url = base_url
-        self.api_key = api_key
-        self.model = model.strip() or MODEL
-        self.revision = revision
-        self.timeout = timeout
-
-    @staticmethod
-    def _private_host(host: str) -> bool:
-        if host in {"localhost", "host.docker.internal"} or host.endswith((".internal", ".local")):
-            return True
-        try:
-            return ipaddress.ip_address(host).is_private or ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            return False
-
-    @classmethod
-    def from_env(cls):
-        base_url = os.environ.get("P109_COPILOT_BASE_URL", "").strip()
-        if not base_url:
-            return None
-        try:
-            timeout = float(os.environ.get("P109_COPILOT_TIMEOUT", "18"))
-        except ValueError:
-            raise ValueError("P109_COPILOT_TIMEOUT must be a number") from None
-        return cls(base_url, os.environ.get("P109_COPILOT_API_KEY", ""),
-                   os.environ.get("P109_COPILOT_MODEL", MODEL),
-                   os.environ.get("P109_COPILOT_REVISION", MODEL_REVISION), timeout)
-
-    def status(self):
-        return {"configured": True, "mode": "self_hosted_qwen", "model": self.model,
-                "model_revision": self.revision, "endpoint": "private"}
-
-    def assist(self, context: dict) -> CopilotResult:
-        schema = {
-            "type": "object", "additionalProperties": False,
-            "required": ["summary", "reasoning", "suggested_reply",
-                         "clarification_question", "recommended_action"],
-            "properties": {
-                "summary": {"type": "string", "minLength": 1, "maxLength": 200},
-                "reasoning": {"type": "string", "minLength": 1, "maxLength": 240},
-                "suggested_reply": {"type": "string", "minLength": 1, "maxLength": 400},
-                "clarification_question": {"type": ["string", "null"], "maxLength": 180},
-                "recommended_action": {"type": "string", "enum": sorted(ACTIONS)},
-            },
-        }
-        language_style = (
-            "Use natural standard Kazakh. Safe style example: «Өтінішіңіз тіркелді. Оператор мәліметтерді "
-            "тексеріп, жауапты қызметке бағыттайды. Орындалу мерзімі әлі расталған жоқ.»"
-            if context.get("language") == "kk" else
-            "Use clear natural Russian. Safe style example: «Обращение зарегистрировано. Оператор "
-            "проверит данные и направит его в ответственную службу. Срок исполнения пока не подтверждён.»"
-        )
-        messages = [
-            {"role": "system", "content": (
-                "You are the Pulse 109 operator copilot for Kazakhstan. Use only the supplied facts. "
-                "Reply in the complaint language (Russian or Kazakh). Never promise a deadline, invent a service action, "
-                "guess a cause, or make the decision for the operator. Keep the whole response under 1200 characters. "
-                "Use review_incident only when incident_candidate is true. If clarification_question is not null, "
-                "recommended_action must be clarify; otherwise clarify is forbidden. " + language_style + " "
-                "When confidence_band is high, do not ask a clarification question. "
-                "The summary must only paraphrase the complaint; never say that data or work were checked or completed. "
-                "Address the citizen politely; do not tell them to diagnose or contact another service. "
-                "Return one JSON object and no markdown, matching this schema exactly: "
-                + json.dumps(schema, ensure_ascii=False)
-            )},
-            {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
-        ]
-        payload = json.dumps({
-            "model": self.model, "messages": messages, "temperature": 0,
-            "max_tokens": 350, "reasoning_effort": "none",
-            "response_format": {"type": "json_schema", "json_schema": {
-                "name": "pulse109_copilot", "strict": True, "schema": schema,
-            }},
-        }, ensure_ascii=False).encode("utf-8")
-        request = Request(self.base_url + "/v1/chat/completions", data=payload, method="POST", headers={
-            "Authorization": "Bearer " + self.api_key,
-            "Content-Type": "application/json", "Accept": "application/json",
-        })
-        started = time.perf_counter()
-        try:
-            with urlopen(request, timeout=self.timeout) as response:
-                raw = response.read()
-        except HTTPError as error:
-            if error.code >= 500:
-                raise CopilotUnavailable(f"Qwen returned HTTP {error.code}") from None
-            raise CopilotResponseError(f"Qwen rejected the request with HTTP {error.code}") from None
-        except (TimeoutError, socket.timeout, URLError, ConnectionError):
-            raise CopilotUnavailable("Qwen is unavailable or timed out") from None
-        latency_ms = round((time.perf_counter() - started) * 1000)
-        try:
-            response = json.loads(raw)
-            content = response["choices"][0]["message"]["content"]
-            answer = json.loads(content)
-        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, IndexError, TypeError):
-            raise CopilotResponseError("Qwen returned invalid structured output") from None
-        result = self._validate(answer, context)
-        model = str(response.get("model") or self.model)
-        canonical = json.dumps({**result, "model": model, "model_revision": self.revision},
-                               ensure_ascii=False, sort_keys=True).encode("utf-8")
-        return CopilotResult(**result, model=model, model_revision=self.revision,
-                             latency_ms=latency_ms, result_id=hashlib.sha256(canonical).hexdigest())
-
-    @staticmethod
-    def _validate(answer: dict, context: dict) -> dict:
-        required = {"summary", "reasoning", "suggested_reply", "clarification_question",
-                    "recommended_action"}
-        if not isinstance(answer, dict) or set(answer) != required:
-            raise CopilotResponseError("Qwen output has an unexpected schema")
-        limits = {"summary": 500, "reasoning": 500, "suggested_reply": 2000}
-        cleaned = {}
-        for field, limit in limits.items():
-            value = answer.get(field)
-            if not isinstance(value, str) or not value.strip() or len(value.strip()) > limit:
-                raise CopilotResponseError(f"Qwen output field {field!r} is invalid")
-            cleaned[field] = value.strip()
-        if re.search(
-            r"\b(?:уже\s+)?(?:устранили|исправили|отремонтировали|восстановили|проверили|направили)\b|"
-            r"\b(?:данные|работа|обращение)\s+(?:проверен[аоы]?|направлен[аоы]?|выполнен[аоы]?)\b|"
-            r"\b(?:проблема|неисправность)\s+(?:устранена|решена)\b|\bтеперь\s+работает\b|"
-            r"\bбудет\s+(?:устранен[ао]?|исправлен[ао]?|восстановлен[ао]?)\b|"
-            r"\b(?:до|в течение)\s+\d+\s*(?:минут|час|дн|рабоч)",
-            " ".join(cleaned.values()), re.IGNORECASE,
-        ):
-            raise CopilotResponseError("Qwen suggested an unverified action or deadline")
-        question = answer.get("clarification_question")
-        if question is not None and (not isinstance(question, str) or not question.strip() or len(question.strip()) > 300):
-            raise CopilotResponseError("Qwen clarification question is invalid")
-        cleaned["clarification_question"] = question.strip() if isinstance(question, str) else None
-        action = answer.get("recommended_action")
-        question = cleaned["clarification_question"]
-        if action not in ACTIONS or (action == "clarify") != bool(question):
-            raise CopilotResponseError("Qwen recommended an unsupported action")
-        if action == "review_incident" and not context.get("incident_candidate"):
-            raise CopilotResponseError("Qwen recommended an unavailable incident review")
-        cleaned["recommended_action"] = action
-        return cleaned
+def _integer(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        raise ValueError(f"{name} must be an integer") from None
 
 
-def attach_copilot_routes(router, get_connection, complaint, detail, suggested_response, event, copilot):
+def _number(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except ValueError:
+        raise ValueError(f"{name} must be numeric") from None
+
+
+def build_copilot_router() -> ProviderRouter:
+    openai = OpenAICopilot.from_env()
+    qwen = QwenCopilot.from_env()
+    providers = {"deterministic": DeterministicCopilot()}
+    if openai:
+        providers["openai"] = openai
+    if qwen:
+        providers["qwen"] = qwen
+
+    configured_primary = os.environ.get("P109_COPILOT_PROVIDER", "").strip().lower()
+    if configured_primary and configured_primary not in {"openai", "qwen", "deterministic"}:
+        raise ValueError("P109_COPILOT_PROVIDER must be openai, qwen or deterministic")
+    primary = configured_primary or ("openai" if openai else "qwen" if qwen else "deterministic")
+    configured_fallbacks = os.environ.get("P109_COPILOT_FALLBACKS", "").strip()
+    if configured_fallbacks:
+        fallbacks = [item.strip().lower() for item in configured_fallbacks.split(",") if item.strip()]
+        if any(item not in {"openai", "qwen", "deterministic"} for item in fallbacks):
+            raise ValueError("P109_COPILOT_FALLBACKS contains an unknown provider")
+    else:
+        fallbacks = ["qwen", "deterministic"] if primary == "openai" and qwen else ["deterministic"]
+
+    circuit = CircuitBreaker(
+        _integer("P109_AI_CIRCUIT_FAILURES", 5),
+        _number("P109_AI_CIRCUIT_COOLDOWN", 30),
+    )
+    return ProviderRouter(
+        providers,
+        [primary, *fallbacks],
+        circuit,
+        retries=_integer("P109_AI_RETRIES", 1),
+        openai_traffic_percent=_integer("P109_OPENAI_TRAFFIC_PERCENT", 100),
+        shadow_qwen=os.environ.get("P109_COPILOT_SHADOW_QWEN", "0") == "1",
+    )
+
+
+def _mixed_reply(c: dict, suggested_response) -> str:
+    if c.get("language") != "mixed":
+        return suggested_response(c)
+    kazakh_letters = sum(c.get("text", "").lower().count(letter) for letter in "әғқңөұүһі")
+    if kazakh_letters:
+        return ("Өтінішіңіз тіркелді. Оператор ақпаратты тексеріп, жауапты қызметке бағыттайды. "
+                "Орындалу мерзімі әлі расталған жоқ.")
+    return suggested_response(c)
+
+
+def _context(c: dict, detail: dict, suggested_response, clarifications: list[str],
+             image_data_url: str | None = None, budget_signals: list[str] | None = None) -> CopilotContext:
+    ai = detail["triage"]
+    needs_clarification = ai.get("confidence_band") == "low"
+    fallback_action = (
+        "clarify" if needs_clarification else
+        "review_incident" if detail["incident_candidate"] else
+        "prepare_reply"
+    )
+    signals = list(budget_signals or [])
+    sources = ai.get("source_decisions") or {}
+    source_categories = {item.get("category") for item in sources.values() if isinstance(item, dict)}
+    if len(source_categories) > 1:
+        signals.append("model_disagreement")
+    if detail["incident_candidate"] and needs_clarification:
+        signals.append("ambiguous_incident")
+    confirmed_facts = {"decision_status": c["decision_status"]}
+    if c["decision_status"] == "confirmed":
+        confirmed_facts.update(category=c.get("topic"), service_id=c.get("service_id"))
+    if c.get("incident_id"):
+        confirmed_facts["incident_linked_by_operator"] = True
+    return CopilotContext(
+        language=c.get("language") if c.get("language") in {"ru", "kk", "mixed"} else "unknown",
+        complaint=sanitize_text(c["text"], c.get("address"), min(
+            6000, max(1, _integer("P109_AI_REQUEST_MAX_CONTEXT_CHARS", 6000)))),
+        city=c.get("city_name"),
+        district=c.get("district"),
+        category=ai.get("category"),
+        confidence_band=ai.get("confidence_band"),
+        priority_signal=ai.get("urgency"),
+        decision_status=c["decision_status"],
+        incident_candidate=bool(detail["incident_candidate"]),
+        clarifications=[sanitize_text(value) for value in clarifications],
+        confirmed_facts=confirmed_facts,
+        fallback_summary=ai.get("summary") or c["text"][:500],
+        fallback_reasoning=ai.get("reasoning_short") or "Требуется проверка оператора.",
+        fallback_reply=_mixed_reply(c, suggested_response),
+        fallback_question=ai.get("clarification_question") if needs_clarification else None,
+        fallback_action=fallback_action,
+        complexity_signals=signals,
+        request_type="multimodal" if image_data_url else "operator",
+        image_data_url=image_data_url,
+    )
+
+
+def attach_copilot_routes(router, get_connection, complaint, detail, suggested_response, event, copilot,
+                          image_loader=None):
+    copilot = copilot or build_copilot_router()
+
     @router.post("/complaints/{cid}/copilot")
-    def copilot_assist(cid: str):
+    def copilot_assist(cid: str, req: CopilotRequest):
         with get_connection() as conn:
             c = complaint(conn, cid)
             d = detail(conn, c)
-            ai = d["triage"]
-            needs_clarification = ai.get("confidence_band") == "low"
-            fallback = {
-                "summary": ai.get("summary") or c["text"][:500],
-                "reasoning": ai.get("reasoning_short") or "Требуется проверка оператора.",
-                "suggested_reply": suggested_response(c),
-                "clarification_question": ai.get("clarification_question") if needs_clarification else None,
-                "recommended_action": "clarify" if needs_clarification else
-                                      "review_incident" if d["incident_candidate"] else "prepare_reply",
-                "model": None, "latency_ms": None, "result_id": None,
-                "mode": "deterministic_fallback", "available": False,
-            }
-            if not copilot:
-                return {**fallback, "fallback_reason":
-                        "ИИ-помощник не настроен. Показан безопасный шаблон; можно продолжить вручную."}
-            if c["language"] != "ru":
-                return {**fallback, "fallback_reason":
-                        "Для этого языка рекомендация ИИ пока недоступна. Показан безопасный шаблон; "
-                        "можно продолжить вручную."}
-            context = {
-                "language": c["language"],
-                "complaint": sanitize_text(c["text"], c.get("address")),
-                "city": c.get("city_name"), "district": c.get("district"),
-                "category": ai.get("category"), "confidence_band": ai.get("confidence_band"),
-                "priority_signal": ai.get("urgency"), "decision_status": c["decision_status"],
-                "incident_candidate": bool(d["incident_candidate"]),
-                "clarifications": [sanitize_text(value) for value in get_received_clarifications(conn, cid)],
-            }
-            try:
-                result = copilot.assist(context).dict()
-            except CopilotError:
-                return {**fallback, "fallback_reason":
-                        "ИИ-помощник временно недоступен. Показан безопасный шаблон; можно продолжить вручную."}
+            today = datetime.now(timezone.utc).date().isoformat()
+            spent = 0.0
+            for row in conn.execute("""SELECT payload FROM audit_events
+                    WHERE event_type = 'copilot_generated' AND occurred_at >= ?""", (today,)):
+                try:
+                    spent += float(json.loads(row["payload"]).get("estimated_cost_usd") or 0)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    continue
+            soft_limit = _number("P109_AI_DAILY_SOFT_LIMIT_USD", 0)
+            budget_signals = (["budget_degraded"] if soft_limit and spent >= soft_limit else [])
+            if soft_limit and spent >= soft_limit * 2:
+                budget_signals.append("budget_hard_degrade")
+            image_data_url = None
+            if req.include_image:
+                if not image_loader:
+                    raise HTTPException(422, "Изображения для ИИ не поддерживаются")
+                image_data_url = image_loader(conn, cid)
+            context = _context(c, d, suggested_response, get_received_clarifications(conn, cid),
+                               image_data_url, budget_signals)
+            result = copilot.assist(context).model_dump()
+            usage = result["usage"]
             event(conn, cid, "copilot_generated", {
-                "result_id": result["result_id"], "model": result["model"],
+                "result_id": result["result_id"],
+                "request_id": result["request_id"],
+                "provider": result["provider"],
+                "model": result["model"],
                 "model_revision": result["model_revision"],
+                "model_tier": result["model_tier"],
+                "prompt_version": result["prompt_version"],
                 "latency_ms": result["latency_ms"],
-                "recommended_action": result["recommended_action"], "mode": result["mode"],
-            }, "self_hosted_qwen")
+                "input_tokens": usage["input_tokens"],
+                "output_tokens": usage["output_tokens"],
+                "cached_tokens": usage["cached_tokens"],
+                "estimated_cost_usd": usage["estimated_cost_usd"],
+                "request_type": context.request_type,
+                "success": True,
+                "recommended_action": result["recommended_action"],
+                "mode": result["mode"],
+                "shadow_comparison": result["shadow_comparison"],
+            })
             return result
 
     @router.post("/complaints/{cid}/copilot/feedback")
@@ -280,9 +210,14 @@ def attach_copilot_routes(router, get_connection, complaint, detail, suggested_r
             generated = conn.execute("""SELECT payload FROM audit_events
                 WHERE complaint_id = ? AND event_type = 'copilot_generated'
                 ORDER BY rowid DESC LIMIT 1""", (cid,)).fetchone()
-            if not generated or json.loads(generated["payload"]).get("result_id") != req.result_id:
+            payload = json.loads(generated["payload"]) if generated else {}
+            if payload.get("result_id") != req.result_id:
                 raise HTTPException(409, "Сначала получите актуальную рекомендацию ИИ")
             event(conn, cid, "copilot_feedback", {
-                "result_id": req.result_id, "helpful": req.helpful,
+                "result_id": req.result_id,
+                "provider": payload.get("provider"),
+                "model": payload.get("model"),
+                "helpful": req.helpful,
+                "reason": req.reason,
             })
         return {"saved": True}

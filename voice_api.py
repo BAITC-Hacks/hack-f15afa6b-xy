@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Request as FastAPIRequest
 from pydantic import BaseModel, Field
 
 from cities import CITIES
+from realtime_voice import RealtimeConfig, TranscriptRequest, attach_realtime_route
 
 
 MAX_AUDIO_BYTES = 2 * 1024 * 1024
@@ -276,6 +277,7 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
     tts_timeout = float(os.environ.get("P109_TTS_TIMEOUT", "35"))
     stt_key = os.environ.get("P109_STT_API_KEY")
     tts_key = os.environ.get("P109_TTS_API_KEY")
+    realtime = RealtimeConfig.from_env(stt_timeout)
     cache_dir = Path(os.environ.get(
         "P109_VOICE_CACHE_DIR", Path(__file__).with_name("static") / "voice"
     )).expanduser()
@@ -374,7 +376,33 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
                                  "latency_ms": latency}
             except HTTPException as error:
                 result["tts"] = {"status": "unavailable", "detail": error.detail}
+        result["realtime"] = realtime.health()
         return result
+
+    def finalize_transcript(req: TranscriptRequest, provider_language=None,
+                            provider_confidence=None) -> dict:
+        text = normalize_address_numbers(req.text.strip()) if req.field == "address" else req.text.strip()
+        language = resolve_language(text, req.language, provider_language, provider_confidence)
+        response_language = language["response_language"]
+        assistant_prompt = (f"{response_language}_{'address' if req.field == 'problem' else 'review'}"
+                            if response_language else "mixed_language_retry")
+        city = detect_spoken_city(text) if req.field == "address" else None
+        if city:
+            text = clean_spoken_address(text, city)
+        return {"text": text, "field": req.field,
+                "next_field": "address" if req.field == "problem" else "review",
+                "assistant_message": VOICE_PROMPTS[assistant_prompt][1],
+                "assistant_prompt": assistant_prompt,
+                "detected_city": ({"code": city["code"], "name_ru": city["name_ru"],
+                                   "region_id": city["region_id"]} if city else None),
+                **language, "audio_stored": False}
+
+    attach_realtime_route(router, limit, realtime)
+
+    @router.post("/finalize-transcript")
+    def finalize(req: TranscriptRequest, request: FastAPIRequest):
+        limit(request)
+        return finalize_transcript(req)
 
     @router.post("/transcribe")
     def transcribe(req: VoiceRequest, request: FastAPIRequest):
@@ -391,26 +419,12 @@ def build_voice_router(analyze_draft: Callable[[dict], dict] | None = None,
         text = result.get("text")
         if not isinstance(text, str) or not text.strip() or len(text) > 10000:
             raise HTTPException(503, "Не удалось распознать речь")
-        text = normalize_address_numbers(text.strip()) if req.field == "address" else text.strip()
-        language = resolve_language(
-            text, req.language, result.get("language") or result.get("detected_language"),
-            result.get("language_confidence"),
-        )
-        response_language = language["response_language"]
-        assistant_prompt = (f"{response_language}_{'address' if req.field == 'problem' else 'review'}"
-                            if response_language else "mixed_language_retry")
-        city = detect_spoken_city(text) if req.field == "address" else None
-        if city:
-            text = clean_spoken_address(text, city)
-        return {"text": text, "field": req.field,
-                "next_field": "address" if req.field == "problem" else "review",
-                "assistant_message": VOICE_PROMPTS[assistant_prompt][1],
-                "assistant_prompt": assistant_prompt,
-                "detected_city": ({"code": city["code"], "name_ru": city["name_ru"],
-                                   "region_id": city["region_id"]} if city else None),
-                **language, "model": result.get("model"),
-                "stt_latency_ms": result.get("latency_ms"), "total_latency_ms": total_latency,
-                "audio_stored": False}
+        finalized = finalize_transcript(TranscriptRequest(
+            text=text, language=req.language, hint_language=req.hint_language, field=req.field,
+        ), result.get("language") or result.get("detected_language"),
+           result.get("language_confidence"))
+        return {**finalized, "model": result.get("model"),
+                "stt_latency_ms": result.get("latency_ms"), "total_latency_ms": total_latency}
 
     @router.post("/analyze")
     def analyze(req: DraftAnalysisRequest, request: FastAPIRequest):
