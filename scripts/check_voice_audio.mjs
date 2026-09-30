@@ -1,8 +1,6 @@
-import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
-const source=await fs.readFile(new URL('../static/voice.js',import.meta.url),'utf8');
-const voice=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const voice=await import('../static/voice.js');
 const quiet=new Float32Array(4800).fill(.0001);
 assert.throws(()=>voice.prepareSpeech(quiet,48000),/слишком тихо/);
 const speech=Float32Array.from({length:4800},(_,i)=>.02*Math.sin(i/8));

@@ -1,4 +1,4 @@
-import {applyDetectedCity,applyLanguageResult,beginVoiceTurn,clearLanguageResult,discardSavedVoiceTurn,finishVoiceTurn,mergeTranscript,previewTranscript,retrySavedVoiceTurn,selectedIntakeLanguage,selectedVoiceLanguage,settleTranscriptPreview,speakPrompt,voicePrompts} from './voice.js?v=20260929-openai1';
+import {applyDetectedCity,applyLanguageResult,beginVoiceTurn,clearLanguageResult,discardSavedVoiceTurn,finishVoiceTurn,mergeTranscript,previewTranscript,retrySavedVoiceTurn,selectedIntakeLanguage,selectedVoiceLanguage,settleTranscriptPreview,speakPrompt,voicePrompts} from './voice.js?v=20260930-voice2';
 import {mountMaps,resetLocationPicker} from './map.js?v=20260929-brand';
 import {mountThinkingOrb} from './thinking-orb.js?v=20260929-brand';
 
@@ -16,6 +16,8 @@ let realtimeAvailable=false,liveDebounceMs=2500,liveAnalysisTimer=null,liveAnaly
 
 async function api(path,data,signal) {
   let response;
+  const timeout=AbortSignal.timeout(20000);
+  signal=signal?AbortSignal.any([signal,timeout]):timeout;
   const csrf=document.cookie.split('; ').find(value=>value.startsWith('pulse109_csrf='))?.split('=')[1]||'';
   try {
     response=await fetch(path,{method:data===undefined?'GET':'POST',credentials:'same-origin',headers:data===undefined?{Accept:'application/json'}:{'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf)},body:data===undefined?undefined:JSON.stringify(data),signal});
