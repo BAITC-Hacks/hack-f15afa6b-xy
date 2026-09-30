@@ -43,6 +43,11 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     if(path.endsWith('/health')) return route.fulfill({json:{status:'healthy',tts:{status:'healthy'},realtime:{status:realtime?'configured':'disabled'}}});
     if(path.endsWith('/speak')) {spokenPrompts.push(route.request().postDataJSON().prompt);return route.fulfill({status:503,json:{detail:'Озвучивание временно недоступно'}});}
     if(path.endsWith('/transcribe')||path.endsWith('/finalize-transcript')) {
+      if(fixture==='unknown') {
+        const body=route.request().postDataJSON();
+        const response=await route.fetch({url:base+'/api/voice/finalize-transcript',method:'POST',postData:{text:body.field==='problem'?'Прорвало трубу':'Абая 44',language:'auto',field:body.field}});
+        return route.fulfill({response});
+      }
       if(fixture==='unavailable') return route.fulfill({status:503,json:{detail:'Распознавание речи временно недоступно'}});
       const body=route.request().postDataJSON(), requested=body.language;
       const detected=requested==='auto'?fixture:requested;
@@ -78,6 +83,7 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     await page.getByLabel('Что произошло?',{exact:true}).waitFor({state:'visible'});
     await page.waitForFunction(()=>document.querySelector('#citizen-text').value.includes('нет воды'));
     assert.equal(await language.getAttribute('data-detected-language'),'ru');
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
     assert.match(await page.locator('#voice-conversation').innerText(),/Похоже, это «Водоснабжение»/);
     assert.equal(spokenPrompts.at(-1),'ru_address');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -92,6 +98,7 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     await record();
     await page.waitForFunction(()=>document.querySelector('#citizen-text').value.includes('су жоқ'));
     assert.equal(await language.getAttribute('data-detected-language'),'kk');
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
     assert.match(await page.locator('#voice-conversation').innerText(),/Түсіндім/);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     console.log('PASS VOICE UI 2: mobile auto-detects Kazakh and continues in Kazakh');
@@ -99,6 +106,7 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     fixture='kk';await page.reload();await language.selectOption('ru');
     await record();
     await page.waitForFunction(()=>document.querySelector('#citizen-text').value.includes('нет воды'));
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
     assert.match(await page.locator('#voice-conversation').innerText(),/Похоже, это «Водоснабжение»/);
     console.log('PASS VOICE UI 3: manual Russian overrides automatic detection');
 
@@ -115,10 +123,15 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
 
     fixture='unknown';await page.reload();await language.selectOption('auto');
     await record();
-    await page.waitForFunction(()=>document.querySelector('#voice-live-status').textContent.includes('выберите вручную'));
-    assert.equal(await page.getByLabel('Что произошло?',{exact:true}).inputValue(),'Абай 44');
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
+    assert.equal(await page.getByLabel('Что произошло?',{exact:true}).inputValue(),'Прорвало трубу');
+    assert.equal(spokenPrompts.at(-1),'mixed_address');
+    await page.evaluate(()=>globalThis.__feedVoice());
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).click();
+    await page.getByRole('button',{name:/Перезаписать ответы/}).waitFor();
+    assert.equal(await page.getByLabel('Адрес или ориентир',{exact:true}).inputValue(),'Абая 44');
     assert.equal(await language.isEnabled(),true);
-    console.log('PASS VOICE UI 5: uncertain language preserves text and asks for a manual choice');
+    console.log('PASS VOICE UI 5: real API short phrase Прорвало трубу → Абая 44 → review without language dead end');
 
     fixture='unavailable';await page.reload();
     await record();

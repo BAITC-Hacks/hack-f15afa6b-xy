@@ -89,7 +89,13 @@ async function useTranscript(field,result) {
     const languageStatus=applyLanguageResult(language,result);
     if(languageStatus) liveStatus.textContent=languageStatus;
     if(result.needs_language_choice) {
-      stage=field;setMode('retry',languageStatus);return;
+      if(field==='problem') {
+        await beginTurn('address',voicePrompts.mixed.address);
+      } else {
+        stage='review';message('agent',voicePrompts.mixed.review);setMode('speaking');
+        await speakPrompt(voicePrompts.mixed.review,'mixed','mixed_review',api);setMode('review');
+      }
+      return;
     }
     if(field==='address') {await applyDetectedCity(result.detected_city);document.querySelector('[data-address-search]')?.click();}
     if(field==='problem') {
