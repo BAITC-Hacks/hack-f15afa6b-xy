@@ -3,14 +3,17 @@ const assert=require('node:assert/strict');
 const base=process.argv[2]||'http://127.0.0.1:8769';
 
 (async()=>{
-  let fixture='ru',clarificationTurns=0,spokenPrompts=[];
+  let fixture='ru',clarificationTurns=0,spokenPrompts=[],realtime=false,realtimeOffline=false;
   const browser=await chromium.launch({headless:true,channel:process.env.P109_BROWSER||'chrome'});
   const page=await browser.newPage({viewport:{width:1440,height:900}});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.addInitScript(()=>{
+    const originalTimeout=globalThis.setTimeout;
+    globalThis.setTimeout=(fn,ms,...args)=>originalTimeout(fn,ms===20000&&location.search.includes('stalled-speech')?20:ms,...args);
     const node=()=>({connect(){},disconnect(){}});
     class AudioContextMock {
-      constructor(){this.sampleRate=16000;}
+      constructor(){this.sampleRate=16000;this.state="suspended";globalThis.__voiceContext=this;}
+      resume(){this.state="running";return Promise.resolve();}
       createMediaStreamSource(){return node();}
       createScriptProcessor(){return globalThis.__voiceProcessor={...node(),onaudioprocess:null};}
       createGain(){return {...node(),gain:{value:1}};}
@@ -19,18 +22,27 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     }
     Object.defineProperty(navigator,'mediaDevices',{value:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}});
     globalThis.AudioContext=AudioContextMock;
-    Object.defineProperty(globalThis,'speechSynthesis',{value:{cancel(){},speak(value){queueMicrotask(()=>value.onend?.());}}});
+    Object.defineProperty(globalThis,'speechSynthesis',{value:{cancel(){},speak(value){if(!location.search.includes('stalled-speech')) queueMicrotask(()=>value.onend?.());}}});
     Object.defineProperty(globalThis,'SpeechSynthesisUtterance',{value:class {constructor(text){this.text=text;}}});
     globalThis.__feedVoice=()=>{
       const samples=Float32Array.from({length:4096},(_,index)=>.04*Math.sin(index/8));
+      if(globalThis.__voiceContext.state!=="running") throw new Error("Microphone AudioContext is suspended");
       globalThis.__voiceProcessor.onaudioprocess({inputBuffer:{getChannelData:()=>samples}});
     };
   });
+  await page.routeWebSocket('**/api/voice/realtime',socket=>{
+    socket.send(JSON.stringify({type:'pulse.ready'}));
+    socket.onMessage(raw=>{
+      if(JSON.parse(raw).type!=='input_audio_buffer.commit') return;
+      if(realtimeOffline) {socket.close();return;}
+      socket.send(JSON.stringify({type:'conversation.item.input_audio_transcription.completed',transcript:'На Абая с утра нет воды'}));
+    });
+  });
   await page.route('**/api/voice/**',async route=>{
     const url=new URL(route.request().url()), path=url.pathname;
-    if(path.endsWith('/health')) return route.fulfill({json:{status:'healthy',tts:{status:'healthy'}}});
+    if(path.endsWith('/health')) return route.fulfill({json:{status:'healthy',tts:{status:'healthy'},realtime:{status:realtime?'configured':'disabled'}}});
     if(path.endsWith('/speak')) {spokenPrompts.push(route.request().postDataJSON().prompt);return route.fulfill({status:503,json:{detail:'Озвучивание временно недоступно'}});}
-    if(path.endsWith('/transcribe')) {
+    if(path.endsWith('/transcribe')||path.endsWith('/finalize-transcript')) {
       if(fixture==='unavailable') return route.fulfill({status:503,json:{detail:'Распознавание речи временно недоступно'}});
       const body=route.request().postDataJSON(), requested=body.language;
       const detected=requested==='auto'?fixture:requested;
@@ -69,7 +81,12 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     assert.match(await page.locator('#voice-conversation').innerText(),/Похоже, это «Водоснабжение»/);
     assert.equal(spokenPrompts.at(-1),'ru_address');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-    console.log('PASS VOICE UI 1: desktop auto-detects Russian and continues in Russian');
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
+    await page.evaluate(()=>globalThis.__feedVoice());
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).click();
+    await page.getByRole('button',{name:/Перезаписать ответы/}).waitFor();
+    assert.ok(await page.getByLabel('Адрес или ориентир',{exact:true}).inputValue());
+    console.log('PASS VOICE UI 1: suspended audio resumes, Russian problem → address → review');
 
     await page.setViewportSize({width:390,height:844});fixture='kk';await page.reload();
     await record();
@@ -108,8 +125,25 @@ const base=process.argv[2]||'http://127.0.0.1:8769';
     await page.waitForFunction(()=>document.querySelector('#voice-live-status').textContent.includes('временно недоступно'));
     await page.getByLabel('Что произошло?',{exact:true}).fill('Ввожу обращение вручную');
     assert.equal(await page.getByLabel('Что произошло?',{exact:true}).inputValue(),'Ввожу обращение вручную');
-    assert.deepEqual(errors,[]);
     console.log('PASS VOICE UI 6: STT failure keeps manual input usable');
+
+    fixture='ru';realtime=true;await page.reload();await record();
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
+    await page.evaluate(()=>globalThis.__feedVoice());
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).click();
+    await page.getByRole('button',{name:/Перезаписать ответы/}).waitFor();
+    console.log('PASS VOICE UI 7: Realtime problem → address → review');
+
+    realtimeOffline=true;await page.reload();await record();
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
+    assert.match(await page.locator('#citizen-text').inputValue(),/нет воды/);
+    console.log('PASS VOICE UI 8: closed Realtime socket falls back to STT');
+
+    realtime=false;await page.goto(base+'/voice?stalled-speech');await record();
+    await page.getByRole('button',{name:/Готово, закончить ответ/}).waitFor();
+    assert.match(await page.locator('#citizen-text').inputValue(),/нет воды/);
+    console.log('PASS VOICE UI 9: missing speech end event does not stall recording');
+    assert.deepEqual(errors,[]);
   } finally {await browser.close();}
-  console.log('ALL 6 VOICE UI CHECKS PASSED');
+  console.log('ALL 9 VOICE UI CHECKS PASSED');
 })().catch(error=>{console.error(error);process.exitCode=1;});

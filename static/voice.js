@@ -15,7 +15,9 @@ function browserSpeak(text,language) {
   return new Promise(resolve=>{
     const utterance=new SpeechSynthesisUtterance(text);
     utterance.lang=language==='kk'?'kk-KZ':'ru-RU';
-    utterance.rate=.95;utterance.onend=resolve;utterance.onerror=resolve;
+    const timer=setTimeout(()=>{speechSynthesis.cancel();resolve();},20000);
+    const finish=()=>{clearTimeout(timer);resolve();};
+    utterance.rate=.95;utterance.onend=finish;utterance.onerror=finish;
     speechSynthesis.speak(utterance);
   });
 }
@@ -28,8 +30,10 @@ export async function speakPrompt(text,language,prompt,api) {
     if(!result.audio_data?.startsWith('data:audio/wav;base64,')) throw new Error('Invalid audio');
     const audio=new Audio(result.audio_data);playback=audio;
     await new Promise((resolve,reject)=>{
-      audio.onended=resolve;audio.onerror=()=>reject(new Error('Audio playback failed'));
-      audio.play().catch(reject);
+      const timer=setTimeout(()=>{audio.pause();finish();},20000);
+      const finish=error=>{clearTimeout(timer);error?reject(error):resolve();};
+      audio.onended=()=>finish();audio.onerror=()=>finish(new Error('Audio playback failed'));
+      audio.play().catch(finish);
     });
     playback=null;
   } catch {
@@ -98,7 +102,8 @@ function pcmBase64(input,inputRate) {
 function openRealtime(onPartial) {
   return new Promise((resolve,reject)=>{
     const socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/voice/realtime`);
-    let transcript='',settleFinal,failFinal,ready=false;
+    let transcript='',settleFinal,failFinal,ready=false,finalTimer;
+    const fail=()=>{clearTimeout(timer);clearTimeout(finalTimer);const error=new Error('Realtime unavailable');if(failFinal) failFinal(error);else if(!ready) reject(error);};
     const timer=setTimeout(()=>{socket.close();reject(new Error('Realtime timeout'));},5000);
     socket.onmessage=event=>{
       const message=JSON.parse(event.data);
@@ -106,18 +111,23 @@ function openRealtime(onPartial) {
         ready=true;clearTimeout(timer);
         resolve({
           append:samples=>socket.readyState===WebSocket.OPEN&&socket.send(JSON.stringify({type:'input_audio_buffer.append',audio:pcmBase64(samples.samples,samples.rate)})),
-          finish:()=>new Promise((done,fail)=>{settleFinal=done;failFinal=fail;socket.send(JSON.stringify({type:'input_audio_buffer.commit'}));setTimeout(()=>fail(new Error('Realtime transcript timeout')),10000);}),
-          close:()=>socket.close(),
+          finish:()=>new Promise((done,rejectFinal)=>{
+            settleFinal=done;failFinal=rejectFinal;
+            if(socket.readyState!==WebSocket.OPEN) {fail();return;}
+            finalTimer=setTimeout(()=>{fail();socket.close();},10000);
+            socket.send(JSON.stringify({type:'input_audio_buffer.commit'}));
+          }),
+          close:()=>{clearTimeout(timer);clearTimeout(finalTimer);socket.close();},
         });
       } else if(message.type==='conversation.item.input_audio_transcription.delta') {
         transcript+=message.delta||'';onPartial(transcript,{realtime:true});
       } else if(message.type==='conversation.item.input_audio_transcription.completed') {
-        transcript=message.transcript||transcript;if(settleFinal) settleFinal(transcript);socket.close();
+        clearTimeout(finalTimer);transcript=message.transcript||transcript;if(settleFinal) settleFinal(transcript);socket.close();
       } else if(message.type==='pulse.error'||message.type==='error') {
-        if(failFinal) failFinal(new Error('Realtime unavailable'));else if(!ready) reject(new Error('Realtime unavailable'));
+        fail();socket.close();
       }
     };
-    socket.onerror=()=>{clearTimeout(timer);if(failFinal) failFinal(new Error('Realtime unavailable'));else reject(new Error('Realtime unavailable'));};
+    socket.onerror=fail;socket.onclose=fail;
   });
 }
 
@@ -150,25 +160,40 @@ export async function beginVoiceTurn({field,language,hintLanguage=null,promptTex
   if(recording||processing) throw new Error('Дождитесь завершения текущего ответа');
   if(!navigator.mediaDevices?.getUserMedia) throw new Error('Браузер не поддерживает запись с микрофона');
   const promptLanguage=language==='auto'?(hintLanguage||'mixed'):language;
-  onState('prompting');
-  await speakPrompt(promptText||voicePrompts[promptLanguage][field],promptLanguage,`${promptLanguage}_${field}`,api);
-  const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-  const context=new AudioContext(), source=context.createMediaStreamSource(stream);
-  const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];
-  const current={field,language,hintLanguage,stream,context,source,processor,mute,chunks,api,onPartial,activity:{heard:false,lastVoiceAt:0},silenceTriggered:false,previewPromise:null,realtime:null};
-  if(realtime) try {current.realtime=await openRealtime(onPartial);} catch {current.realtime=null;}
-  failedTurn=null;
-  recording=current;
-  mute.gain.value=0;source.connect(processor);processor.connect(mute);mute.connect(context.destination);
-  processor.onaudioprocess=event=>{
-    const samples=new Float32Array(event.inputBuffer.getChannelData(0));chunks.push(samples);
-    if(current.realtime) current.realtime.append({samples,rate:context.sampleRate});
-    const previous=current.activity,currentState=voiceActivity(samples,previous,performance.now());current.activity=currentState;
-    if(currentState.speaking&&!previous.heard) onSpeech();
-    if(currentState.shouldStop&&!current.silenceTriggered) {current.silenceTriggered=true;queueMicrotask(onSilence);}
-  };
-  current.timer=setTimeout(onTimeout,30000);
-  current.previewTimer=setInterval(()=>previewVoice(current),previewMs);onState('listening');
+  // Unlock audio during the button gesture, before playback or permission awaits.
+  const context=new AudioContext();
+  const resumed=context.resume();
+  resumed.catch(()=>{});
+  let stream;
+  try {
+    onState('prompting');
+    await speakPrompt(promptText||voicePrompts[promptLanguage][field],promptLanguage,`${promptLanguage}_${field}`,api);
+    stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    let timer;
+    try {
+      await Promise.race([resumed,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Не удалось включить микрофон. Нажмите «Повторить ответ».')),5000);})]);
+    } finally {clearTimeout(timer);}
+    const source=context.createMediaStreamSource(stream);
+    const processor=context.createScriptProcessor(4096,1,1), mute=context.createGain(), chunks=[];
+    const current={field,language,hintLanguage,stream,context,source,processor,mute,chunks,api,onPartial,activity:{heard:false,lastVoiceAt:0},silenceTriggered:false,previewPromise:null,realtime:null};
+    if(realtime) try {current.realtime=await openRealtime(onPartial);} catch {current.realtime=null;}
+    failedTurn=null;
+    recording=current;
+    mute.gain.value=0;source.connect(processor);processor.connect(mute);mute.connect(context.destination);
+    processor.onaudioprocess=event=>{
+      const samples=new Float32Array(event.inputBuffer.getChannelData(0));chunks.push(samples);
+      if(current.realtime) current.realtime.append({samples,rate:context.sampleRate});
+      const previous=current.activity,currentState=voiceActivity(samples,previous,performance.now());current.activity=currentState;
+      if(currentState.speaking&&!previous.heard) onSpeech();
+      if(currentState.shouldStop&&!current.silenceTriggered) {current.silenceTriggered=true;queueMicrotask(onSilence);}
+    };
+    current.timer=setTimeout(onTimeout,30000);
+    current.previewTimer=setInterval(()=>previewVoice(current),previewMs);onState('listening');
+  } catch(error) {
+    stream?.getTracks().forEach(track=>track.stop());
+    await context.close();
+    throw error;
+  }
 }
 
 export async function finishVoiceTurn(onState=()=>{}) {
@@ -189,7 +214,7 @@ export async function finishVoiceTurn(onState=()=>{}) {
     const payload={audio_data:await dataUrl(wav(samples)),language:current.language,hint_language:current.hintLanguage,field:current.field};
     failedTurn={api:current.api,payload};
     const result=await current.api('/api/voice/transcribe',payload);failedTurn=null;return result;
-  } finally {processing=false;}
+  } finally {current.realtime?.close();processing=false;}
 }
 
 export async function retrySavedVoiceTurn(onState=()=>{}) {
