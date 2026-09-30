@@ -11,7 +11,7 @@ const liveStatus=document.querySelector('#voice-live-status');
 const orb=document.querySelector('[data-live-orb]');
 const thinkingOrb=mountThinkingOrb(orb);
 const submit=document.querySelector('#voice-submit');
-let stage='idle', mode='idle', finishing=false, cities=[], duplicateApproved=false, clarificationAsked=false;
+let stage='idle', mode='idle', finishing=false, cities=[], duplicateApproved=false;
 let realtimeAvailable=false,liveDebounceMs=2500,liveAnalysisTimer=null,liveAnalysisRevision=0,liveAnalysisController=null;
 
 async function api(path,data,signal) {
@@ -88,32 +88,16 @@ async function useTranscript(field,result) {
     mergeTranscript(input,result.text);message('citizen',result.text);
     const languageStatus=applyLanguageResult(language,result);
     if(languageStatus) liveStatus.textContent=languageStatus;
-    if(result.needs_language_choice) {
-      if(field==='problem') {
-        await beginTurn('address',voicePrompts.mixed.address);
-      } else {
-        stage='review';message('agent',voicePrompts.mixed.review);setMode('speaking');
-        await speakPrompt(voicePrompts.mixed.review,'mixed','mixed_review',api);setMode('review');
-      }
+    if(field==='problem') {
+      await beginTurn('address');
       return;
     }
-    if(field==='address') {await applyDetectedCity(result.detected_city);document.querySelector('[data-address-search]')?.click();}
-    if(field==='problem') {
-      setMode('transcribing','Анализируем описание…');
-      let analysis;
-      try {
-        analysis=await api('/api/voice/analyze',{text:input.value,language:result.language,region_id:form.elements.region_id.value});
-        applyLanguageResult(language,analysis);
-        showAnalysis(analysis);
-      } catch(error) {toast(`ИИ-помощник временно недоступен: ${error.message}`);}
-      if(analysis?.needs_clarification&&!clarificationAsked) {
-        clarificationAsked=true;await beginTurn('problem',analysis.assistant_message);
-      } else await beginTurn('address',analysis?.needs_clarification?null:analysis?.assistant_message);
-    }
-    else {
-      stage='review';message('agent',result.assistant_message);setMode('speaking');
-      await speakPrompt(result.assistant_message,result.response_language||result.language,result.assistant_prompt,api);setMode('review');
-    }
+    await applyDetectedCity(result.detected_city);
+    document.querySelector('[data-address-search]')?.click();
+    const replyLanguage=result.response_language||selectedVoiceLanguage(language).hintLanguage||'mixed';
+    stage='review';message('agent',voicePrompts[replyLanguage].review);setMode('speaking');
+    await speakPrompt(voicePrompts[replyLanguage].review,replyLanguage,`${replyLanguage}_review`,api);
+    setMode('review');
 }
 
 async function finishTurn() {
@@ -138,7 +122,7 @@ function resetDialogue(clearFields=true) {
     document.querySelector('[data-geocode-results]').replaceChildren();resetLocationPicker(form);
   }
   clearLanguageResult(language);discardSavedVoiceTurn();
-  stage='idle';duplicateApproved=false;clarificationAsked=false;submit.textContent='Проверить и отправить обращение';setMode('idle');
+  stage='idle';duplicateApproved=false;submit.textContent='Проверить и отправить обращение';setMode('idle');
 }
 
 function updateCities() {
