@@ -36,7 +36,7 @@ Pulse 109 — демонстрационная система для обраб�
 
 | Участник | Зона ответственности |
 |---|---|
-| Ильяс | Архитектура, backend и интеграция, ML-пайплайны, безопасность и выпуск |
+| Ильяс | Архитектура, тестирование алгоритмов, backend и интеграция, ML-пайплайны, безопасность и выпуск |
 | Ольга | Интерфейсы гражданина и оператора, тексты, UX и визуальное ревью |
 | Нурали | QA, тестовые сценарии, проверка и аннотация данных |
 
@@ -45,8 +45,8 @@ Pulse 109 — демонстрационная система для обраб�
 | Неделя | Результат |
 |---|---|
 | **1 · 10–13 сентября** | Исследовали кейс и аналоги, проверили 1 036 858 строк исходных CSV, зафиксировали покрытие и ограничения данных. Собрали базовый FastAPI/SQLite-контур, очередь и сценарий уточнения обращения. |
-| **2 · 24–25 сентября** | Довели основной путь `обращение → предложение ИИ → проверка оператором → решение`. Добавили приоритеты, похожие случаи, дубли, инциденты, Radar, Copilot, отслеживание статуса и операторские playbook-сценарии. |
-| **3 · 26–28 сентября** | Построили воспроизводимое GPU-обучение Laya и multilingual similarity, добавили shadow-режим и guardrails. Реализовали авторизацию, карты, фото, приватное хранилище, RU/KK-голос, резервные сценарии, backup и health checks. |
+| **2 · 14–23 сентября** | Проверяли архитектуру и связи между модулями, уточняли API и структуру данных. Прогоняли алгоритмы классификации, маршрутизации, similarity, поиска дублей, сигналов и прогнозирования на тестовых и синтетических примерах; разбирали ошибки, крайние случаи и fallback-сценарии. Подготовили план интеграции в единый продукт. |
+| **3 · 24–28 сентября** | Довели путь `обращение → предложение ИИ → проверка оператором → решение`. Добавили приоритеты, похожие случаи, дубли, инциденты, Radar, Copilot и playbook-сценарии. Построили GPU-обучение Laya и multilingual similarity с shadow-режимом и guardrails; реализовали авторизацию, карты, медиа, RU/KK-голос, backup и health checks. |
 | **4 · 29 сентября – 1 октября** | Завершили аналитику, PDF/XLSX-отчёты, citizen/operator UI, RU/KK/EN-локализацию, realtime operations и провайдеры Copilot. Провели OWASP ZAP-проверку, добавили CSP/HSTS, убрали inline JavaScript и улучшили контраст интерфейса. |
 
 #### Статус сейчас
@@ -172,7 +172,7 @@ We worked in short vertical iterations: validate the data and constraints, compl
 
 | Team member | Responsibility |
 |---|---|
-| Ilyas | Architecture, backend and integration, ML pipelines, security, and release |
+| Ilyas | Architecture, algorithm testing, backend and integration, ML pipelines, security, and release |
 | Olga | Citizen and operator interfaces, copy, UX, and visual review |
 | Nurali | QA, test scenarios, data review, and annotation |
 
@@ -181,8 +181,8 @@ We worked in short vertical iterations: validate the data and constraints, compl
 | Week | Result |
 |---|---|
 | **1 · 10–13 September** | Researched the case and comparable systems, audited 1,036,858 source CSV rows, and documented data coverage and limits. Built the initial FastAPI/SQLite foundation, queue, and clarification flow. |
-| **2 · 24–25 September** | Completed the `request → AI proposal → operator review → decision` path. Added priorities, similar cases, duplicate review, incidents, Radar, Copilot, status tracking, and operator playbooks. |
-| **3 · 26–28 September** | Built reproducible GPU training for Laya and multilingual similarity with shadow-mode guardrails. Added authentication, maps, media, private storage, RU/KK voice, fallbacks, backups, and health checks. |
+| **2 · 14–23 September** | Tested the architecture and module boundaries, refined the API and data model, and ran classification, routing, similarity, duplicate-detection, alerting, and forecasting algorithms on test and synthetic examples. Investigated failures, edge cases, and fallback behavior, then prepared the integration plan. |
+| **3 · 24–28 September** | Completed the `request → AI proposal → operator review → decision` path with priorities, similar cases, duplicate review, incidents, Radar, Copilot, and playbooks. Built GPU training for Laya and multilingual similarity with shadow-mode guardrails; added authentication, maps, media, RU/KK voice, backups, and health checks. |
 | **4 · 29 September – 1 October** | Completed analytics, PDF/XLSX reports, citizen/operator UI, RU/KK/EN localization, realtime operations, and Copilot providers. Ran the OWASP ZAP assessment, added CSP/HSTS, removed inline JavaScript, and improved contrast. |
 
 #### Current status
