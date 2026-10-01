@@ -278,10 +278,10 @@
         <h3>Проверка API</h3>
         <p class="meta-note"><small>Кнопки отправляют запросы к API и показывают ответ сервера.</small></p>
         <div class="stub-buttons">
-          <button type="button" class="btn btn-outline" onclick="callStub('/api/alerts')">GET /api/alerts</button>
-          <button type="button" class="btn btn-outline" onclick="callStub('/api/forecast?horizon_months=1')">GET /api/forecast (1 мес)</button>
-          <button type="button" class="btn btn-outline" onclick="callStub('/api/query', 'POST')">POST /api/query (NL)</button>
-          <button type="button" class="btn btn-outline" onclick="callStub('/api/reports?format=pdf')">GET /api/reports (PDF)</button>
+          <button type="button" class="btn btn-outline" data-stub-url="/api/alerts">GET /api/alerts</button>
+          <button type="button" class="btn btn-outline" data-stub-url="/api/forecast?horizon_months=1">GET /api/forecast (1 мес)</button>
+          <button type="button" class="btn btn-outline" data-stub-url="/api/query" data-stub-method="POST">POST /api/query (NL)</button>
+          <button type="button" class="btn btn-outline" data-stub-url="/api/reports?format=pdf">GET /api/reports (PDF)</button>
         </div>
         <div id="stub-output" class="stub-output" style="display:none;"></div>
       </div>

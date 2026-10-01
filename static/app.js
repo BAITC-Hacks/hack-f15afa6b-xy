@@ -75,6 +75,9 @@ function setupEventListeners() {
   document.getElementById("btn-classify").addEventListener("click", handleClassify);
   document.getElementById("confirm-form").addEventListener("submit", handleConfirmSubmit);
   document.getElementById("confirm-topic").addEventListener("change", handleTopicChange);
+  document.querySelectorAll("[data-stub-url]").forEach(button => {
+    button.addEventListener("click", () => callStub(button.dataset.stubUrl, button.dataset.stubMethod));
+  });
 }
 
 async function loadHealth() {

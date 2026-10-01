@@ -1,123 +1,184 @@
-# Pulse 109
+<div align="center">
+  <img src="static/pulse109-mark.svg" width="72" alt="Pulse 109 logo">
+  <h1>Pulse 109</h1>
+  <p><strong>AI-assisted citizen request operations for Kazakhstan</strong></p>
+  <p>Приём обращений, помощь оператору и ситуационная аналитика в одном приложении.</p>
+  <p>
+    <a href="#русский">Русский</a> ·
+    <a href="#english">English</a> ·
+    <a href="https://xy.govtech-kz.com">Live demo</a>
+  </p>
+  <p>
+    <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
+    <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white">
+    <img alt="Security checked with OWASP ZAP" src="https://img.shields.io/badge/Security-OWASP%20ZAP-00549E">
+    <img alt="Languages: Russian, Kazakh, English" src="https://img.shields.io/badge/UI-RU%20%7C%20KK%20%7C%20EN-2F6FA8">
+  </p>
+</div>
 
-Pulse 109 — демонстрационный ситуационный центр для обращений граждан Казахстана. Он объединяет веб- и голосовой приём обращения, RU/KK-классификацию, поиск похожих решённых случаев, контроль дублей и инцидентов, очередь оператора, всплески, прогноз и выгрузку отчётов. Окончательные решения о категории, приоритете, связи обращений и ответе подтверждает оператор.
+![Operator workspace](docs/images/operator-workspace.png)
 
-GovTech / Pulse 109 не связан с HackAlem. Канонический репозиторий: https://github.com/Eliasans02/pulse109.
+## Русский
 
-## Что работает
+### Что такое Pulse 109
 
-- форма гражданина с регионом, городом, координатами и фото/видео;
-- публичная карта только для обращений с согласием и модерацией;
-- операторская очередь, playbooks с preview, Radar и управление инцидентами;
-- обученный Laya RU/KK checkpoint в `shadow`: категория, уточнение, спам и срочность;
-- обученный multilingual E5 для похожих решённых обращений и проверки дублей;
-- Pulse AI Copilot: hosted OpenAI primary, optional private Qwen и всегда доступный deterministic fallback;
-- голосовой RU/KK/mixed flow через private STT/TTS и optional server-proxied OpenAI Realtime;
-- alerts, прогноз на 1–3 месяца, ограниченные RU/KK-вопросы и PDF/XLSX.
+Pulse 109 — демонстрационная система для обработки обращений граждан. Она объединяет веб- и голосовой приём, очередь оператора, RU/KK-классификацию, поиск похожих решённых случаев, работу с дублями и инцидентами, карту, всплески, прогнозы и отчёты.
 
-Обучение Laya и E5 действительно выполнялось на NVIDIA GPU. Evidence хранится в `training/evidence/`. Метрики получены на group-separated синтетических RU/KK наборах и показывают работоспособность ML pipeline, но не production accuracy на реальных обращениях.
+ИИ предлагает категорию, срочность и похожие случаи. Окончательное решение всегда подтверждает оператор. Каждое изменение сохраняется в журнале аудита.
 
-## Два режима аналитики
+### Основные возможности
 
-| Режим | Покрытие | Назначение |
-|---|---:|---|
-| `synthetic_demo` | 20 регионов, 24 месяца до текущего | Основной национальный demo; детерминированная синтетика, не официальная статистика |
-| `organizer` | 6 регионов в time-series, устаревшие агрегаты | Честный просмотр пригодной части пакета; отсутствующие регионы не заменяются нулями |
+| Модуль | Что он делает |
+|---|---|
+| Приём обращения | Веб- и голосовой сценарий, RU/KK/mixed, адрес, карта, фото и видео |
+| Кабинет оператора | Приоритетная очередь, карточка обращения, уточнения и подтверждение решения |
+| Laya | Предлагает категорию, срочность, необходимость уточнения и спам-сигнал |
+| Similarity | Находит похожие решённые обращения и помогает проверить дубли |
+| Radar и инциденты | Показывает всплески, связывает обращения и сохраняет исходные записи |
+| Аналитика | 20 регионов в synthetic demo, прогноз на 1–3 месяца, RU/KK-вопросы |
+| Отчёты | Экспорт проверенных агрегатов в PDF и XLSX |
+| Безопасность | Авторизация, CSRF, серверные сессии, rate limit, CSP и HSTS |
 
-Режим передаётся параметром `data_origin` в `/api/alerts`, `/api/forecast`, `/api/query` и `/api/reports`. Он не связан с `P109_DEMO_MODE`: аналитический источник выбирается отдельно.
+### Интерфейс
 
-`P109_DEMO_MODE=1` действует только вместе с `P109_AUTH_DISABLED=1` на локальном loopback demo: intake помечается как синтетический и может быть показан на карте. При включённой авторизации новое обращение всегда считается гражданским и остаётся приватным до согласия и модерации. Оба флага запрещены на публичном deployment.
+| Кабинет оператора | Публичная карта |
+|---|---|
+| Приоритеты, очередь, инциденты и действия оператора | Только обращения с согласием и модерацией |
+| ![Operator queue](docs/images/operator-workspace.png) | ![Public request map](docs/images/public-map.png) |
 
-## Локальный запуск
+### Как работает обработка
 
-Python 3.11+:
+```mermaid
+flowchart LR
+    A[Веб или голос] --> B[Обращение]
+    B --> C[Laya: предложение]
+    B --> D[Поиск похожих случаев]
+    C --> E[Проверка оператором]
+    D --> E
+    E --> F[Категория и служба]
+    E --> G[Дубль или инцидент]
+    F --> H[Аудит и аналитика]
+    G --> H
+```
+
+### Быстрый запуск
+
+Требуется Python 3.11+.
 
 ```sh
+git clone https://github.com/BAITC-Hacks/hack-f15afa6b-xy.git
+cd hack-f15afa6b-xy
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-DATABASE_PATH=data/pulse109.db \
+
+DATABASE_PATH=/tmp/pulse109-demo.db \
 P109_DEMO_MODE=1 \
 P109_AUTH_DISABLED=1 \
-P109_DECISION_PROVIDER=shadow \
-P109_LAYA_BASE_URL=http://127.0.0.1:8001 \
-P109_LAYA_CHECKPOINT_ID=f56bcae3d1270eb4ca271569eb7e3c3ce4b997c7ae0bd6f510f8f79c42480062 \
 python -m uvicorn app:app --host 127.0.0.1 --port 8769
 ```
 
-Открыть http://127.0.0.1:8769. Для чистого прогона задайте новый `DATABASE_PATH` в `/tmp`; не удаляйте рабочую SQLite-базу. `P109_AUTH_DISABLED=1` допустим только на loopback demo.
+Откройте [http://127.0.0.1:8769](http://127.0.0.1:8769). Флаги `P109_DEMO_MODE=1` и `P109_AUTH_DISABLED=1` разрешены только для локального demo на loopback.
 
-Проверка:
+### Проверка безопасности
+
+1 октября 2026 года публичный сайт прошёл ограниченную пассивную проверку OWASP ZAP 2.17.0: 22 GET-запроса к точному origin, без входа в аккаунт, форм, загрузок, изменения данных и активных атак.
+
+Проверка обнаружила два отсутствующих защитных заголовка. Оба исправлены в общем middleware, поэтому защита применяется к страницам, API, статическим файлам и ответам с ошибками.
+
+| Результат проверки | Изменение |
+|---|---|
+| CSP отсутствовал на HTML-страницах | Добавлен `Content-Security-Policy`: только разрешённые скрипты, стили, карты, медиа и WebSocket; inline JavaScript удалён |
+| HSTS отсутствовал на HTTPS-ответах | Добавлен `Strict-Transport-Security: max-age=31536000` для HTTPS |
+| Низкий контраст зелёной кнопки | Цвет затемнён до уровня, подходящего для белого текста |
+
+Это не означает, что система полностью защищена от всех классов атак. Пассивная проверка не охватывала авторизованные роли, IDOR/BOLA, активные injection-тесты, загрузки и бизнес-логику.
+
+### Проверка проекта
 
 ```sh
-curl -fsS http://127.0.0.1:8769/api/health | python3 -m json.tool
-curl -fsS 'http://127.0.0.1:8769/api/alerts?data_origin=synthetic_demo' | python3 -m json.tool
-curl -fsS 'http://127.0.0.1:8769/api/forecast?horizon_months=3&data_origin=synthetic_demo' | python3 -m json.tool
+python scripts/check_auth.py
 python scripts/smoke.py
+python scripts/check_demo.py
+python scripts/check_privacy.py
+python scripts/check_reports.py
 python scripts/check_laya.py
 python scripts/check_similarity.py
 python scripts/check_copilot.py
-python scripts/benchmark_copilot_providers.py
 ```
 
-Pulse запускается без GPU и без Brev. Рекомендуемый Copilot использует hosted OpenAI Responses API; Qwen остаётся optional private provider. Если OpenAI и Qwen недоступны, тот же endpoint возвращает проверенную deterministic-подсказку без HTTP 500. Laya и E5 сохраняют свои прежние роли и fallback. `/api/health` показывает provider chain и circuit state.
+### Данные и модели
 
-Минимальная production-конфигурация Copilot:
+- `synthetic_demo` содержит детерминированную демонстрацию для 20 регионов. Это не официальная статистика.
+- `organizer` содержит пригодный временной срез только для 6 регионов; отсутствующие регионы не заменяются нулями.
+- Laya и multilingual E5 обучались на GPU, но опубликованные метрики относятся к разделённым синтетическим наборам.
+- Hosted OpenAI, private Qwen и deterministic fallback дают оператору черновик. Они не принимают окончательных решений.
+- Реальные персональные данные, секреты и `.env` нельзя добавлять в Git.
 
-```env
-OPENAI_API_KEY=...
-P109_COPILOT_PROVIDER=openai
-P109_COPILOT_FALLBACKS=deterministic
-P109_OPENAI_MODEL_FAST=gpt-5.6-luna
-P109_OPENAI_MODEL_PRIMARY=gpt-5.6-terra
-P109_OPENAI_MODEL_COMPLEX=gpt-6-astra
-```
+Подробный технический статус: [`docs/handoff.md`](docs/handoff.md). Сценарий демонстрации и production runbook: [`docs/operations-delivery.md`](docs/operations-delivery.md).
 
-Model IDs меняются через environment. Фото передаётся модели только после явного выбора оператора. Подробности: [docs/copilot-architecture.md](docs/copilot-architecture.md).
+---
 
-Пример всех переменных находится в `.env.example`; секреты и `.env` не коммитятся.
+## English
 
-## Production run
+### What is Pulse 109?
 
-На VPS приложение работает из `~/pulse109`, слушает только `127.0.0.1:8025` и публикуется через TLS reverse proxy на https://xy.govtech-kz.com. После доставки проверенного commit:
+Pulse 109 is a demonstration platform for citizen request operations. It combines web and voice intake, an operator queue, Russian/Kazakh classification, similar-case retrieval, duplicate and incident review, maps, surge detection, forecasts, and reports.
+
+AI proposes categories, urgency, and related cases. A human operator confirms every decision, and the application records changes in an audit trail.
+
+### Core capabilities
+
+| Area | Capability |
+|---|---|
+| Intake | Web and voice flows, RU/KK/mixed language, address, map, photo, and video |
+| Operator workspace | Prioritized queue, case review, clarification, and confirmation |
+| Laya | Category, urgency, clarification, and spam proposals |
+| Similarity | Related resolved cases and duplicate review |
+| Radar and incidents | Surge detection while preserving every original request |
+| Analytics | 20-region synthetic demo, 1–3 month forecasts, RU/KK questions |
+| Reporting | Validated PDF and XLSX aggregate exports |
+| Security | Authentication, CSRF, server-side sessions, rate limits, CSP, and HSTS |
+
+### Architecture
+
+Pulse 109 uses one FastAPI application, SQLite, and a vanilla HTML/CSS/JavaScript interface. Model serving endpoints are optional and private. The main application remains usable through explicit fallbacks when GPU or hosted model providers are unavailable.
+
+### Local setup
 
 ```sh
-cd ~/pulse109
+git clone https://github.com/BAITC-Hacks/hack-f15afa6b-xy.git
+cd hack-f15afa6b-xy
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-mkdir -p ~/.config/systemd/user
-cp deploy/pulse109*.service deploy/pulse109*.timer ~/.config/systemd/user/
-chmod 600 .env
-systemctl --user daemon-reload
-systemctl --user enable --now pulse109.service pulse109-health.timer pulse109-backup.timer
-curl -fsS http://127.0.0.1:8025/api/health | python3 -m json.tool
-curl -fsS https://xy.govtech-kz.com/api/health | python3 -m json.tool
-systemctl --user --no-pager --full status pulse109.service
+. .venv/bin/activate
+pip install -r requirements.txt
+
+DATABASE_PATH=/tmp/pulse109-demo.db \
+P109_DEMO_MODE=1 \
+P109_AUTH_DISABLED=1 \
+python -m uvicorn app:app --host 127.0.0.1 --port 8769
 ```
 
-Production `.env` должен оставлять авторизацию включённой, использовать сильный invite code и Secure cookies. GPU endpoints должны быть loopback/private. После перезапуска проверьте в health не только `status: ok`, но также `laya`, `similarity` и `copilot`; fallback допустим и должен быть видимым.
+Open [http://127.0.0.1:8769](http://127.0.0.1:8769). Authentication bypass and demo mode are restricted to local loopback demonstrations.
 
-## Live demo
+### Security assessment and remediation
 
-1. **Гражданин:** в локальном demo создать RU/KK-обращение с адресом, точкой на карте и фото. В production заявка остаётся приватной; оператор отдельно показывает согласие, редактирование PII и модерацию публикации.
-2. **Очередь:** открыть карточку и запустить анализ; показать предложение Laya и его shadow-границу.
-3. **Похожие:** показать решённые аналоги E5, затем подтвердить дубль/общий инцидент либо оставить отдельно.
-4. **Решение:** выбрать категорию, приоритет и оператора; проверить preview и подтвердить человеком.
-5. **Ситуационный центр:** показать alert/Radar, исходные обращения и создать либо обновить инцидент.
-6. **Аналитика:** выбрать `Синтетика · 20 регионов`, показать прогноз на три месяца и задать RU/KK-вопрос.
-7. **Отчёт:** скачать PDF и XLSX; затем переключить на `Организаторы · 6 регионов` и показать явную неполноту и устаревание источника.
+On 1 October 2026, the public site received a bounded OWASP ZAP 2.17.0 passive assessment: 22 exact-origin GET requests, unauthenticated, with no form submissions, uploads, mutations, or active attacks.
 
-Для повторяемого выступления используйте отдельную demo-базу. Данные, решения и аудит сохраняются между перезапусками, поэтому кнопки demo не должны сбрасывать рабочую базу.
+The assessment found missing CSP and HSTS headers. This repository now applies a restrictive, application-compatible CSP to every response, removes inline JavaScript, and sends one-year HSTS on HTTPS responses. The end-to-end authentication check verifies these headers together with session storage, CSRF protection, role enforcement, logout revocation, generic login errors, and rate limiting.
 
-Готовая презентация: [`deliverables/pulse109-govtech-demo.pptx`](deliverables/pulse109-govtech-demo.pptx).
+The assessment was intentionally limited. It does not rule out authorization, IDOR/BOLA, injection, upload, or business-logic vulnerabilities outside the passive unauthenticated scope.
 
-## Честные ограничения
+### Honest limits
 
-- национальная аналитика — синтетическая демонстрация возможностей, не статистика госорганов;
-- Laya и E5 обучены и оценены на синтетике; canary/production quality на гражданах не доказана;
-- hosted OpenAI и optional Qwen предлагают черновик; общий validator и оператор сохраняют границу принятия решений;
-- delivery во внешние службы и гражданам остаётся demo-only;
-- маршруты, нагрузки и пороги всплесков демонстрационные;
-- пакет организаторов содержит 7 регионов / 8 CSV, но текущий проверенный time-series aggregate пригоден только для 6 регионов и не доказывает полноту истории.
+- National analytics use deterministic synthetic data and are not government statistics.
+- The organizer time series currently covers six regions.
+- Published model metrics are synthetic validation evidence, not production accuracy on citizen requests.
+- AI output is operator assistance; a human remains responsible for decisions.
+- Secrets, `.env`, and real citizen records must stay outside Git.
 
-Текущий технический статус и проверка: [docs/handoff.md](docs/handoff.md) и [docs/operations-delivery.md](docs/operations-delivery.md).
+See [`docs/handoff.md`](docs/handoff.md) for current technical status and [`docs/operations-delivery.md`](docs/operations-delivery.md) for the demo and production runbook.
+
+---
+
+Pulse 109 is a GovTech project. It is not affiliated with HackAlem.

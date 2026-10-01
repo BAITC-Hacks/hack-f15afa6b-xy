@@ -254,12 +254,31 @@ def _is_public(request: Request) -> bool:
     return bool(method == "POST" and re.fullmatch(r"/api/workspace/incidents/[^/]+/subscribe", path))
 
 
-def _security_headers(response, path: str = ""):
+CONTENT_SECURITY_POLICY = "; ".join((
+    "default-src 'self'",
+    "base-uri 'self'",
+    "connect-src 'self' ws: wss: https://*.openfreemap.org",
+    "font-src 'self' data: https://*.openfreemap.org",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "img-src 'self' data: blob: https://*.openfreemap.org",
+    "media-src 'self' data: blob:",
+    "object-src 'none'",
+    "script-src 'self' https://unpkg.com",
+    "style-src 'self' 'unsafe-inline' https://unpkg.com",
+    "worker-src 'self' blob:",
+))
+
+
+def _security_headers(response, request: Request):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=(self)"
-    if path.startswith("/api/"):
+    response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -383,23 +402,19 @@ def install_auth(app: FastAPI, get_connection: Callable[[], sqlite3.Connection])
 
         protected = request.url.path.startswith("/api/") and not _is_public(request)
         if protected and not user:
-            return _security_headers(
-                JSONResponse({"detail": "Authentication required"}, status_code=401), request.url.path
-            )
+            return _security_headers(JSONResponse({"detail": "Authentication required"}, status_code=401), request)
         if protected and user and user["role"] == "citizen" and not (
             request.url.path in {"/api/auth/me", "/api/auth/logout"}
             or request.url.path.startswith("/api/workspace/citizen/")
         ):
-            return _security_headers(JSONResponse({"detail": "Operator access required"}, status_code=403), request.url.path)
+            return _security_headers(JSONResponse({"detail": "Operator access required"}, status_code=403), request)
         owner_write = bool(user) and request.url.path in {"/api/intake", "/api/workspace/intake"}
         if (protected or owner_write) and request.method not in {"GET", "HEAD", "OPTIONS"} and not disabled:
             csrf = request.headers.get("X-CSRF-Token", "")
             cookie_csrf = request.cookies.get(CSRF_COOKIE, "")
             expected = user.get("csrf_hash", "") if user else ""
             if not csrf or not hmac.compare_digest(csrf, cookie_csrf) or not hmac.compare_digest(_token_hash(csrf), expected):
-                return _security_headers(
-                    JSONResponse({"detail": "Invalid CSRF token"}, status_code=403), request.url.path
-                )
+                return _security_headers(JSONResponse({"detail": "Invalid CSRF token"}, status_code=403), request)
 
         request.state.auth_user = (
             {k: user[k] for k in ("id", "name", "email", "role")} if disabled else _user_from_session(user)
@@ -410,7 +425,7 @@ def install_auth(app: FastAPI, get_connection: Callable[[], sqlite3.Connection])
             response = await call_next(request)
         finally:
             _actor.reset(actor_token)
-        return _security_headers(response, request.url.path)
+        return _security_headers(response, request)
 
 
 def _user_from_session(user: dict[str, Any]) -> dict[str, Any]:

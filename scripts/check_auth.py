@@ -97,6 +97,12 @@ def run() -> None:
             voice_status, voice_page, voice_headers = anonymous.request(base_url + "/voice")
             assert voice_status == 200 and 'id="voice-live-form"' in voice_page["raw"]
             assert voice_headers["Permissions-Policy"] == "camera=(), microphone=(self), geolocation=(self)"
+            assert "default-src 'self'" in voice_headers["Content-Security-Policy"]
+            assert "Strict-Transport-Security" not in voice_headers
+            _, _, https_headers = anonymous.request(
+                base_url + "/api/health", headers={"X-Forwarded-Proto": "https"}
+            )
+            assert https_headers["Strict-Transport-Security"] == "max-age=31536000"
             status, voice_health, _ = anonymous.request(base_url + "/api/voice/health")
             assert status == 200 and voice_health["status"] == "disabled"
             status, voice_ai, _ = anonymous.request(base_url + "/api/voice/analyze", "POST", {
