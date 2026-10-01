@@ -250,5 +250,3 @@ The assessment was intentionally limited. It does not rule out authorization, ID
 See [`docs/handoff.md`](docs/handoff.md) for current technical status and [`docs/operations-delivery.md`](docs/operations-delivery.md) for the demo and production runbook.
 
 ---
-
-Pulse 109 is a GovTech project. It is not affiliated with HackAlem.
